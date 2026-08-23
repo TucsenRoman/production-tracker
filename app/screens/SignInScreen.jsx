@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Delete, KeyRound, LogIn } from "lucide-react";
+import { Building2, Delete, KeyRound, LogIn } from "lucide-react";
 
 import { Button, PinInput, cx } from "../components/ui";
 import { findStaffByPin } from "../lib/domain";
@@ -108,6 +108,13 @@ export default function SignInScreen({ onSignIn }) {
         <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-ink-4">
           <KeyRound size={12} /> Ask a manager if you need a PIN.
         </p>
+
+        <a
+          href="/company"
+          className="mt-3 flex items-center justify-center gap-1.5 text-xs font-medium text-ink-3 hover:text-primary-ink transition-colors"
+        >
+          <Building2 size={12} /> Manage your company account
+        </a>
       </div>
     </main>
   );
