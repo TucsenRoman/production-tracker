@@ -14,9 +14,9 @@ import { Boxes, ShoppingBag, Store } from "lucide-react";
 
 /**
  * Only owner/admin/manager are invitable company accounts — deliberately no
- * "staff" tier here. That's what Crew PINs are for: floor-level people churn
- * too fast for named email accounts to make sense, so they get a PIN instead
- * of a login (see CREW_ROLES below).
+ * "staff" tier here. That's what floor PINs are for: floor-level people churn
+ * too fast for named email accounts to make sense, so a station gets a code
+ * instead of a login (see PIN_KINDS below).
  */
 export const ROLES = ["owner", "admin", "manager"];
 
@@ -30,33 +30,43 @@ export const ROLE_LABEL = {
 export const ROLE_LOCKED = { owner: true };
 
 /**
- * A "crew" PIN belongs to a STATION, not a person — Smokehouse, Packaging,
- * or whatever else a company sets up on the Stations screen. Anyone working
- * that station that shift enters the same code; whichever tablet it's
- * entered on is that station's tablet for the session. Nobody's name is
- * attached, so nothing needs to change when floor crew turns over.
+ * Floor PINs come in two kinds that behave nothing alike, which is why they
+ * live in two different places in the console rather than one "Crew PINs"
+ * screen:
  *
- * A "lead" PIN is the deliberate exception: a manager/lead's PIN IS tied to
- * them by name, since leads carry personal accountability a station doesn't.
- * That's a different vocabulary from the company ROLES above on purpose — a
- * "lead" PIN and a company "Manager" account (email + password, Team tab)
- * are not the same thing.
+ * A "station" code belongs to the STATION, not a person — Smokehouse,
+ * Packaging, or whatever else a company sets up on the Stations screen.
+ * Punching it into a tablet isn't a login, it's telling that tablet what to
+ * track for the rest of the shift — long-lived terminal context. Nobody's
+ * name is attached, so nothing changes when floor crew turns over. Managed
+ * from a location's detail view, since the same station needs a different
+ * code at every location (two buildings can't share one tablet identity).
+ *
+ * A "lead" PIN is the deliberate exception: it's tied to a real person by
+ * `userId`, since a lead carries personal accountability a station doesn't.
+ * It's momentary, not a context switch — a lead punches it in to authorize
+ * one gated action (see GATED_ACTIONS below) without taking over the
+ * tablet's station. Managed from the Team screen, generated off an actual
+ * account rather than a free-typed name, so it can't drift out of sync with
+ * who that person actually is.
  */
-export const CREW_ROLES = ["crew", "lead"];
-export const CREW_ROLE_LABEL = { crew: "Station", lead: "Lead" };
+export const PIN_KINDS = ["station", "lead"];
+export const PIN_KIND_LABEL = { station: "Station", lead: "Lead" };
 
 /**
  * Starting stations for a fresh company — editable from here on out via the
  * Stations screen. Not hardcoded past this seed: `stations` lives in company
  * state (see COMPANY_SEED.stations below) so an admin can rename, add, or
- * remove them per business, and Crew PINs picks up whatever the list is.
+ * remove them per business. It's a shared taxonomy across every location —
+ * each location's detail view (under Locations) is where the actual per-
+ * location device codes for those stations get issued.
  */
 export const DEFAULT_STATIONS = ["Smokehouse", "Packaging"];
 
 /** A station name just needs to be non-empty — trimmed, no other rules. */
 export const isValidStationName = (v) => String(v || "").trim().length > 0;
 
-/** A crew PIN is exactly 4 digits, unique across the whole company. */
+/** A floor PIN is exactly 4 digits, unique across the whole company. */
 export const isValidPin = (v) => /^\d{4}$/.test(String(v || ""));
 
 export function generatePin(existingPins) {
@@ -67,6 +77,14 @@ export function generatePin(existingPins) {
   } while (taken.has(pin));
   return pin;
 }
+
+/** Active device codes for one station at one location — usually just one. */
+export const stationPinsFor = (crewPins, locationId, station) =>
+  crewPins.filter((p) => p.role === "station" && p.locationId === locationId && p.station === station);
+
+/** A person's lead PIN at a given location, if one's been issued. */
+export const leadPinFor = (crewPins, userId, locationId) =>
+  crewPins.find((p) => p.role === "lead" && p.userId === userId && p.locationId === locationId) || null;
 
 export const PROVIDERS = [
   { id: "clover", name: "Clover", icon: Store, available: true, blurb: "POS + inventory sync" },
@@ -217,12 +235,12 @@ export const COMPANY_SEED = {
   ],
 
   crewPins: [
-    { id: "PIN-1", pin: "1111", role: "crew", station: "Smokehouse", label: "", locationId: "LOC-1" },
-    { id: "PIN-2", pin: "2222", role: "lead", station: null, name: "Maria Ruiz", locationId: "LOC-1" },
-    { id: "PIN-3", pin: "3333", role: "crew", station: "Packaging", label: "", locationId: "LOC-1" },
-    { id: "PIN-4", pin: "4444", role: "lead", station: null, name: "Sam Whitfield", locationId: "LOC-1" },
-    { id: "PIN-5", pin: "5555", role: "crew", station: "Smokehouse", label: "", locationId: "LOC-2" },
-    { id: "PIN-6", pin: "6666", role: "crew", station: "Packaging", label: "", locationId: "LOC-2" },
+    { id: "PIN-1", pin: "1111", role: "station", station: "Smokehouse", label: "", locationId: "LOC-1" },
+    { id: "PIN-2", pin: "2222", role: "lead", userId: "U-2", locationId: "LOC-1" },
+    { id: "PIN-3", pin: "3333", role: "station", station: "Packaging", label: "", locationId: "LOC-1" },
+    { id: "PIN-4", pin: "4444", role: "lead", userId: "U-3", locationId: "LOC-1" },
+    { id: "PIN-5", pin: "5555", role: "station", station: "Smokehouse", label: "", locationId: "LOC-2" },
+    { id: "PIN-6", pin: "6666", role: "station", station: "Packaging", label: "", locationId: "LOC-2" },
   ],
 
   integrations: [

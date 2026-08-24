@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Building2, Factory, Fingerprint, KeyRound, LayoutGrid, LogOut, MapPin, ShieldCheck, Users } from "lucide-react";
+import { Building2, Factory, KeyRound, LayoutGrid, LogOut, MapPin, ShieldCheck, Users } from "lucide-react";
 
 import { Badge, ToastProvider, cx, useToast } from "../components/ui";
 import { newId } from "../lib/domain";
@@ -10,7 +10,6 @@ import OverviewScreen from "./screens/OverviewScreen";
 import LocationsScreen from "./screens/LocationsScreen";
 import TeamScreen from "./screens/TeamScreen";
 import StationsScreen from "./screens/StationsScreen";
-import CrewPinsScreen from "./screens/CrewPinsScreen";
 import IntegrationsScreen from "./screens/IntegrationsScreen";
 import PermissionsScreen from "./screens/PermissionsScreen";
 import { usePersistentState, useCompanySession } from "./lib/companyStore";
@@ -21,7 +20,6 @@ const NAV = [
   { id: "locations", label: "Locations", short: "Locations", icon: MapPin },
   { id: "team", label: "Team", short: "Team", icon: Users, adminOnly: true },
   { id: "stations", label: "Stations", short: "Stations", icon: Factory, adminOnly: true },
-  { id: "crewpins", label: "Crew PINs", short: "PINs", icon: Fingerprint, managerOnly: true },
   { id: "permissions", label: "Permissions", short: "Access", icon: ShieldCheck, adminOnly: true },
   { id: "integrations", label: "Integrations", short: "Keys", icon: KeyRound, adminOnly: true },
 ];
@@ -240,7 +238,7 @@ function Application() {
   const handleAddStation = (name) => {
     if (!isValidStationName(name)) return;
     setStations((prev) => [...prev, name]);
-    toast(`${name} added`, { detail: "It's ready to assign on the Crew PINs screen." });
+    toast(`${name} added`, { detail: "It's ready to wire up from a location's detail view." });
   };
 
   const handleRenameStation = (oldName, newName) => {
@@ -253,19 +251,25 @@ function Application() {
   const handleRemoveStation = (name) => {
     const inUse = crewPins.some((p) => p.station === name);
     if (inUse) {
-      toast("Can't remove this station", { tone: "error", detail: "Reassign or remove its Crew PINs first." });
+      toast("Can't remove this station", { tone: "error", detail: "Reassign or remove its device codes first." });
       return;
     }
     setStations((prev) => prev.filter((s) => s !== name));
     toast("Station removed", { tone: "info" });
   };
 
-  /* ---- Crew PINs ---- */
+  /* ---- Floor PINs (station device codes + lead PINs) ---- */
 
   const handleAddPin = (pin) => {
     setCrewPins((prev) => [...prev, pin]);
-    const identity = pin.role === "lead" ? pin.name : `the ${pin.station} station`;
-    toast(`PIN issued to ${identity}`, { detail: `${pin.pin} — hand it off and they're on the board.` });
+    if (pin.role === "lead") {
+      const person = users.find((u) => u.id === pin.userId);
+      toast(`Lead PIN issued to ${person ? person.name : "teammate"}`, {
+        detail: `${pin.pin} — theirs to use for gated actions.`,
+      });
+    } else {
+      toast(`Device code issued for ${pin.station}`, { detail: `${pin.pin} — hand it off and the tablet's ready.` });
+    }
   };
 
   const handleUpdatePin = (id, patch) => {
@@ -362,10 +366,16 @@ function Application() {
         <LocationsScreen
           locations={locations}
           users={users}
+          stations={stations}
+          crewPins={crewPins}
           canManage={isAdmin}
+          canManagePins={isManagerTier}
           onAdd={handleAddLocation}
           onUpdate={handleUpdateLocation}
           onRemove={handleRemoveLocation}
+          onAddPin={handleAddPin}
+          onUpdatePin={handleUpdatePin}
+          onRemovePin={handleRemovePin}
         />
       )}
 
@@ -374,9 +384,13 @@ function Application() {
           users={users}
           locations={locations}
           currentUser={currentUser}
+          crewPins={crewPins}
           onInvite={handleInviteUser}
           onUpdate={handleUpdateUser}
           onRemove={handleRemoveUser}
+          onAddPin={handleAddPin}
+          onUpdatePin={handleUpdatePin}
+          onRemovePin={handleRemovePin}
         />
       )}
 
@@ -387,17 +401,6 @@ function Application() {
           onAdd={handleAddStation}
           onUpdate={handleRenameStation}
           onRemove={handleRemoveStation}
-        />
-      )}
-
-      {current === "crewpins" && isManagerTier && (
-        <CrewPinsScreen
-          locations={locations}
-          stations={stations}
-          crewPins={crewPins}
-          onAdd={handleAddPin}
-          onUpdate={handleUpdatePin}
-          onRemove={handleRemovePin}
         />
       )}
 

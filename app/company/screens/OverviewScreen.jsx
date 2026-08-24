@@ -62,9 +62,13 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
   const onboarding = !(hasLocation && hasTeammate && hasIntegration);
 
   // Cross-cutting gaps — the thing an Overview should actually be for, rather
-  // than a shorter copy of the Locations/Team/Integrations tabs.
+  // than a shorter copy of the Locations/Team/Integrations tabs. Lead PINs
+  // don't count toward "floor ready" here — a location with no station codes
+  // still can't actually track anything, even if a lead has a PIN.
   const noPosLocations = locations.filter((l) => !connectedLocationIds.has(l.id));
-  const noPinLocations = locations.filter((l) => !crewPins.some((p) => p.locationId === l.id));
+  const noPinLocations = locations.filter(
+    (l) => !crewPins.some((p) => p.role === "station" && p.locationId === l.id)
+  );
   const uncoveredLocations = locations.filter(
     (l) => !users.some((u) => u.status === "active" && u.locationIds.includes(l.id))
   );
@@ -79,7 +83,7 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
       <StatGrid>
         <StatCard icon={Store} label="Locations" value={locations.length} />
         <StatCard icon={Users} label="Team members" value={activeUsers.length} hint={invitedUsers.length ? `${invitedUsers.length} invited` : "no pending invites"} />
-        <StatCard icon={Fingerprint} label="Crew PINs" value={crewPins.length} hint="issued company-wide" />
+        <StatCard icon={Fingerprint} label="Floor PINs" value={crewPins.length} hint="issued company-wide" />
         <StatCard
           icon={KeyRound}
           label="POS connected"
@@ -174,10 +178,10 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
                 <AttentionRow
                   key={`pin-${l.id}`}
                   icon={Fingerprint}
-                  text={`${l.name} has no crew PINs issued`}
+                  text={`${l.name} has no station codes set up`}
                   action={
-                    <Button size="sm" onClick={() => onNavigate("crewpins")}>
-                      Issue
+                    <Button size="sm" onClick={() => onNavigate("locations")}>
+                      Set up
                     </Button>
                   }
                 />
@@ -209,7 +213,7 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
           <div className="divide-y divide-line">
             {locations.map((loc) => {
               const team = users.filter((u) => u.locationIds.includes(loc.id) && u.status === "active").length;
-              const pins = crewPins.filter((p) => p.locationId === loc.id).length;
+              const pins = crewPins.filter((p) => p.role === "station" && p.locationId === loc.id).length;
               const connected = connectedLocationIds.has(loc.id);
               return (
                 <div key={loc.id} className="flex items-center justify-between gap-3 flex-wrap px-4 sm:px-5 py-3">

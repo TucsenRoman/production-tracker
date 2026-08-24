@@ -45,8 +45,8 @@ export default function StationsScreen({ stations, crewPins, onAdd, onUpdate, on
     <div className="space-y-5">
       <p className="flex items-start gap-1.5 text-xs text-ink-3 leading-relaxed px-3 py-2.5 rounded-lg bg-sunken">
         <Factory size={13} className="shrink-0 mt-0.5 text-primary-ink" />
-        Stations are the posts on your floor — Smokehouse, Packaging, or whatever fits your shop. Crew PINs and
-        Permissions both pull from this list, company-wide across every location.
+        Stations are the posts on your floor — Smokehouse, Packaging, or whatever fits your shop. Every
+        location&rsquo;s device codes (under Locations) and Permissions both pull from this list, company-wide.
       </p>
 
       <div className="flex items-center justify-between gap-3">
@@ -76,7 +76,7 @@ export default function StationsScreen({ stations, crewPins, onAdd, onUpdate, on
           <EmptyState
             icon={Factory}
             title="No stations yet"
-            description="Add at least one station before issuing Crew PINs."
+            description="Add at least one station before a location can issue device codes for it."
             action={
               <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
                 Add your first station
@@ -112,7 +112,7 @@ export default function StationsScreen({ stations, crewPins, onAdd, onUpdate, on
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-ink truncate">{name}</p>
                     <p className="flex items-center gap-1 text-xs text-ink-3">
-                      <Fingerprint size={11} /> {count} PIN{count === 1 ? "" : "s"} using it
+                      <Fingerprint size={11} /> {count} device code{count === 1 ? "" : "s"} across locations
                     </p>
                   </div>
                   {count > 0 && <Badge tone="neutral">In use</Badge>}

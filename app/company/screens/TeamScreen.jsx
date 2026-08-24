@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { List, Mail, MapPin, Network, Pencil, Trash2, UserPlus, Users } from "lucide-react";
+import { Dices, List, Mail, MapPin, Network, Pencil, Plus, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
 
 import {
   Badge,
@@ -16,7 +16,16 @@ import {
   Segmented,
   cx,
 } from "../../components/ui";
-import { ROLES, ROLE_LABEL, ROLE_LOCKED, isValidEmail, newCompanyId } from "../lib/companyDomain";
+import {
+  ROLES,
+  ROLE_LABEL,
+  ROLE_LOCKED,
+  generatePin,
+  isValidEmail,
+  isValidPin,
+  leadPinFor,
+  newCompanyId,
+} from "../lib/companyDomain";
 
 const ROLE_TONE = { owner: "info", admin: "ok", manager: "neutral" };
 const TIER_ORDER = ["owner", "admin", "manager"];
@@ -158,9 +167,133 @@ function EditDialog({ user, locations, onCancel, onSave }) {
   );
 }
 
+/* --------------------------------------------------------- Lead PIN chips -- */
+
+/**
+ * Deliberately not styled like the device-code dialog on Locations: this one
+ * is about a person, momentarily, not a station long-term — so it talks
+ * about "authorizing an action," never "signing in as."
+ */
+function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave }) {
+  const [pin, setPin] = useState(existing?.pin || generatePin(allPins));
+  const pinTaken = allPins.includes(pin) && pin !== existing?.pin;
+  const valid = isValidPin(pin) && !pinTaken;
+
+  return (
+    <Modal
+      open
+      onClose={onCancel}
+      title={existing ? `Edit lead PIN — ${user.name}` : `Issue lead PIN — ${user.name}`}
+      icon={ShieldCheck}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" icon={Plus} disabled={!valid} onClick={() => onSave(pin)}>
+            {existing ? "Save changes" : "Issue PIN"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-xs text-ink-3 leading-relaxed">
+          {user.name.split(" ")[0]} punches this in on the floor at {location.name} to authorize a gated action —
+          it&rsquo;s personal to them, unlike a station&rsquo;s device code, and never shared.
+        </p>
+        <Field label="Code" error={pinTaken ? "That code is already in use — try another." : null}>
+          <div className="flex items-center gap-2">
+            <Input
+              autoFocus
+              inputMode="numeric"
+              maxLength={4}
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              className="font-mono tracking-[0.3em] text-center"
+            />
+            <Button variant="secondary" icon={Dices} onClick={() => setPin(generatePin(allPins))}>
+              Generate
+            </Button>
+          </div>
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
+function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemovePin }) {
+  const [editing, setEditing] = useState(null); // { location, existing }
+  const assigned = locations.filter((l) => user.locationIds.includes(l.id));
+  const allPins = crewPins.map((p) => p.pin);
+
+  if (assigned.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {assigned.map((loc) => {
+        const existing = leadPinFor(crewPins, user.id, loc.id);
+        const shortName = loc.name.includes("—") ? loc.name.split("—").pop().trim() : loc.name;
+        return existing ? (
+          <span
+            key={loc.id}
+            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-sunken text-[11px] text-ink-3"
+          >
+            <ShieldCheck size={10} className="text-primary-ink shrink-0" />
+            {shortName}: <span className="font-mono font-semibold text-ink-2">{existing.pin}</span>
+            <button
+              type="button"
+              title={`Edit lead PIN for ${loc.name}`}
+              onClick={() => setEditing({ location: loc, existing })}
+              className="ml-0.5 text-ink-4 hover:text-ink transition-colors"
+            >
+              <Pencil size={10} />
+            </button>
+            <button
+              type="button"
+              title={`Revoke lead PIN for ${loc.name}`}
+              onClick={() => onRemovePin(existing.id)}
+              className="text-ink-4 hover:text-danger transition-colors"
+            >
+              <Trash2 size={10} />
+            </button>
+          </span>
+        ) : (
+          <button
+            key={loc.id}
+            type="button"
+            title={`Issue a lead PIN for ${loc.name}`}
+            onClick={() => setEditing({ location: loc, existing: null })}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-line-strong text-[11px] text-ink-3 hover:text-ink hover:border-ink-4 transition-colors"
+          >
+            <Plus size={10} /> {shortName} PIN
+          </button>
+        );
+      })}
+
+      {editing && (
+        <LeadPinDialog
+          user={user}
+          location={editing.location}
+          existing={editing.existing}
+          allPins={editing.existing ? allPins.filter((p) => p !== editing.existing.pin) : allPins}
+          onCancel={() => setEditing(null)}
+          onSave={(pin) => {
+            if (editing.existing) {
+              onUpdatePin(editing.existing.id, { pin });
+            } else {
+              onAddPin({ id: newCompanyId("PIN"), role: "lead", userId: user.id, locationId: editing.location.id, pin });
+            }
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------- List view -- */
 
-function TeamList({ users, locations, currentUser, onEdit, onRemove }) {
+function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, onAddPin, onUpdatePin, onRemovePin }) {
   if (users.length === 0) {
     return (
       <Card>
@@ -190,6 +323,16 @@ function TeamList({ users, locations, currentUser, onEdit, onRemove }) {
                 <p className="mt-0.5 text-xs text-ink-4 truncate">
                   {assigned.length === 0 ? "No locations assigned" : assigned.map((l) => l.name).join(", ")}
                 </p>
+                {u.status === "active" && (
+                  <LeadPinChips
+                    user={u}
+                    locations={locations}
+                    crewPins={crewPins}
+                    onAddPin={onAddPin}
+                    onUpdatePin={onUpdatePin}
+                    onRemovePin={onRemovePin}
+                  />
+                )}
               </div>
               {!locked && (
                 <div className="flex items-center gap-1 shrink-0">
@@ -376,7 +519,18 @@ function TeamHierarchy({ users, locations, currentUser, onEdit, onRemove }) {
 
 /* ------------------------------------------------------------------ Root -- */
 
-export default function TeamScreen({ users, locations, currentUser, onInvite, onUpdate, onRemove }) {
+export default function TeamScreen({
+  users,
+  locations,
+  currentUser,
+  crewPins,
+  onInvite,
+  onUpdate,
+  onRemove,
+  onAddPin,
+  onUpdatePin,
+  onRemovePin,
+}) {
   const [view, setView] = useState("list");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
@@ -420,7 +574,17 @@ export default function TeamScreen({ users, locations, currentUser, onInvite, on
       </div>
 
       {view === "list" ? (
-        <TeamList users={visible} locations={locations} currentUser={currentUser} onEdit={setEditing} onRemove={onRemove} />
+        <TeamList
+          users={visible}
+          locations={locations}
+          currentUser={currentUser}
+          crewPins={crewPins}
+          onEdit={setEditing}
+          onRemove={onRemove}
+          onAddPin={onAddPin}
+          onUpdatePin={onUpdatePin}
+          onRemovePin={onRemovePin}
+        />
       ) : (
         <TeamHierarchy users={users} locations={locations} currentUser={currentUser} onEdit={setEditing} onRemove={onRemove} />
       )}
