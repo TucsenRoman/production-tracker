@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Building2, KeyRound, LayoutGrid, LogOut, MapPin, Users } from "lucide-react";
+import { Building2, Factory, Fingerprint, KeyRound, LayoutGrid, LogOut, MapPin, ShieldCheck, Users } from "lucide-react";
 
 import { Badge, ToastProvider, cx, useToast } from "../components/ui";
 import { newId } from "../lib/domain";
@@ -9,16 +9,32 @@ import CompanyAuthScreen from "./screens/CompanyAuthScreen";
 import OverviewScreen from "./screens/OverviewScreen";
 import LocationsScreen from "./screens/LocationsScreen";
 import TeamScreen from "./screens/TeamScreen";
+import StationsScreen from "./screens/StationsScreen";
+import CrewPinsScreen from "./screens/CrewPinsScreen";
 import IntegrationsScreen from "./screens/IntegrationsScreen";
+import PermissionsScreen from "./screens/PermissionsScreen";
 import { usePersistentState, useCompanySession } from "./lib/companyStore";
-import { COMPANY_SEED, ROLE_LABEL } from "./lib/companyDomain";
+import { COMPANY_SEED, ROLE_LABEL, DEFAULT_STATIONS, defaultPermissions, isValidStationName } from "./lib/companyDomain";
 
 const NAV = [
   { id: "overview", label: "Overview", short: "Overview", icon: LayoutGrid },
   { id: "locations", label: "Locations", short: "Locations", icon: MapPin },
   { id: "team", label: "Team", short: "Team", icon: Users, adminOnly: true },
+  { id: "stations", label: "Stations", short: "Stations", icon: Factory, adminOnly: true },
+  { id: "crewpins", label: "Crew PINs", short: "PINs", icon: Fingerprint, managerOnly: true },
+  { id: "permissions", label: "Permissions", short: "Access", icon: ShieldCheck, adminOnly: true },
   { id: "integrations", label: "Integrations", short: "Keys", icon: KeyRound, adminOnly: true },
 ];
+
+const GRID_COLS = {
+  1: "grid-cols-1",
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+  4: "grid-cols-4",
+  5: "grid-cols-5",
+  6: "grid-cols-6",
+  7: "grid-cols-7",
+};
 
 function Shell({ company, currentUser, nav, view, onNavigate, onSignOut, children }) {
   const active = nav.find((n) => n.id === view) || nav[0];
@@ -109,7 +125,7 @@ function Shell({ company, currentUser, nav, view, onNavigate, onSignOut, childre
       </main>
 
       <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-surface border-t border-line pb-safe">
-        <div className={cx("grid", nav.length === 4 ? "grid-cols-4" : "grid-cols-2")}>
+        <div className={cx("grid", GRID_COLS[nav.length] || "grid-cols-2")}>
           {nav.map((n) => {
             const on = n.id === view;
             return (
@@ -142,6 +158,10 @@ function Application() {
   const [locations, setLocations] = usePersistentState("locations", COMPANY_SEED.locations);
   const [users, setUsers] = usePersistentState("users", COMPANY_SEED.users);
   const [integrations, setIntegrations] = usePersistentState("integrations", COMPANY_SEED.integrations);
+  const [stations, setStations] = usePersistentState("stations", COMPANY_SEED.stations);
+  const [crewPins, setCrewPins] = usePersistentState("crewPins", COMPANY_SEED.crewPins);
+  const [permissions, setPermissions] = usePersistentState("permissions", defaultPermissions());
+  const [customActions, setCustomActions] = usePersistentState("customActions", []);
 
   const [view, setView] = useState("overview");
 
@@ -168,6 +188,8 @@ function Application() {
     setLocations([]);
     setUsers([owner]);
     setIntegrations([]);
+    setStations(DEFAULT_STATIONS);
+    setCrewPins([]);
     signIn(owner);
     toast(`${companyName} is set up`, { detail: "Add your first location to get started." });
   };
@@ -192,6 +214,7 @@ function Application() {
     }
     setLocations((prev) => prev.filter((l) => l.id !== id));
     setIntegrations((prev) => prev.filter((i) => i.locationId !== id));
+    setCrewPins((prev) => prev.filter((p) => p.locationId !== id));
     toast("Location removed", { tone: "info" });
   };
 
@@ -210,6 +233,73 @@ function Application() {
   const handleRemoveUser = (id) => {
     setUsers((prev) => prev.filter((u) => u.id !== id));
     toast("Team member removed", { tone: "info" });
+  };
+
+  /* ---- Stations ---- */
+
+  const handleAddStation = (name) => {
+    if (!isValidStationName(name)) return;
+    setStations((prev) => [...prev, name]);
+    toast(`${name} added`, { detail: "It's ready to assign on the Crew PINs screen." });
+  };
+
+  const handleRenameStation = (oldName, newName) => {
+    if (!isValidStationName(newName)) return;
+    setStations((prev) => prev.map((s) => (s === oldName ? newName : s)));
+    setCrewPins((prev) => prev.map((p) => (p.station === oldName ? { ...p, station: newName } : p)));
+    toast("Station renamed");
+  };
+
+  const handleRemoveStation = (name) => {
+    const inUse = crewPins.some((p) => p.station === name);
+    if (inUse) {
+      toast("Can't remove this station", { tone: "error", detail: "Reassign or remove its Crew PINs first." });
+      return;
+    }
+    setStations((prev) => prev.filter((s) => s !== name));
+    toast("Station removed", { tone: "info" });
+  };
+
+  /* ---- Crew PINs ---- */
+
+  const handleAddPin = (pin) => {
+    setCrewPins((prev) => [...prev, pin]);
+    const identity = pin.role === "lead" ? pin.name : `the ${pin.station} station`;
+    toast(`PIN issued to ${identity}`, { detail: `${pin.pin} — hand it off and they're on the board.` });
+  };
+
+  const handleUpdatePin = (id, patch) => {
+    setCrewPins((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    toast("PIN updated");
+  };
+
+  const handleRemovePin = (id) => {
+    setCrewPins((prev) => prev.filter((p) => p.id !== id));
+    toast("PIN revoked", { tone: "info" });
+  };
+
+  /* ---- Permissions ---- */
+
+  const handleTogglePermission = (actionId) => {
+    setPermissions((prev) => {
+      const next = { ...prev, [actionId]: !prev[actionId] };
+      toast(next[actionId] ? "Now requires a Lead PIN" : "Now open to any station PIN", { tone: "info" });
+      return next;
+    });
+  };
+
+  const handleRequestPermission = () => {
+    toast("Request received — sort of", { detail: "This is a placeholder for now; the real request flow comes with the full build." });
+  };
+
+  const handleRemoveCustomAction = (id) => {
+    setCustomActions((prev) => prev.filter((a) => a.id !== id));
+    setPermissions((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    toast("Custom permission removed", { tone: "info" });
   };
 
   /* ---- Integrations ---- */
@@ -251,13 +341,21 @@ function Application() {
   }
 
   const isAdmin = currentUser.role === "owner" || currentUser.role === "admin";
-  const nav = NAV.filter((n) => isAdmin || !n.adminOnly);
+  const isManagerTier = isAdmin || currentUser.role === "manager";
+  const nav = NAV.filter((n) => (isAdmin || !n.adminOnly) && (isManagerTier || !n.managerOnly));
   const current = nav.some((n) => n.id === view) ? view : "overview";
 
   return (
     <Shell company={company} currentUser={currentUser} nav={nav} view={current} onNavigate={setView} onSignOut={signOut}>
       {current === "overview" && (
-        <OverviewScreen company={company} locations={locations} users={users} integrations={integrations} onNavigate={setView} />
+        <OverviewScreen
+          company={company}
+          locations={locations}
+          users={users}
+          crewPins={crewPins}
+          integrations={integrations}
+          onNavigate={setView}
+        />
       )}
 
       {current === "locations" && (
@@ -279,6 +377,37 @@ function Application() {
           onInvite={handleInviteUser}
           onUpdate={handleUpdateUser}
           onRemove={handleRemoveUser}
+        />
+      )}
+
+      {current === "stations" && isAdmin && (
+        <StationsScreen
+          stations={stations}
+          crewPins={crewPins}
+          onAdd={handleAddStation}
+          onUpdate={handleRenameStation}
+          onRemove={handleRemoveStation}
+        />
+      )}
+
+      {current === "crewpins" && isManagerTier && (
+        <CrewPinsScreen
+          locations={locations}
+          stations={stations}
+          crewPins={crewPins}
+          onAdd={handleAddPin}
+          onUpdate={handleUpdatePin}
+          onRemove={handleRemovePin}
+        />
+      )}
+
+      {current === "permissions" && isAdmin && (
+        <PermissionsScreen
+          permissions={permissions}
+          onToggle={handleTogglePermission}
+          customActions={customActions}
+          onRemoveCustom={handleRemoveCustomAction}
+          onRequest={handleRequestPermission}
         />
       )}
 

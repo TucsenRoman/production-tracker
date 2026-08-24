@@ -2,18 +2,19 @@
 
 import React from "react";
 import {
-  ArrowRight,
+  AlertTriangle,
   CheckCircle2,
+  Fingerprint,
   KeyRound,
+  Mail,
   MapPin,
-  Sparkles,
   Store,
   UserPlus,
   Users,
 } from "lucide-react";
 
 import { Badge, Button, Card, StatCard, StatGrid } from "../../components/ui";
-import { PROVIDERS, ROLE_LABEL } from "../lib/companyDomain";
+import { relativeTime } from "../../lib/domain";
 
 function ChecklistItem({ done, title, detail, action }) {
   return (
@@ -38,38 +39,61 @@ function ChecklistItem({ done, title, detail, action }) {
   );
 }
 
-export default function OverviewScreen({ company, locations, users, integrations, onNavigate }) {
+function AttentionRow({ icon: Icon, text, action }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
+      <span className="inline-flex items-center gap-2 min-w-0 text-sm text-ink-2">
+        <Icon size={14} className="text-warn shrink-0" />
+        <span className="truncate">{text}</span>
+      </span>
+      {action}
+    </div>
+  );
+}
+
+export default function OverviewScreen({ company, locations, users, crewPins, integrations, onNavigate }) {
   const activeUsers = users.filter((u) => u.status === "active");
   const invitedUsers = users.filter((u) => u.status === "invited");
-  const connected = integrations.filter((i) => i.status === "connected");
+  const connectedLocationIds = new Set(integrations.filter((i) => i.status === "connected").map((i) => i.locationId));
 
   const hasLocation = locations.length > 0;
   const hasTeammate = activeUsers.length > 1 || invitedUsers.length > 0;
-  const hasIntegration = connected.length > 0;
-  const allDone = hasLocation && hasTeammate && hasIntegration;
+  const hasIntegration = connectedLocationIds.size > 0;
+  const onboarding = !(hasLocation && hasTeammate && hasIntegration);
+
+  // Cross-cutting gaps — the thing an Overview should actually be for, rather
+  // than a shorter copy of the Locations/Team/Integrations tabs.
+  const noPosLocations = locations.filter((l) => !connectedLocationIds.has(l.id));
+  const noPinLocations = locations.filter((l) => !crewPins.some((p) => p.locationId === l.id));
+  const uncoveredLocations = locations.filter(
+    (l) => !users.some((u) => u.status === "active" && u.locationIds.includes(l.id))
+  );
+  const staleInvites = invitedUsers.filter(
+    (u) => Date.now() - new Date(u.invitedAt).getTime() > 7 * 86400000
+  );
+
+  const attentionCount = noPosLocations.length + noPinLocations.length + uncoveredLocations.length + staleInvites.length;
 
   return (
     <div className="space-y-5">
       <StatGrid>
         <StatCard icon={Store} label="Locations" value={locations.length} />
-        <StatCard icon={Users} label="Team members" value={activeUsers.length} hint={invitedUsers.length ? `${invitedUsers.length} invited` : undefined} />
+        <StatCard icon={Users} label="Team members" value={activeUsers.length} hint={invitedUsers.length ? `${invitedUsers.length} invited` : "no pending invites"} />
+        <StatCard icon={Fingerprint} label="Crew PINs" value={crewPins.length} hint="issued company-wide" />
         <StatCard
           icon={KeyRound}
-          label="Integrations"
-          value={`${connected.length}/${locations.length || 0}`}
-          tone={connected.length === locations.length && locations.length > 0 ? "ok" : "neutral"}
-          hint="locations connected"
+          label="POS connected"
+          value={`${connectedLocationIds.size}/${locations.length || 0}`}
+          tone={locations.length > 0 && connectedLocationIds.size === locations.length ? "ok" : "neutral"}
+          hint="locations"
         />
-        <StatCard icon={Sparkles} label="Plan" value={company.plan} tone="primary" />
       </StatGrid>
 
-      {!allDone && (
+      {onboarding && (
         <Card>
-          <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-line">
-            <div>
-              <h3 className="text-sm font-semibold text-ink">Get your account set up</h3>
-              <p className="mt-0.5 text-xs text-ink-3">A few steps to get {company.name} fully running.</p>
-            </div>
+          <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+            <h3 className="text-sm font-semibold text-ink">Get your account set up</h3>
+            <p className="mt-0.5 text-xs text-ink-3">A few steps to get {company.name} fully running.</p>
           </div>
           <ChecklistItem
             done={hasLocation}
@@ -104,96 +128,111 @@ export default function OverviewScreen({ company, locations, users, integrations
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {!onboarding && (
         <Card>
           <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-line">
-            <h3 className="text-sm font-semibold text-ink">Locations</h3>
-            <button
-              onClick={() => onNavigate("locations")}
-              className="inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline"
-            >
-              View all <ArrowRight size={12} />
-            </button>
+            <h3 className="text-sm font-semibold text-ink">Needs attention</h3>
+            {attentionCount > 0 ? (
+              <Badge tone="warn">{attentionCount}</Badge>
+            ) : (
+              <Badge tone="ok" icon={CheckCircle2}>
+                All caught up
+              </Badge>
+            )}
           </div>
-          {locations.length === 0 ? (
-            <p className="px-4 sm:px-5 py-6 text-center text-xs text-ink-4">No locations yet.</p>
+          {attentionCount === 0 ? (
+            <p className="px-4 sm:px-5 py-6 text-center text-xs text-ink-4">
+              Every location has coverage, a POS connection, and issued PINs.
+            </p>
           ) : (
             <div className="divide-y divide-line">
-              {locations.slice(0, 4).map((loc) => {
-                const staffHere = users.filter((u) => u.locationIds.includes(loc.id) && u.status === "active").length;
-                return (
-                  <div key={loc.id} className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-ink truncate">{loc.name}</p>
-                      <p className="text-xs text-ink-3 truncate">{loc.address}</p>
-                    </div>
-                    <Badge tone="neutral">{staffHere} on team</Badge>
-                  </div>
-                );
-              })}
+              {uncoveredLocations.map((l) => (
+                <AttentionRow
+                  key={`cov-${l.id}`}
+                  icon={Users}
+                  text={`${l.name} has no admin or manager assigned`}
+                  action={
+                    <Button size="sm" onClick={() => onNavigate("team")}>
+                      Assign
+                    </Button>
+                  }
+                />
+              ))}
+              {noPosLocations.map((l) => (
+                <AttentionRow
+                  key={`pos-${l.id}`}
+                  icon={KeyRound}
+                  text={`${l.name} isn't connected to a POS`}
+                  action={
+                    <Button size="sm" onClick={() => onNavigate("integrations")}>
+                      Connect
+                    </Button>
+                  }
+                />
+              ))}
+              {noPinLocations.map((l) => (
+                <AttentionRow
+                  key={`pin-${l.id}`}
+                  icon={Fingerprint}
+                  text={`${l.name} has no crew PINs issued`}
+                  action={
+                    <Button size="sm" onClick={() => onNavigate("crewpins")}>
+                      Issue
+                    </Button>
+                  }
+                />
+              ))}
+              {staleInvites.map((u) => (
+                <AttentionRow
+                  key={`inv-${u.id}`}
+                  icon={Mail}
+                  text={`${u.name}'s invite has been pending ${relativeTime(u.invitedAt)}`}
+                  action={
+                    <Button size="sm" onClick={() => onNavigate("team")}>
+                      Resend
+                    </Button>
+                  }
+                />
+              ))}
             </div>
           )}
         </Card>
+      )}
 
-        <Card>
-          <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-line">
-            <h3 className="text-sm font-semibold text-ink">Integrations</h3>
-            <button
-              onClick={() => onNavigate("integrations")}
-              className="inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline"
-            >
-              Manage <ArrowRight size={12} />
-            </button>
-          </div>
+      <Card>
+        <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+          <h3 className="text-sm font-semibold text-ink">Locations at a glance</h3>
+        </div>
+        {locations.length === 0 ? (
+          <p className="px-4 sm:px-5 py-6 text-center text-xs text-ink-4">No locations yet.</p>
+        ) : (
           <div className="divide-y divide-line">
-            {PROVIDERS.map((p) => {
-              const count = integrations.filter((i) => i.provider === p.id && i.status === "connected").length;
+            {locations.map((loc) => {
+              const team = users.filter((u) => u.locationIds.includes(loc.id) && u.status === "active").length;
+              const pins = crewPins.filter((p) => p.locationId === loc.id).length;
+              const connected = connectedLocationIds.has(loc.id);
               return (
-                <div key={p.id} className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <p.icon size={15} className="text-ink-3 shrink-0" />
-                    <span className="text-sm text-ink truncate">{p.name}</span>
-                    {!p.available && (
-                      <Badge tone="neutral" className="shrink-0">
-                        Coming soon
-                      </Badge>
-                    )}
+                <div key={loc.id} className="flex items-center justify-between gap-3 flex-wrap px-4 sm:px-5 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink truncate">{loc.name}</p>
+                    <p className="text-xs text-ink-3 truncate">{loc.address}</p>
                   </div>
-                  {p.available && (
-                    <Badge tone={count > 0 ? "ok" : "neutral"} className="shrink-0">
-                      {count > 0 ? `${count} connected` : "Not connected"}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge tone="neutral" icon={Users}>
+                      {team}
                     </Badge>
-                  )}
+                    <Badge tone="neutral" icon={Fingerprint}>
+                      {pins}
+                    </Badge>
+                    <Badge tone={connected ? "ok" : "warn"} icon={connected ? CheckCircle2 : AlertTriangle}>
+                      {connected ? "POS" : "No POS"}
+                    </Badge>
+                  </div>
                 </div>
               );
             })}
           </div>
-        </Card>
-      </div>
-
-      <Card>
-        <div className="px-4 sm:px-5 py-3.5 border-b border-line">
-          <h3 className="text-sm font-semibold text-ink">Team</h3>
-        </div>
-        <div className="divide-y divide-line">
-          {users.slice(0, 5).map((u) => (
-            <div key={u.id} className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="flex items-center justify-center w-7 h-7 rounded-full bg-primary-soft text-primary-ink text-[11px] font-semibold shrink-0">
-                  {u.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm text-ink truncate">{u.name}</p>
-                  <p className="text-xs text-ink-3 truncate">{u.email}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {u.status === "invited" && <Badge tone="warn">Invited</Badge>}
-                <Badge tone="neutral">{ROLE_LABEL[u.role]}</Badge>
-              </div>
-            </div>
-          ))}
-        </div>
+        )}
       </Card>
     </div>
   );
