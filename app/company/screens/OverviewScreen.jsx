@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,13 +8,17 @@ import {
   KeyRound,
   Mail,
   MapPin,
+  MessageCircle,
+  Send,
+  Sparkles,
   Store,
   UserPlus,
   Users,
 } from "lucide-react";
 
-import { Badge, Button, Card, StatCard, StatGrid } from "../../components/ui";
+import { Badge, Button, Card, Input, StatCard, StatGrid, cx } from "../../components/ui";
 import { relativeTime } from "../../lib/domain";
+import { answerInsightQuestion } from "../lib/insights";
 
 function ChecklistItem({ done, title, detail, action }) {
   return (
@@ -51,7 +55,108 @@ function AttentionRow({ icon: Icon, text, action }) {
   );
 }
 
-export default function OverviewScreen({ company, locations, users, crewPins, integrations, onNavigate }) {
+/* -------------------------------------------------------------- Insights -- */
+
+const INSIGHT_TONE_ICON = { warn: AlertTriangle, danger: AlertTriangle, ok: CheckCircle2, neutral: Sparkles };
+const INSIGHT_TONE_CLASS = { warn: "text-warn", danger: "text-danger", ok: "text-ok", neutral: "text-primary-ink" };
+
+/**
+ * Each card can answer a follow-up about itself — scoped to that card's own
+ * numbers, never the whole business — via a deterministic responder (see
+ * ../lib/insights). No live model behind it yet, so an unrecognized question
+ * gets an honest "don't have an answer for that" rather than a guess.
+ */
+function InsightCard({ card }) {
+  const Icon = INSIGHT_TONE_ICON[card.tone];
+  const [asking, setAsking] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [thread, setThread] = useState([]);
+
+  const ask = () => {
+    const q = question.trim();
+    if (!q) return;
+    setThread((t) => [...t, { q, a: answerInsightQuestion(card, q) }]);
+    setQuestion("");
+  };
+
+  return (
+    <div className="px-4 sm:px-5 py-3.5 border-b border-line last:border-b-0">
+      <div className="flex items-start gap-3">
+        <span className={cx("shrink-0 mt-0.5", INSIGHT_TONE_CLASS[card.tone])}>
+          <Icon size={15} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-ink">{card.title}</p>
+          <p className="mt-0.5 text-xs text-ink-3 leading-relaxed">{card.detail}</p>
+
+          {thread.length > 0 && (
+            <div className="mt-2.5 space-y-2">
+              {thread.map((t, i) => (
+                <div key={i} className="text-xs">
+                  <p className="font-medium text-ink-2">&ldquo;{t.q}&rdquo;</p>
+                  <p className="mt-0.5 text-ink-3 leading-relaxed">{t.a}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {asking ? (
+            <div className="mt-2.5 flex items-center gap-1.5">
+              <Input
+                autoFocus
+                value={question}
+                placeholder="Ask about this…"
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && ask()}
+                className="flex-1"
+              />
+              <Button size="sm" icon={Send} onClick={ask}>
+                Ask
+              </Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAsking(true)}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:text-primary transition-colors"
+            >
+              <MessageCircle size={12} /> Ask about this
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InsightsSection({ insights }) {
+  return (
+    <Card>
+      <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+          <Sparkles size={14} className="text-primary-ink" /> Insights
+        </h3>
+        <p className="mt-0.5 text-xs text-ink-3">
+          Rolled up from every location&rsquo;s closed batches — same numbers the floor sees, compared across the
+          company.
+        </p>
+      </div>
+      {insights.cards.length === 0 ? (
+        <p className="px-4 sm:px-5 py-6 text-center text-xs text-ink-4">
+          Insights show up once locations start closing batches on the floor.
+        </p>
+      ) : (
+        <div>
+          {insights.cards.map((card) => (
+            <InsightCard key={card.id} card={card} />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export default function OverviewScreen({ company, locations, users, crewPins, integrations, insights, onNavigate }) {
   const activeUsers = users.filter((u) => u.status === "active");
   const invitedUsers = users.filter((u) => u.status === "invited");
   const connectedLocationIds = new Set(integrations.filter((i) => i.status === "connected").map((i) => i.locationId));
@@ -202,6 +307,8 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
           )}
         </Card>
       )}
+
+      <InsightsSection insights={insights} />
 
       <Card>
         <div className="px-4 sm:px-5 py-3.5 border-b border-line">

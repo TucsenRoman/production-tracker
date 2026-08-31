@@ -1,9 +1,20 @@
 "use client";
 
-import React, { useState } from "react";
-import { Building2, Factory, KeyRound, LayoutGrid, LogOut, MapPin, ShieldCheck, Users } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import {
+  Factory,
+  KeyRound,
+  LayoutGrid,
+  LogOut,
+  MapPin,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  ShieldCheck,
+  Users,
+} from "lucide-react";
 
-import { Badge, ToastProvider, cx, useToast } from "../components/ui";
+import { Badge, Input, ToastProvider, cx, useToast } from "../components/ui";
 import { newId } from "../lib/domain";
 import CompanyAuthScreen from "./screens/CompanyAuthScreen";
 import OverviewScreen from "./screens/OverviewScreen";
@@ -12,8 +23,11 @@ import TeamScreen from "./screens/TeamScreen";
 import StationsScreen from "./screens/StationsScreen";
 import IntegrationsScreen from "./screens/IntegrationsScreen";
 import PermissionsScreen from "./screens/PermissionsScreen";
+import SettingsScreen from "./screens/SettingsScreen";
 import { usePersistentState, useCompanySession } from "./lib/companyStore";
 import { COMPANY_SEED, ROLE_LABEL, DEFAULT_STATIONS, defaultPermissions, isValidStationName } from "./lib/companyDomain";
+import { PRODUCTION_SEED } from "./lib/companyProduction";
+import { answerCompanyQuestion, buildCompanyInsights } from "./lib/insights";
 
 const NAV = [
   { id: "overview", label: "Overview", short: "Overview", icon: LayoutGrid },
@@ -22,6 +36,7 @@ const NAV = [
   { id: "stations", label: "Stations", short: "Stations", icon: Factory, adminOnly: true },
   { id: "permissions", label: "Permissions", short: "Access", icon: ShieldCheck, adminOnly: true },
   { id: "integrations", label: "Integrations", short: "Keys", icon: KeyRound, adminOnly: true },
+  { id: "settings", label: "Settings", short: "Settings", icon: Settings, adminOnly: true },
 ];
 
 const GRID_COLS = {
@@ -34,116 +49,188 @@ const GRID_COLS = {
   7: "grid-cols-7",
 };
 
-function Shell({ company, currentUser, nav, view, onNavigate, onSignOut, children }) {
-  const active = nav.find((n) => n.id === view) || nav[0];
+/**
+ * Slim, always-available search-bar version of "Ask about your business" —
+ * same deterministic responder (answerCompanyQuestion), living inline in
+ * the sidebar header next to the collapse toggle instead of taking up a
+ * whole section, so it's reachable from every screen without much chrome.
+ * Enter submits; the latest answer shows as a compact caption underneath.
+ * Desktop-only for now, same as the rest of this sidebar.
+ *
+ * The expand icon is a placeholder for a future dedicated full-page chat —
+ * not wired up yet, just staking out where it'll live.
+ */
+function AskBar({ bundle, sidebarOpen }) {
+  const [question, setQuestion] = useState("");
+  const [lastAnswer, setLastAnswer] = useState(null);
+
+  const ask = () => {
+    const q = question.trim();
+    if (!q) return;
+    setLastAnswer({ q, a: answerCompanyQuestion(bundle, q) });
+    setQuestion("");
+  };
+
+  if (!sidebarOpen) return null;
 
   return (
-    <div className="min-h-screen bg-canvas">
-      <aside className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 lg:w-60 lg:z-20 bg-surface border-r border-line">
-        <div className="px-5 py-5 flex items-center gap-2">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-soft text-primary-ink shrink-0">
-            <Building2 size={16} />
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-ink font-display truncate leading-tight">{company.name}</p>
-            <p className="text-[10px] uppercase tracking-wide text-brand">{company.plan}</p>
+    <div className="min-w-0 flex-1 flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <Input
+          value={question}
+          placeholder="Ask about your business…"
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && ask()}
+          className="flex-1 min-w-0 h-7 min-h-7 rounded-xl text-xs focus-visible:outline-none"
+        />
+        {/* SquareArrowOutUpRight "open full chat" button hidden for now — coming with the dedicated chat page. */}
+      </div>
+      {lastAnswer && <p className="px-0.5 text-[11px] text-ink-3 leading-snug line-clamp-2">{lastAnswer.a}</p>}
+    </div>
+  );
+}
+
+function Shell({ company, currentUser, nav, view, onNavigate, onSignOut, bundle, children }) {
+  const active = nav.find((n) => n.id === view) || nav[0];
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  return (
+    <div className="min-h-screen lg:h-screen lg:flex lg:flex-col lg:overflow-hidden bg-canvas">
+      <div className="hidden lg:block shrink-0 px-6 pt-3 pb-1">
+        <p className="text-sm font-bold text-ink font-display truncate leading-tight">{company.name}</p>
+      </div>
+
+      <div className="lg:flex-1 lg:flex lg:overflow-hidden">
+        <aside
+          className={cx(
+            "hidden lg:flex lg:flex-col lg:shrink-0 bg-canvas",
+            "transition-[width] duration-200",
+            sidebarOpen ? "lg:w-60" : "lg:w-16"
+          )}
+        >
+          <div className="px-3 pb-1 flex items-center gap-2">
+            <button
+              onClick={() => setSidebarOpen((o) => !o)}
+              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+              className="w-10 h-10 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-sunken transition-colors shrink-0"
+            >
+              {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+            </button>
+            <AskBar bundle={bundle} sidebarOpen={sidebarOpen} />
           </div>
-        </div>
 
-        <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto thin-scrollbar">
-          {nav.map((n) => {
-            const on = n.id === view;
-            return (
-              <button
-                key={n.id}
-                onClick={() => onNavigate(n.id)}
-                aria-current={on ? "page" : undefined}
-                className={cx(
-                  "w-full flex items-center gap-2.5 px-3 min-h-10 rounded-md text-sm font-medium",
-                  "transition-colors duration-100",
-                  on ? "bg-primary-soft text-primary-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
-                )}
-              >
-                <n.icon size={16} className="shrink-0" />
-                <span className="truncate">{n.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+          <nav className="flex-1 flex flex-col gap-0.5 overflow-y-auto thin-scrollbar px-3">
+            {nav.map((n) => {
+              const on = n.id === view;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => onNavigate(n.id)}
+                  aria-current={on ? "page" : undefined}
+                  title={sidebarOpen ? undefined : n.label}
+                  className={cx(
+                    "w-full flex items-center gap-2.5 px-3 min-h-10 rounded-md text-sm font-medium",
+                    "transition-colors duration-100",
+                    on ? "bg-primary-soft text-primary-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
+                  )}
+                >
+                  <n.icon size={16} className="shrink-0" />
+                  {sidebarOpen && <span className="truncate">{n.label}</span>}
+                </button>
+              );
+            })}
+          </nav>
 
-        <div className="p-3 border-t border-line">
-          <div className="flex items-center gap-2.5 px-2 py-2">
-            <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white text-xs font-semibold shrink-0">
-              {currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-ink truncate leading-tight">{currentUser.name}</p>
-              <p className="text-xs text-ink-3 truncate">{ROLE_LABEL[currentUser.role]}</p>
+          <div className="p-3">
+            <div className="flex items-center gap-2.5 px-2 py-2">
+              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white text-xs font-semibold shrink-0">
+                {currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+              </span>
+              {sidebarOpen && (
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink truncate leading-tight">{currentUser.name}</p>
+                  <p className="text-xs text-ink-3 truncate">{ROLE_LABEL[currentUser.role]}</p>
+                </div>
+              )}
+              {sidebarOpen && (
+                <button
+                  onClick={onSignOut}
+                  aria-label="Sign out"
+                  title="Sign out"
+                  className="w-8 h-8 flex items-center justify-center rounded-md text-ink-3 hover:text-danger hover:bg-sunken transition-colors"
+                >
+                  <LogOut size={15} />
+                </button>
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <header className="lg:hidden sticky top-0 z-30 bg-canvas/90 backdrop-blur-sm border-b border-line pt-safe">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0 flex flex-col gap-1.5">
+              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-brand leading-none">
+                {company.name}
+              </p>
+              <h1 className="text-lg font-bold text-ink font-display leading-none truncate">{active.label}</h1>
             </div>
             <button
               onClick={onSignOut}
-              aria-label="Sign out"
-              title="Sign out"
-              className="w-8 h-8 flex items-center justify-center rounded-md text-ink-3 hover:text-danger hover:bg-sunken transition-colors"
+              className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-full bg-surface border border-line shrink-0"
             >
-              <LogOut size={15} />
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-[10px] font-semibold">
+                {currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+              </span>
+              <LogOut size={13} className="text-ink-3" />
             </button>
           </div>
-        </div>
-      </aside>
+        </header>
 
-      <header className="lg:hidden sticky top-0 z-30 bg-canvas/90 backdrop-blur-sm border-b border-line pt-safe">
-        <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-brand leading-none mb-1.5">
-              {company.name}
-            </p>
-            <h1 className="text-lg font-bold text-ink font-display leading-none truncate">{active.label}</h1>
+        <main className="flex-1 lg:overflow-hidden">
+          <div className="lg:h-full">
+            <div
+              className={cx(
+                "mx-auto w-full max-w-5xl px-4 pt-5 pb-28 sm:px-6 lg:max-w-none lg:h-full lg:overflow-y-auto thin-scrollbar lg:px-6 lg:py-6",
+                "lg:rounded-xl lg:border lg:border-line lg:bg-surface lg:flex lg:flex-col lg:gap-5"
+              )}
+            >
+              <div className="hidden lg:flex items-center justify-between gap-4">
+                <h2 className="text-2xl font-bold text-ink font-display">{active.label}</h2>
+                <Badge tone="info">{ROLE_LABEL[currentUser.role]}</Badge>
+              </div>
+              {children}
+            </div>
           </div>
-          <button
-            onClick={onSignOut}
-            className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-full bg-surface border border-line shrink-0"
-          >
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-[10px] font-semibold">
-              {currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
-            </span>
-            <LogOut size={13} className="text-ink-3" />
-          </button>
-        </div>
-      </header>
+        </main>
 
-      <main className="lg:pl-60">
-        <div className="mx-auto w-full max-w-5xl px-4 pt-5 pb-28 sm:px-6 lg:px-10 lg:pt-8 lg:pb-14">
-          <div className="hidden lg:flex items-center justify-between gap-4 mb-6">
-            <h2 className="text-2xl font-bold text-ink font-display">{active.label}</h2>
-            <Badge tone="info">{ROLE_LABEL[currentUser.role]}</Badge>
+        <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-surface border-t border-line pb-safe">
+          <div className={cx("grid", GRID_COLS[nav.length] || "grid-cols-2")}>
+            {nav.map((n) => {
+              const on = n.id === view;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => onNavigate(n.id)}
+                  aria-current={on ? "page" : undefined}
+                  className={cx(
+                    "flex flex-col items-center justify-center gap-1 min-h-14 px-1 py-2",
+                    "text-[10px] font-medium transition-colors duration-100",
+                    on ? "text-primary-ink" : "text-ink-3"
+                  )}
+                >
+                  <n.icon size={19} className="shrink-0" />
+                  <span className="truncate max-w-full">{n.short}</span>
+                </button>
+              );
+            })}
           </div>
-          {children}
-        </div>
-      </main>
+        </nav>
+      </div>
 
-      <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-surface border-t border-line pb-safe">
-        <div className={cx("grid", GRID_COLS[nav.length] || "grid-cols-2")}>
-          {nav.map((n) => {
-            const on = n.id === view;
-            return (
-              <button
-                key={n.id}
-                onClick={() => onNavigate(n.id)}
-                aria-current={on ? "page" : undefined}
-                className={cx(
-                  "flex flex-col items-center justify-center gap-1 min-h-14 px-1 py-2",
-                  "text-[10px] font-medium transition-colors duration-100",
-                  on ? "text-primary-ink" : "text-ink-3"
-                )}
-              >
-                <n.icon size={19} className="shrink-0" />
-                <span className="truncate max-w-full">{n.short}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
+      <div className="hidden lg:block shrink-0 px-6 py-px">
+        <p className="text-center text-[8px] text-ink-4">Milaca Meats · v1.0</p>
+      </div>
     </div>
   );
 }
@@ -158,12 +245,19 @@ function Application() {
   const [integrations, setIntegrations] = usePersistentState("integrations", COMPANY_SEED.integrations);
   const [stations, setStations] = usePersistentState("stations", COMPANY_SEED.stations);
   const [crewPins, setCrewPins] = usePersistentState("crewPins", COMPANY_SEED.crewPins);
+  const [production, setProduction] = usePersistentState("production", PRODUCTION_SEED);
   const [permissions, setPermissions] = usePersistentState("permissions", defaultPermissions());
   const [customActions, setCustomActions] = usePersistentState("customActions", []);
 
   const [view, setView] = useState("overview");
 
   const currentUser = session ? users.find((u) => u.id === session.userId) : null;
+
+  const insights = useMemo(
+    () => buildCompanyInsights({ locations, stations, production }),
+    [locations, stations, production]
+  );
+  const bundle = { company, locations, users, crewPins, integrations, insights };
 
   /* ---- Auth ---- */
 
@@ -188,6 +282,7 @@ function Application() {
     setIntegrations([]);
     setStations(DEFAULT_STATIONS);
     setCrewPins([]);
+    setProduction({});
     signIn(owner);
     toast(`${companyName} is set up`, { detail: "Add your first location to get started." });
   };
@@ -213,6 +308,11 @@ function Application() {
     setLocations((prev) => prev.filter((l) => l.id !== id));
     setIntegrations((prev) => prev.filter((i) => i.locationId !== id));
     setCrewPins((prev) => prev.filter((p) => p.locationId !== id));
+    setProduction((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     toast("Location removed", { tone: "info" });
   };
 
@@ -306,6 +406,13 @@ function Application() {
     toast("Custom permission removed", { tone: "info" });
   };
 
+  /* ---- Settings ---- */
+
+  const handleUpdateCompany = (patch) => {
+    setCompany((prev) => ({ ...prev, ...patch }));
+    toast("Business details updated");
+  };
+
   /* ---- Integrations ---- */
 
   const handleConnectIntegration = (locationId, provider, fields) => {
@@ -350,7 +457,7 @@ function Application() {
   const current = nav.some((n) => n.id === view) ? view : "overview";
 
   return (
-    <Shell company={company} currentUser={currentUser} nav={nav} view={current} onNavigate={setView} onSignOut={signOut}>
+    <Shell company={company} currentUser={currentUser} nav={nav} view={current} onNavigate={setView} onSignOut={signOut} bundle={bundle}>
       {current === "overview" && (
         <OverviewScreen
           company={company}
@@ -358,6 +465,7 @@ function Application() {
           users={users}
           crewPins={crewPins}
           integrations={integrations}
+          insights={insights}
           onNavigate={setView}
         />
       )}
@@ -422,6 +530,10 @@ function Application() {
           onDisconnect={handleDisconnectIntegration}
           onTest={handleTestIntegration}
         />
+      )}
+
+      {current === "settings" && isAdmin && (
+        <SettingsScreen company={company} canManage={isAdmin} onUpdate={handleUpdateCompany} />
       )}
     </Shell>
   );
