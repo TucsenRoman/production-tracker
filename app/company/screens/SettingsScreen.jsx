@@ -30,9 +30,9 @@ export default function SettingsScreen({ company, canManage, onUpdate }) {
   return (
     <div className="space-y-4">
       <Card>
-        <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+        <div className="px-4 py-3 border-b border-line">
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-            <Building2 size={14} className="text-primary-ink" /> Business details
+            <Building2 size={14} className="text-icon-2" /> Business details
           </h3>
           <p className="mt-0.5 text-xs text-ink-3">
             {canManage
@@ -41,7 +41,7 @@ export default function SettingsScreen({ company, canManage, onUpdate }) {
           </p>
         </div>
 
-        <div className="px-4 sm:px-5 py-4 space-y-4">
+        <div className="px-4 py-4 space-y-4">
           <Field label="Business name">
             <Input
               value={name}
@@ -52,13 +52,10 @@ export default function SettingsScreen({ company, canManage, onUpdate }) {
           </Field>
 
           <Field
-            label="Owner email"
-            hint="Where account and billing notices go."
-            error={trimmedEmail && !validEmail ? "That doesn't look like a valid email." : undefined}
+            label="Owner email" hint="Where account and billing notices go." error={trimmedEmail && !validEmail ? "That doesn't look like a valid email." : undefined}
           >
             <Input
-              type="email"
-              value={ownerEmail}
+              type="email" value={ownerEmail}
               disabled={!canManage}
               onChange={(e) => setOwnerEmail(e.target.value)}
               placeholder="owner@business.com"
@@ -68,8 +65,7 @@ export default function SettingsScreen({ company, canManage, onUpdate }) {
           {canManage && (
             <div className="flex items-center justify-end gap-2 pt-1">
               <Button
-                variant="ghost"
-                disabled={!dirty}
+                variant="ghost" disabled={!dirty}
                 onClick={() => {
                   setName(company.name);
                   setOwnerEmail(company.ownerEmail);
@@ -86,23 +82,23 @@ export default function SettingsScreen({ company, canManage, onUpdate }) {
       </Card>
 
       <Card>
-        <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+        <div className="px-4 py-3 border-b border-line">
           <h3 className="text-sm font-semibold text-ink">Account</h3>
         </div>
         <div className="divide-y divide-line">
-          <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="inline-flex items-center gap-2 text-sm text-ink-2">
               <Sparkles size={14} className="text-ink-3 shrink-0" /> Plan
             </span>
             <Badge tone="info">{company.plan}</Badge>
           </div>
-          <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="inline-flex items-center gap-2 text-sm text-ink-2">
               <Calendar size={14} className="text-ink-3 shrink-0" /> Account created
             </span>
             <span className="text-sm text-ink-3">{relativeTime(company.createdAt)}</span>
           </div>
-          <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="inline-flex items-center gap-2 text-sm text-ink-2">
               <Mail size={14} className="text-ink-3 shrink-0" /> Owner email
             </span>

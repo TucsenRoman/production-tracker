@@ -9,9 +9,49 @@
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Info, Loader2, Search, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, CheckCircle2, ChevronDown, Info, Loader2, Search, X } from "lucide-react";
 
 export const cx = (...parts) => parts.filter(Boolean).join(" ");
+
+/* ------------------------------------------------------------------ Slots -- */
+
+/**
+ * Named portals from a screen into the app shell.
+ *
+ * A page's own actions — "Add product", a data-source status, a refresh —
+ * belong beside the page title, not stacked into the middle of the content
+ * where they read as one more filter. But the title is rendered by the shell
+ * and the handlers live in the screen, so the screen posts into a slot the
+ * shell put there.
+ *
+ * A ref callback sets the target once, so there is no state to keep in step
+ * and no render loop to guard against.
+ */
+const SlotContext = createContext(null);
+
+export function SlotProvider({ children }) {
+  const [nodes, setNodes] = useState({});
+  const register = useCallback((name, el) => {
+    setNodes((n) => (n[name] === el ? n : { ...n, [name]: el }));
+  }, []);
+  return <SlotContext.Provider value={{ nodes, register }}>{children}</SlotContext.Provider>;
+}
+
+/** Renders where the slot's contents should appear. Empty until a screen fills it. */
+export function SlotTarget({ name, className }) {
+  const ctx = useContext(SlotContext);
+  const register = ctx?.register;
+  const ref = useCallback((el) => register?.(name, el), [register, name]);
+  return <div ref={ref} className={className} />;
+}
+
+/** Renders its children into the named target. No-op until the target mounts. */
+export function Slot({ name, children }) {
+  const ctx = useContext(SlotContext);
+  const el = ctx?.nodes?.[name];
+  return el ? createPortal(children, el) : null;
+}
 
 /* ---------------------------------------------------------------- Button -- */
 
@@ -20,20 +60,23 @@ const BTN_BASE =
   "transition-colors duration-100 select-none whitespace-nowrap " +
   "disabled:cursor-not-allowed disabled:opacity-55";
 
+// No variant carries a resting shadow. `primary` is the one filled accent on a
+// screen — a second one on the same view breaks the under-1% coverage budget.
 const BTN_VARIANT = {
-  primary: "bg-primary text-white hover:bg-primary-hover shadow-xs",
-  secondary: "bg-surface text-ink border border-line-strong hover:bg-sunken shadow-xs",
-  ghost: "bg-transparent text-ink-2 hover:bg-sunken hover:text-ink",
-  success: "bg-ok text-white hover:brightness-95 shadow-xs",
-  danger: "bg-danger text-white hover:brightness-95 shadow-xs",
-  subtle: "bg-primary-soft text-primary-ink hover:brightness-97",
+  primary: "bg-primary text-white hover:bg-primary-hover",
+  secondary: "bg-transparent text-ink border border-line-strong hover:bg-hover",
+  ghost: "bg-transparent text-ink-2 hover:bg-hover hover:text-ink",
+  success: "bg-transparent text-ok border border-ok-line hover:bg-ok-soft",
+  danger: "bg-transparent text-danger border border-danger-line hover:bg-danger-soft",
+  subtle: "bg-hover text-ink hover:bg-faint",
 };
 
-// min-h values keep every control a comfortable target on a station tablet.
+// Heights come from the density variables, so a station tablet gets a 44px
+// target and a desk gets Notion's 28px without either being a special case.
 const BTN_SIZE = {
-  sm: "text-xs px-2.5 min-h-8",
-  md: "text-sm px-3.5 min-h-10",
-  lg: "text-base px-4 min-h-12",
+  sm: "text-xs px-2 h-[var(--ctl-h)]",
+  md: "text-sm px-2.5 h-[var(--ctl-h)]",
+  lg: "text-sm px-3 h-[var(--ctl-h-lg)]",
 };
 
 export function Button({
@@ -48,7 +91,7 @@ export function Button({
   disabled,
   ...rest
 }) {
-  const iconSize = size === "lg" ? 17 : size === "sm" ? 13 : 15;
+  const iconSize = size === "sm" ? 12 : 16;
   return (
     <button
       {...rest}
@@ -73,8 +116,9 @@ export function IconButton({ label, icon: Icon, size = 16, className, ...rest })
       aria-label={label}
       title={label}
       className={cx(
-        "inline-flex items-center justify-center w-8 h-8 rounded-md shrink-0",
-        "text-ink-3 hover:text-ink hover:bg-sunken transition-colors duration-100",
+        "inline-flex items-center justify-center rounded-md shrink-0",
+        "w-[var(--ctl-h)] h-[var(--ctl-h)]",
+        "text-icon-2 hover:text-icon hover:bg-hover transition-colors duration-100",
         className
       )}
     >
@@ -90,8 +134,12 @@ export function Card({ as: Tag = "div", inset = false, className, children, ...r
     <Tag
       {...rest}
       className={cx(
-        "bg-surface border border-line rounded-lg shadow-xs",
-        inset && "p-4 sm:p-5",
+        // Not a card. A section is two rules — one above, one below — and the
+        // page showing through between them. No side borders, no radius, no
+        // shadow: the DNA bans wrapping a GROUP in a box, and every one of
+        // these held a group.
+        "bg-surface border-y border-line",
+        inset && "py-3",
         className
       )}
     >
@@ -104,16 +152,17 @@ export function CardHeader({ title, subtitle, icon: Icon, actions, className }) 
   return (
     <div
       className={cx(
-        "flex items-start justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-line",
+        "flex items-start justify-between gap-3 py-2.5 border-b border-line",
         className
       )}
     >
       <div className="min-w-0">
-        <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-          {Icon && <Icon size={15} className="text-ink-3 shrink-0" />}
+        <div className="flex items-center gap-2 text-sm font-medium text-ink">
+          {Icon && <Icon size={16} className="text-icon-2 shrink-0" />}
           <span className="truncate">{title}</span>
         </div>
-        {subtitle && <p className="mt-0.5 text-xs text-ink-3 leading-relaxed">{subtitle}</p>}
+        {/* Same size as the title, separated by colour alone — the flat scale. */}
+        {subtitle && <p className="mt-0.5 text-sm text-ink-2">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
     </div>
@@ -121,7 +170,7 @@ export function CardHeader({ title, subtitle, icon: Icon, actions, className }) 
 }
 
 export function CardBody({ className, children }) {
-  return <div className={cx("p-4 sm:p-5", className)}>{children}</div>;
+  return <div className={cx("py-3", className)}>{children}</div>;
 }
 
 /* ----------------------------------------------------------------- Badge -- */
@@ -131,7 +180,8 @@ const BADGE_TONE = {
   ok: "bg-ok-soft text-ok border-ok-line",
   warn: "bg-warn-soft text-warn border-warn-line",
   danger: "bg-danger-soft text-danger border-danger-line",
-  info: "bg-primary-soft text-primary-ink border-primary-soft",
+  // Not the accent. A role chip is not the next action on the screen.
+  info: "bg-hover text-ink-2 border-transparent",
   cold: "bg-cold-soft text-cold border-cold-soft",
 };
 
@@ -139,13 +189,13 @@ export function Badge({ tone = "neutral", icon: Icon, className, children }) {
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border",
-        "text-[11px] font-medium leading-5 whitespace-nowrap",
+        "inline-flex items-center gap-1 px-2 h-5 rounded-full border",
+        "text-xs font-medium whitespace-nowrap",
         BADGE_TONE[tone],
         className
       )}
     >
-      {Icon && <Icon size={11} className="shrink-0" />}
+      {Icon && <Icon size={12} className="shrink-0" />}
       {children}
     </span>
   );
@@ -167,7 +217,7 @@ export function Label({ htmlFor, className, children }) {
   return (
     <label
       htmlFor={htmlFor}
-      className={cx("block text-xs font-medium text-ink-2 mb-1.5", className)}
+      className={cx("block text-xs font-medium text-ink-3 mb-1.5", className)}
     >
       {children}
     </label>
@@ -189,17 +239,26 @@ export function Field({ label, hint, error, htmlFor, className, children }) {
 }
 
 const INPUT_BASE =
-  "w-full bg-surface border rounded-md text-sm text-ink placeholder:text-ink-4 " +
-  "transition-colors duration-100 focus:border-primary " +
+  "w-full bg-surface border text-ink placeholder:text-ink-4 " +
+  "transition-colors duration-100 focus:border-primary outline-none " +
   "disabled:bg-sunken disabled:text-ink-3";
 
-export function Input({ invalid, className, size = "md", ...rest }) {
-  const pad = size === "lg" ? "px-3 min-h-12" : "px-2.5 min-h-10";
+/**
+ * `pill` is for an input that sits in a row of chips — a weight range beside
+ * the filters it narrows. It has to take the chips' shape and size or it reads
+ * as a different class of control sitting in the wrong row.
+ */
+export function Input({ invalid, pill = false, className, size = "md", ...rest }) {
+  const shape = pill
+    ? "rounded-full px-3 text-xs h-[var(--ctl-h)]"
+    : size === "lg"
+      ? "rounded-md px-2.5 text-sm h-[var(--ctl-h-lg)]"
+      : "rounded-md px-2.5 text-sm h-[var(--ctl-h)]";
   return (
     <input
       {...rest}
       aria-invalid={invalid || undefined}
-      className={cx(INPUT_BASE, pad, invalid ? "border-danger" : "border-line-strong", className)}
+      className={cx(INPUT_BASE, shape, invalid ? "border-danger" : "border-line-strong", className)}
     />
   );
 }
@@ -209,15 +268,11 @@ export function PinInput({ invalid, className, ...rest }) {
   return (
     <input
       {...rest}
-      type="password"
-      inputMode="numeric"
-      autoComplete="off"
-      maxLength={4}
-      placeholder="••••"
-      aria-invalid={invalid || undefined}
+      type="password" inputMode="numeric" autoComplete="off" maxLength={4}
+      placeholder="••••" aria-invalid={invalid || undefined}
       className={cx(
         INPUT_BASE,
-        "px-3 min-h-12 text-lg tracking-[0.4em] text-center font-mono",
+        "rounded-md px-3 h-[var(--ctl-h-lg)] text-base tracking-[0.4em] font-mono",
         invalid ? "border-danger" : "border-line-strong",
         className
       )}
@@ -225,63 +280,463 @@ export function PinInput({ invalid, className, ...rest }) {
   );
 }
 
-export function SearchInput({ value, onChange, placeholder = "Search…", className }) {
+export function SearchInput({ value, onChange, placeholder = "Search…", pill = false, className }) {
   return (
     <div
       className={cx(
-        "flex items-center gap-2 px-3 min-h-10 bg-surface border border-line-strong rounded-md",
-        "focus-within:border-primary transition-colors duration-100",
+        "flex items-center gap-2 h-[var(--ctl-h)] bg-surface border border-line-strong",
+        // The ring belongs to the whole pill, not just the <input> inside it —
+        // drawn here on focus-within, with the input's own ring switched off,
+        // so a focused search field stays one unbroken shape.
+        "focus-within:border-primary focus-within:shadow-[0_0_0_2px_var(--color-canvas),0_0_0_4px_var(--color-primary)]",
+        "transition-colors duration-100",
+        pill ? "rounded-full px-3" : "rounded-md px-2.5",
         className
       )}
     >
-      <Search size={15} className="text-ink-4 shrink-0" />
+      <Search size={14} className="text-icon-2 shrink-0" />
+      {/* type="text", not "search" — Safari/Chrome each draw their own
+          cancel glyph and field decoration on a search input, on top of the
+          clear button below. One clear affordance, drawn by us. */}
       <input
-        type="search"
-        value={value}
+        type="text" inputMode="search" autoComplete="off" value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="flex-1 min-w-0 bg-transparent border-0 outline-none text-sm text-ink placeholder:text-ink-4"
+        className="flex-1 min-w-0 h-full bg-transparent border-0 outline-none focus-visible:shadow-none text-sm text-ink placeholder:text-ink-4 [&::-webkit-search-cancel-button]:hidden"
       />
-      {value && <IconButton label="Clear search" icon={X} size={14} onClick={() => onChange("")} className="w-6 h-6" />}
+      {value && <IconButton label="Clear search" icon={X} size={13} onClick={() => onChange("")} className="w-5 h-5 shrink-0" />}
+    </div>
+  );
+}
+
+/**
+ * A hover label for a control whose meaning isn't self-evident from its
+ * text alone — built, not the native `title` attribute, which every browser
+ * delays and styles differently (and some skip on touch entirely). Keyboard
+ * focus shows it too, so it isn't a mouse-only explanation.
+ */
+export function Tooltip({ label, children, side = "top", className, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const timerRef = useRef(null);
+
+  const show = () => {
+    if (disabled) return;
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setOpen(true), 350);
+  };
+  const hide = () => {
+    clearTimeout(timerRef.current);
+    setOpen(false);
+  };
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  return (
+    <span
+      className={cx("relative inline-flex shrink-0", className)}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      {children}
+      {!disabled && open && (
+        <span
+          role="tooltip"
+          className={cx(
+            "pointer-events-none absolute z-40 whitespace-nowrap",
+            "px-2 py-1 rounded-md bg-ink text-white text-xs font-medium shadow-md animate-fade-in",
+            side === "top" && "left-1/2 -translate-x-1/2 bottom-full mb-1.5",
+            side === "bottom" && "left-1/2 -translate-x-1/2 top-full mt-1.5",
+            side === "right" && "left-full top-1/2 -translate-y-1/2 ml-1.5"
+          )}
+        >
+          {label}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Every floating part of a Dropdown is cut from one surface — hairline,
+ *  6px radius, no fill of its own beyond the panel colour. Declared once so a
+ *  pinned control and the option list can never drift apart. */
+const PANEL = "rounded-md border border-line-strong bg-surface shadow-md";
+
+/**
+ * A filter that opens a menu instead of a row of pills — built, not the OS
+ * widget. The native `<select>` renders whatever chrome the platform feels
+ * like that week; this one is the same hairline-and-ring surface as every
+ * other floating panel in the system, and it matches its trigger's height and
+ * radius exactly, which no native control can promise across browsers.
+ *
+ * `on` marks the trigger as active (non-default) the same way FilterChip did.
+ */
+export function Dropdown({
+  value,
+  onChange,
+  options,
+  icon: Icon,
+  on = false,
+  disabled,
+  className,
+  menuSide = "bottom",
+  // A control that acts on the option list rather than being one of its
+  // choices — an A–Z toggle, a quick filter. It gets its OWN floating panel,
+  // stacked above or below the options with a gap between them: a thing that
+  // does something to the list is not a row of the list, and a hairline
+  // inside one shared panel was never enough to say so. `pinnedSide` picks
+  // which end of the stack it sits at.
+  pinned,
+  pinnedSide = "top",
+  "aria-label": ariaLabel,
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const current = options.find((o) => o.value === value);
+
+  return (
+    <div ref={rootRef} className={cx("relative inline-block shrink-0", className)}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => setOpen((o) => !o)}
+        className={cx(
+          "inline-flex items-center gap-1.5 px-2.5 h-[var(--ctl-h)] rounded-full border",
+          "text-xs font-medium transition-colors duration-100 max-w-[11rem]",
+          "disabled:opacity-45 disabled:cursor-not-allowed",
+          on ? "border-line-strong bg-hover text-ink" : "border-line bg-surface text-ink-2 hover:bg-hover"
+        )}
+      >
+        {Icon && <Icon size={12} className="shrink-0" />}
+        <span className="truncate">{current?.label ?? ""}</span>
+        <ChevronDown
+          size={12}
+          className={cx("shrink-0 text-ink-4 transition-transform duration-100", open && "rotate-180")}
+        />
+      </button>
+
+      {open && (
+        // `menuSide` flips the stack to open upward — a dropdown near the
+        // bottom of the viewport (a sort control under a long list, say)
+        // shouldn't have to render off-screen to stay below its trigger.
+        // Everything the menu is made of stacks in here, each part its own
+        // surface, so the gap between them carries the separation.
+        <div
+          className={cx(
+            "absolute z-30 left-0 w-max max-w-[16rem] min-w-full flex flex-col gap-1",
+            menuSide === "top" ? "bottom-full mb-1" : "top-full mt-1"
+          )}
+        >
+          {pinned && pinnedSide === "top" && <div className={cx(PANEL, "p-1")}>{pinned}</div>}
+
+          {/* `role="listbox"` is on the options alone. The pinned control is a
+              button, not a choice, and it used to sit inside this element —
+              announced to a screen reader as an option it could never be. */}
+          <div role="listbox" className={cx(PANEL, "py-1")}>
+            {options.map((o) => {
+              const active = o.value === value;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    onChange(o.value);
+                    setOpen(false);
+                  }}
+                  className={cx(
+                    "w-full flex items-center gap-2 text-left px-3 h-[var(--row-h)] text-sm truncate",
+                    active ? "bg-hover text-ink font-medium" : "text-ink-2 hover:bg-faint hover:text-ink"
+                  )}
+                >
+                  {o.icon && <o.icon size={13} className="shrink-0 text-ink-4" />}
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {pinned && pinnedSide === "bottom" && <div className={cx(PANEL, "p-1")}>{pinned}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ ScrollRail -- */
+
+/**
+ * A horizontal row that only becomes a scroller when it has to.
+ *
+ * With room to spare it renders as a plain row: no scroll container, no
+ * fade, nothing that can clip a child. Once the content genuinely outgrows
+ * its space the rail arms itself — overflow scrolling, an edge fade on
+ * whichever side still has something to reveal, and a tapped child gliding
+ * into frame — and disarms again when the space comes back.
+ *
+ * `clipRoom` reserves px at the top and right for decorations that poke
+ * outside a child's own box, a corner badge being the usual one. It is not
+ * optional dressing: overflow-x can't be set without dragging overflow-y
+ * out of `visible` too, so an armed rail always clips vertically, and the
+ * reserved room is the only thing keeping that badge whole. The cancelling
+ * negative margin means reserving it costs no layout.
+ */
+export function ScrollRail({
+  as: Tag = "div",
+  className,
+  style,
+  onScroll,
+  onClick,
+  /** px reserved top/right so a child's overflowing decoration isn't clipped. */
+  clipRoom = 0,
+  /** Fade the edge that still has content behind it. */
+  fade = true,
+  /** Width of that fade. */
+  band = 40,
+  /** Glide a tapped child toward the middle, when the rail scrolls at all. */
+  centerOnClick = false,
+  children,
+  ...rest
+}) {
+  const railRef = useRef(null);
+  const [edges, setEdges] = useState({ overflowing: false, atStart: true, atEnd: true });
+
+  const measure = useCallback(() => {
+    const el = railRef.current;
+    if (!el) return;
+    // Reserved clip room is padding, not content, but scrollWidth counts it
+    // either way — subtract whatever is applied right now so the reservation
+    // can't read as overflow and arm a scroller nothing needs. Read it live
+    // rather than assuming `clipRoom`, since it's only there while armed.
+    const contentWidth = el.scrollWidth - (parseFloat(getComputedStyle(el).paddingRight) || 0);
+    const overflowing = contentWidth > el.clientWidth + 1;
+    const atStart = el.scrollLeft <= 1;
+    const atEnd = el.scrollLeft >= contentWidth - el.clientWidth - 1;
+    // Bail on an unchanged reading: arming changes the rail's own padding,
+    // which trips the observer again, and a fresh object every time would
+    // re-render on each lap of that loop for nothing.
+    setEdges((prev) =>
+      prev.overflowing === overflowing && prev.atStart === atStart && prev.atEnd === atEnd
+        ? prev
+        : { overflowing, atStart, atEnd }
+    );
+  }, []);
+
+  useEffect(() => {
+    const el = railRef.current;
+    if (!el) return;
+    measure();
+    // The rail is clamped by its container, so its own box stops growing the
+    // moment the content overflows. Watching the children too is what
+    // catches a relabelled chip or a late-loading font.
+    const ro = new ResizeObserver(measure);
+    const watch = () => {
+      ro.disconnect();
+      ro.observe(el);
+      for (const child of el.children) ro.observe(child);
+    };
+    watch();
+    const mo = new MutationObserver(() => {
+      watch();
+      measure();
+    });
+    mo.observe(el, { childList: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [measure]);
+
+  const armed = edges.overflowing;
+  const fadeLeft = fade && armed && !edges.atStart;
+  const fadeRight = fade && armed && !edges.atEnd;
+
+  const room = armed
+    ? {
+        paddingTop: clipRoom,
+        marginTop: -clipRoom,
+        paddingRight: clipRoom,
+        marginRight: -clipRoom,
+      }
+    : null;
+
+  const center = (e) => {
+    const el = railRef.current;
+    if (!el || el.scrollWidth <= el.clientWidth + 1) return;
+    // Whatever was tapped, scroll the direct child holding it.
+    let item = e.target;
+    while (item && item.parentElement !== el) item = item.parentElement;
+    if (!item) return;
+    const railBox = el.getBoundingClientRect();
+    const itemBox = item.getBoundingClientRect();
+    const left = itemBox.left - railBox.left - el.clientLeft + el.scrollLeft;
+    // scrollTo, not scrollIntoView: the latter walks every scrollable
+    // ancestor and takes the page with it. Out-of-range targets clamp, so an
+    // item near either end that can't reach the middle still lands in frame.
+    el.scrollTo({
+      left: left + itemBox.width / 2 - el.clientWidth / 2,
+      behavior: "smooth",
+    });
+  };
+
+  const rail = (
+    <Tag
+      {...rest}
+      ref={railRef}
+      onScroll={(e) => {
+        measure();
+        onScroll?.(e);
+      }}
+      onClick={(e) => {
+        if (centerOnClick) center(e);
+        onClick?.(e);
+      }}
+      className={cx(
+        // max-w-full is not optional: without it the rail grows past its
+        // container instead of being clamped by it, and nothing ever reads
+        // as overflowing in the first place.
+        "inline-flex max-w-full",
+        armed && "overflow-x-auto no-scrollbar",
+        className
+      )}
+      style={{ ...room, ...style }}
+    >
+      {children}
+    </Tag>
+  );
+
+  if (!fade) return rail;
+
+  // The last `clipRoom` px are reserved badge room, not content — a band
+  // ending at 100% would spend itself on that empty strip and barely touch
+  // the chips. Pull the right band in by the same amount so it fades the
+  // content edge itself.
+  const maskStops = [
+    fadeLeft ? "transparent" : "black",
+    fadeLeft ? `black ${band}px` : "black 0px",
+    fadeRight ? `black calc(100% - ${clipRoom + band}px)` : "black 100%",
+    fadeRight ? `transparent calc(100% - ${clipRoom}px)` : "black",
+  ].join(", ");
+  const mask = `linear-gradient(to right, ${maskStops})`;
+
+  // A mask forces its element to clip to its own border box — masking paints
+  // into an isolated layer sized to that box — so the wrapper would clip the
+  // very badges the rail's reserved room just freed. Same reservation, same
+  // cancelling margin, one level up, and the mask has room to spare.
+  return (
+    <div
+      className="relative min-w-0"
+      style={{
+        ...room,
+        ...((fadeLeft || fadeRight) ? { WebkitMaskImage: mask, maskImage: mask } : null),
+      }}
+    >
+      {rail}
     </div>
   );
 }
 
 /* ------------------------------------------------------------- Segmented -- */
 
-export function Segmented({ options, value, onChange, size = "md", className, scroll = false }) {
-  const pad = size === "sm" ? "text-xs px-2.5 min-h-8" : "text-sm px-3 min-h-9";
+/** A small notification dot for a tab: a count badge, not a status label —
+ *  always the brand color, so it reads as "count" rather than a severity
+ *  signal. Pinned to the tab's top-right corner. Zero renders nothing — an
+ *  empty dot just adds noise. */
+function TabDot({ count }) {
+  if (!count) return null;
   return (
-    <div
-      role="tablist"
+    <span
       className={cx(
-        "inline-flex gap-1 p-1 bg-sunken rounded-lg",
-        scroll && "max-w-full overflow-x-auto no-scrollbar",
-        className
+        "absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full",
+        "text-[10px] font-semibold leading-none tnum shrink-0 ring-2 ring-surface",
+        "bg-primary text-white"
       )}
     >
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            role="tab"
-            aria-selected={active}
-            disabled={o.disabled}
-            onClick={() => onChange(o.value)}
-            className={cx(
-              "inline-flex items-center justify-center gap-1.5 rounded-md font-medium shrink-0",
-              "transition-colors duration-100 disabled:opacity-45 disabled:cursor-not-allowed",
-              pad,
-              active ? "bg-surface text-ink shadow-xs" : "text-ink-3 hover:text-ink-2"
-            )}
-          >
-            {o.icon && <o.icon size={14} className="shrink-0" />}
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+export function Segmented({
+  options,
+  value,
+  onChange,
+  size = "md",
+  className,
+  /** Let the row scroll rather than squeeze, once it outgrows its space. */
+  scroll = false,
+  /** Fade the scrolling row's edges to hint at what's off-screen. */
+  fade = false,
+}) {
+  // Fixed, not var(--ctl-h) — the touch-target bump (28px -> 44px on a
+  // coarse pointer) scales height alone, and these chips never grew the
+  // padding/gap to match, so on a phone they went tall and squashed
+  // instead of just bigger. Pinning both keeps the pill proportions.
+  const pad = size === "sm" ? "text-xs px-2 h-7" : "text-sm px-2.5 h-7";
+
+  const chips = options.map((o) => {
+    const isActive = o.value === value;
+    return (
+      <button
+        key={o.value}
+        role="tab" aria-selected={isActive}
+        disabled={o.disabled}
+        onClick={() => onChange(o.value)}
+        className={cx(
+          "relative inline-flex items-center justify-center gap-1.5 rounded-md font-medium shrink-0",
+          "transition-colors duration-100 disabled:opacity-45 disabled:cursor-not-allowed",
+          pad,
+          isActive ? "bg-hover text-ink" : "text-ink-2 hover:bg-faint hover:text-ink"
+        )}
+      >
+        {o.icon && <o.icon size={16} className="shrink-0" />}
+        {o.label}
+        {o.count != null && <TabDot count={o.count} />}
+      </button>
+    );
+  });
+
+  // No track. The chips sit on the page and the active one takes the 5% tint.
+  if (!scroll && !fade) {
+    return (
+      <div role="tablist" className={cx("inline-flex gap-1", className)}>
+        {chips}
+      </div>
+    );
+  }
+
+  return (
+    <ScrollRail
+      role="tablist"
+      fade={fade}
+      centerOnClick
+      // Only a counted row has a badge hanging outside its chip to protect.
+      clipRoom={options.some((o) => o.count != null) ? 14 : 0}
+      className={cx("gap-1", className)}
+    >
+      {chips}
+    </ScrollRail>
   );
 }
 
@@ -290,9 +745,7 @@ export function Segmented({ options, value, onChange, size = "md", className, sc
 export function Switch({ checked, onChange, disabled, label, className }) {
   return (
     <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
+      type="button" role="switch" aria-checked={checked}
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
@@ -305,7 +758,7 @@ export function Switch({ checked, onChange, disabled, label, className }) {
     >
       <span
         className={cx(
-          "inline-block h-4 w-4 transform rounded-full bg-white shadow-xs",
+          "inline-block h-4 w-4 transform rounded-full bg-white",
           "transition-transform duration-150",
           checked ? "translate-x-5" : "translate-x-1"
         )}
@@ -316,32 +769,63 @@ export function Switch({ checked, onChange, disabled, label, className }) {
 
 /* ---------------------------------------------------------------- StatCard */
 
-export function StatCard({ icon: Icon, label, value, unit, hint, tone = "neutral" }) {
+/**
+ * A number, and — when `onClick` is given — the filter that number describes.
+ * Making the tile the control means the count and the way to act on it are the
+ * same target, rather than a stat you then have to go and reproduce by hand.
+ */
+export function StatCard({
+  icon: Icon,
+  label,
+  value,
+  unit,
+  hint,
+  tone = "neutral",
+  onClick,
+  active = false,
+}) {
   const toneClass = {
     neutral: "text-ink",
     ok: "text-ok",
     warn: "text-warn",
     danger: "text-danger",
-    primary: "text-primary-ink",
+    primary: "text-ink",
   }[tone];
+
+  const Tag = onClick ? "button" : "div";
+
   return (
-    <div className="bg-surface border border-line rounded-lg shadow-xs px-4 py-3.5">
-      <div className="flex items-center gap-1.5 text-ink-3 mb-2">
-        {Icon && <Icon size={13} className="shrink-0" />}
-        <span className="text-[11px] font-medium uppercase tracking-wide truncate">{label}</span>
+    <Tag
+      {...(onClick
+        ? { onClick, type: "button", "aria-pressed": active, className: undefined }
+        : {})}
+      className={cx(
+        "border rounded-md px-3.5 py-2.5 text-left w-full transition-colors duration-100",
+        // Selection is the 5% tint and a firmer hairline — never a colour wash.
+        active ? "border-line-strong bg-hover" : "border-line bg-surface",
+        onClick && !active && "hover:bg-faint cursor-pointer"
+      )}
+    >
+      <div className="flex items-center gap-1.5 text-ink-3 mb-1">
+        {Icon && <Icon size={12} className="shrink-0" />}
+        <span className="text-xs font-medium truncate">{label}</span>
       </div>
       <div className="flex items-baseline gap-1">
+        {/* 24px against 14px body = 1.7:1. The tile is a number, not a headline. */}
         <span className={cx("text-2xl font-semibold tnum leading-none", toneClass)}>{value}</span>
         {unit && <span className="text-xs text-ink-3 font-medium">{unit}</span>}
       </div>
-      {hint && <div className="mt-1.5 text-xs text-ink-3 truncate">{hint}</div>}
-    </div>
+      {hint && <div className="mt-1 text-xs text-ink-3 truncate">{hint}</div>}
+    </Tag>
   );
 }
 
 export function StatGrid({ className, children }) {
   return (
-    <div className={cx("grid grid-cols-2 lg:grid-cols-4 gap-3", className)}>{children}</div>
+    <div
+      className={cx("grid grid-cols-2 lg:grid-cols-4 gap-2", className)}>
+      {children}
+    </div>
   );
 }
 
@@ -355,9 +839,9 @@ export function ProgressBar({ value, tone = "primary", size = "md", className })
     danger: "bg-danger",
     muted: "bg-line-strong",
   }[tone];
-  const h = size === "sm" ? "h-1.5" : "h-2";
+  const h = size === "sm" ? "h-1" : "h-1.5";
   return (
-    <div className={cx("flex-1 rounded-full bg-sunken overflow-hidden", h, className)}>
+    <div className={cx("flex-1 rounded-full bg-inset overflow-hidden", h, className)}>
       {/* width is a runtime percentage, so it stays an inline style */}
       <div
         className={cx("rounded-full transition-[width] duration-300", h, toneClass)}
@@ -371,17 +855,14 @@ export function ProgressBar({ value, tone = "primary", size = "md", className })
 
 export function EmptyState({ icon: Icon, title, description, action, className }) {
   return (
-    <div className={cx("flex flex-col items-center text-center px-6 py-12", className)}>
-      {Icon && (
-        <div className="flex items-center justify-center w-11 h-11 rounded-full bg-sunken text-ink-3 mb-3">
-          <Icon size={19} />
-        </div>
-      )}
-      <p className="text-sm font-semibold text-ink">{title}</p>
-      {description && (
-        <p className="mt-1 text-xs text-ink-3 leading-relaxed max-w-xs">{description}</p>
-      )}
-      {action && <div className="mt-4">{action}</div>}
+    // State the absence, offer the one action, in a sentence. No centred card,
+    // no illustration, no bordered box — the DNA bans all three.
+    <div className={cx("px-3 py-8", className)}>
+      <p className="text-sm text-ink-3">
+        {title}
+        {description && <span className="text-ink-4"> — {description}</span>}
+      </p>
+      {action && <div className="mt-3">{action}</div>}
     </div>
   );
 }
@@ -389,15 +870,15 @@ export function EmptyState({ icon: Icon, title, description, action, className }
 /* -------------------------------------------------------------- Skeleton -- */
 
 export function Skeleton({ className }) {
-  return <div className={cx("skeleton rounded-md", className)} />;
+  return <div className={cx("skeleton rounded-sm", className)} />;
 }
 
 export function SkeletonRows({ rows = 3 }) {
   return (
-    <div className="space-y-2" aria-hidden="true">
+    <div className="ruled border-t border-line" aria-hidden="true">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="bg-surface border border-line rounded-lg px-4 py-3.5">
-          <Skeleton className="h-4 w-40 mb-2.5" />
+        <div key={i} className="px-3 py-3">
+          <Skeleton className="h-3.5 w-40 mb-2" />
           <Skeleton className="h-3 w-64" />
         </div>
       ))}
@@ -434,34 +915,36 @@ export function Modal({ open, onClose, title, icon: Icon, footer, size = "sm", c
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center animate-fade-in">
       <div
-        className="absolute inset-0 bg-ink/45 backdrop-blur-[2px]"
-        onClick={onClose}
+        className="absolute inset-0 bg-ink/60" onClick={onClose}
         aria-hidden="true"
       />
       <div
         ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
+        role="dialog" aria-modal="true" aria-label={title}
         className={cx(
-          "relative w-full bg-surface shadow-pop border border-line",
-          "rounded-t-xl sm:rounded-xl sm:m-4 pb-safe sm:pb-0",
+          "relative w-full bg-surface shadow-pop",
+          "rounded-t-md sm:rounded-md sm:m-4 pb-safe sm:pb-0",
+          // A column with a capped height: the header and footer hold their
+          // ground and the body scrolls, so a long dialog never pushes its own
+          // actions off the bottom of the screen. dvh rather than vh because
+          // mobile browser chrome makes vh overshoot.
+          "flex flex-col max-h-[88dvh] sm:max-h-[calc(100dvh-2rem)]",
           "animate-slide-up sm:animate-pop-in",
           width
         )}
       >
         {title && (
-          <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-line">
+          <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3">
             <div className="flex items-center gap-2 min-w-0">
-              {Icon && <Icon size={16} className="text-ink-3 shrink-0" />}
-              <h2 className="text-sm font-semibold text-ink truncate">{title}</h2>
+              {Icon && <Icon size={16} className="text-icon-2 shrink-0" />}
+              <h2 className="text-sm font-medium text-ink truncate">{title}</h2>
             </div>
             <IconButton label="Close" icon={X} size={17} onClick={onClose} />
           </div>
         )}
-        <div className="px-5 py-4">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar px-4 pb-4">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-line bg-canvas rounded-b-xl">
+          <div className="shrink-0 flex items-center justify-end gap-2 px-4 py-3 border-t border-line rounded-b-md">
             {footer}
           </div>
         )}
@@ -479,7 +962,7 @@ const TOAST_ICON = { success: CheckCircle2, error: AlertTriangle, info: Info };
 const TOAST_ACCENT = {
   success: "text-ok",
   error: "text-danger",
-  info: "text-primary-ink",
+  info: "text-primary",
 };
 
 export function ToastProvider({ children }) {
@@ -502,9 +985,7 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={toast}>
       {children}
       <div
-        role="status"
-        aria-live="polite"
-        className={cx(
+        role="status" aria-live="polite" className={cx(
           "fixed z-[60] flex flex-col gap-2 pointer-events-none",
           // Above the mobile tab bar on phones, bottom-right on desktop.
           "left-4 right-4 bottom-20 items-stretch",
@@ -517,14 +998,14 @@ export function ToastProvider({ children }) {
             <div
               key={t.id}
               className={cx(
-                "pointer-events-auto w-full flex items-start gap-2.5 px-3.5 py-3",
-                "bg-surface border border-line rounded-lg shadow-lg animate-toast-in"
+                "pointer-events-auto w-full flex items-start gap-2.5 px-3 py-2.5",
+                "bg-surface rounded-md shadow-md animate-toast-in"
               )}
             >
               <Icon size={16} className={cx("shrink-0 mt-px", TOAST_ACCENT[t.tone])} />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink leading-snug">{t.message}</p>
-                {t.detail && <p className="mt-0.5 text-xs text-ink-3 leading-snug">{t.detail}</p>}
+                <p className="text-sm font-medium text-ink">{t.message}</p>
+                {t.detail && <p className="mt-0.5 text-xs text-ink-3">{t.detail}</p>}
               </div>
               <IconButton label="Dismiss" icon={X} size={14} onClick={() => dismiss(t.id)} className="w-6 h-6 -mr-1 -mt-0.5" />
             </div>

@@ -1,77 +1,134 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;450;500;600;700&display=swap");
 @import "tailwindcss";
 
 /* =============================================================================
-   Design tokens
+   ProTrack — Notion DNA
    -----------------------------------------------------------------------------
-   One primary action colour (ink-blue), one brand colour (rust, used for the
-   wordmark and nothing else), and four semantic states. Surfaces are a warm
-   neutral scale rather than a flat cream wash, so elevation actually reads.
-   Anything declared unlayered would outrank every Tailwind utility, so this
-   file stays: tokens, a small base layer, and named utilities.
+   Restyled from .claude/skills/notion (measured from app.notion.com, 2026-08-31).
+   Token NAMES are unchanged so every screen inherits the new look without edits;
+   only the values moved. The three decisions that carry the style:
+
+     1. No webfont. The interface is the reader's OS font. Notion ships none and
+        that is precisely why it reads as a working surface rather than a product.
+     2. Every neutral is warm-biased (R >= G >= B). No slate, no cool grey.
+     3. Elevation is a warm 1px ring. Nothing at rest carries a drop shadow;
+        --shadow-xs and --shadow-sm resolve to the ring, so existing `shadow-xs`
+        call sites became correct without being touched.
+
+   Run `python3 .claude/skills/notion/tools/check.py app/globals.css` after edits.
    ========================================================================== */
 
 @theme {
-  /* ---- Surfaces (back to front) ---- */
-  --color-canvas: #f6f5f3;
-  --color-sunken: #f0eeea;
+  /* ---- Surfaces ----
+     Page and card are the SAME white on purpose. Cards are not a surface in this
+     system; grouping is done with hairline rules. `sunken` is the margin rail. */
+  --color-canvas: #ffffff;
+  --color-sunken: #f9f8f7;
   --color-surface: #ffffff;
   --color-raised: #ffffff;
+  --color-inset: #f0efed;
 
-  /* ---- Lines ---- */
-  --color-line: #e6e3dd;
-  --color-line-strong: #d4cfc6;
+  /* ---- Lines: structure is drawn, not lifted ---- */
+  --color-line: #e6e5e3;
+  --color-line-soft: #f0efed;
+  --color-line-strong: #d4d3cf;
 
-  /* ---- Ink (text) ---- */
-  --color-ink: #1b1917;
-  --color-ink-2: #57514a;
-  --color-ink-3: #8a837a;
-  --color-ink-4: #aaa298;
+  /* ---- Ink. Never #000. ---- */
+  --color-ink: #2c2c2b;
+  --color-ink-2: #7d7a75;
+  --color-ink-3: #a19e99;
+  --color-ink-4: #bcbab6;
 
-  /* ---- Primary action ---- */
-  --color-primary: #1e3a5f;
-  --color-primary-hover: #162c49;
-  --color-primary-soft: #eaeff5;
-  --color-primary-ink: #24486f;
+  /* ---- Icons sit a shade off the text they label ---- */
+  --color-icon: #383836;
+  --color-icon-2: #8e8b86;
 
-  /* ---- Brand (wordmark, accents) ---- */
+  /* ---- The single accent. Budget: under 1% of any screen. ---- */
+  --color-primary: #2383e2;
+  --color-primary-hover: #1a6dbd;
+  --color-primary-soft: rgba(35, 131, 226, 0.14);
+  --color-primary-ink: #2383e2;
+
+  /* ---- Brand. The wordmark and nothing else. ---- */
   --color-brand: #9a3f2c;
-  --color-brand-soft: #f8ebe6;
+  --color-brand-soft: rgba(154, 63, 44, 0.1);
 
-  /* ---- Semantic states ---- */
-  --color-ok: #3d7a49;
-  --color-ok-soft: #e8f0e8;
-  --color-ok-line: #c4dcc7;
+  /* ---- Semantic states.
+     Pills and text only — never a filled block. Soft fills are alpha so they
+     tint whatever they sit on instead of introducing another surface. ---- */
+  --color-ok: #4a7b52;
+  --color-ok-soft: rgba(74, 123, 82, 0.12);
+  --color-ok-line: rgba(74, 123, 82, 0.28);
 
-  --color-warn: #a67611;
-  --color-warn-soft: #fbf2df;
-  --color-warn-line: #ecd9a8;
+  --color-warn: #9a6a12;
+  --color-warn-soft: rgba(154, 106, 18, 0.12);
+  --color-warn-line: rgba(154, 106, 18, 0.28);
 
-  --color-danger: #b0402c;
-  --color-danger-soft: #fbeae5;
-  --color-danger-line: #f0cec3;
+  --color-danger: #b33b28;
+  --color-danger-soft: rgba(179, 59, 40, 0.12);
+  --color-danger-line: rgba(179, 59, 40, 0.28);
 
   --color-cold: #2f79a6;
-  --color-cold-soft: #e8f1f7;
+  --color-cold-soft: rgba(47, 121, 166, 0.12);
 
-  /* ---- Type ---- */
+  /* ---- The 5% hover. One interaction tint for the whole product. ---- */
+  --color-hover: rgba(33, 27, 23, 0.05);
+  --color-faint: rgba(55, 53, 47, 0.03);
+
+  /* ---- Type. One family, and it is the reader's own. ---- */
   --font-sans:
-    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Kept as a token so nothing breaks, but it is deliberately the same stack:
+     a display face is the fastest way to stop looking like this. */
+  --font-display: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
-  /* ---- Elevation ---- */
-  --shadow-xs: 0 1px 2px rgb(27 25 23 / 0.05);
-  --shadow-sm: 0 1px 3px rgb(27 25 23 / 0.07), 0 1px 2px rgb(27 25 23 / 0.04);
-  --shadow-md: 0 4px 12px -2px rgb(27 25 23 / 0.09), 0 2px 4px rgb(27 25 23 / 0.04);
-  --shadow-lg: 0 16px 32px -12px rgb(27 25 23 / 0.18), 0 4px 8px rgb(27 25 23 / 0.05);
-  --shadow-pop: 0 24px 48px -16px rgb(27 25 23 / 0.28);
+  /* ---- Elevation is a ring. The blur is only atmosphere, and only on layers
+     that actually float. ---- */
+  --shadow-xs: 0 0 0 1px rgba(42, 28, 0, 0.07);
+  --shadow-sm: 0 0 0 1px rgba(42, 28, 0, 0.07);
+  --shadow-md:
+    0 8px 12px rgba(25, 25, 25, 0.027), 0 2px 6px rgba(25, 25, 25, 0.027),
+    0 0 0 1px rgba(42, 28, 0, 0.07);
+  --shadow-lg:
+    0 8px 12px rgba(25, 25, 25, 0.027), 0 2px 6px rgba(25, 25, 25, 0.027),
+    0 0 0 1px rgba(42, 28, 0, 0.07);
+  --shadow-pop:
+    0 20px 24px rgba(25, 25, 25, 0.05), 0 5px 8px rgba(25, 25, 25, 0.027),
+    0 0 0 1px rgba(42, 28, 0, 0.07);
 
-  /* ---- Radii ---- */
-  --radius-sm: 5px;
-  --radius-md: 7px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  /* ---- Radii: 4, 6, 16, pill. Nothing else. ---- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 6px;
+  --radius-xl: 16px;
+}
+
+/* =============================================================================
+   Density
+   -----------------------------------------------------------------------------
+   Notion's rows are 2.1-2.6x their text size — desktop reading density. ProTrack
+   also runs on station tablets where a row that tight is a missed tap. So the
+   density is a variable, and the coarse-pointer branch is the only place the
+   DNA is deliberately overridden. Recorded as an approved fork of signature 8.
+   ========================================================================== */
+:root {
+  --row-h: 30px; /* nav and list rows      — 2.14x at 14px */
+  --cell-h: 36px; /* table cells            — 2.57x */
+  --ctl-h: 28px; /* buttons, chips, inputs — 2.0x */
+  --ctl-h-lg: 36px;
+  --gutter: 8.2%; /* the document column */
+  --chrome-pad: 12px; /* strips ignore the gutter */
+}
+
+@media (hover: none) and (pointer: coarse) {
+  :root {
+    --row-h: 48px;
+    --cell-h: 48px;
+    --ctl-h: 44px;
+    --ctl-h-lg: 52px;
+    --gutter: 16px;
+  }
 }
 
 @layer base {
@@ -87,13 +144,20 @@
 
   body {
     min-height: 100vh;
-    min-height: 100dvh; /* mobile browser chrome collapses on scroll */
+    min-height: 100dvh;
     background: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-feature-settings: "cv05", "ss01";
+    font-size: 14px;
+    line-height: 1.2; /* UI leading; prose opts up to 1.5 */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Prose is the only thing that gets 1.5. */
+  p,
+  .prose {
+    line-height: 1.5;
   }
 
   input,
@@ -104,26 +168,27 @@
     color: inherit;
   }
 
-  /* Every number in this product is meant to be compared down a column. */
   .tnum,
   input[type="number"] {
     font-variant-numeric: tabular-nums;
   }
 
-  /* One focus treatment everywhere, keyboard-only. */
+  /* Notion's gap ring: a ground-coloured halo, then the accent. Keyboard only.
+     No border-radius here — a non-inset box-shadow already follows whatever
+     radius the focused element itself carries, so a pill stays a pill and a
+     6px control stays 6px. The old fixed radius squared off every pill. */
   :focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--color-canvas),
+      0 0 0 4px var(--color-primary);
   }
 
   ::selection {
     background: var(--color-primary-soft);
   }
 
-  /* ---- Phones ---- */
   @media (max-width: 639px) {
-    /* iOS zooms the page whenever a focused field is under 16px. */
     input[type="text"],
     input[type="number"],
     input[type="password"],
@@ -134,7 +199,6 @@
     }
   }
 
-  /* ---- Touch devices: station tablets, phones on the floor ---- */
   @media (hover: none) and (pointer: coarse) {
     button,
     [role="button"] {
@@ -161,7 +225,6 @@
    Named utilities
    ========================================================================== */
 
-/* Clears the iPhone home indicator under fixed bottom chrome. */
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -170,7 +233,6 @@
   padding-top: env(safe-area-inset-top, 0px);
 }
 
-/* Swipe is the affordance on touch; the bar is just noise. */
 @utility no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -179,7 +241,6 @@
   }
 }
 
-/* Desktop scrollers keep a slim, low-contrast bar. */
 @utility thin-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line-strong) transparent;
@@ -189,8 +250,38 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The document column. Chrome strips use `chrome-pad` and ignore this. */
+@utility doc-gutter {
+  padding-inline: var(--gutter);
+}
+
+@utility chrome-pad {
+  padding-inline: var(--chrome-pad);
+}
+
+/* One interaction tint, one radius, no resting fill. */
+@utility row {
+  min-height: var(--row-h);
+  border-radius: var(--radius-md);
+  transition: background-color 0.02s linear;
+  &:hover {
+    background: var(--color-hover);
+  }
+}
+
+@utility row-selected {
+  background: var(--color-hover);
+}
+
+/* Rows are separated by a rule, never boxed. */
+@utility ruled {
+  & > * + * {
+    border-top: 1px solid var(--color-line);
+  }
+}
+
 /* =============================================================================
-   Motion
+   Motion — opacity and <=4px of travel. Nothing at rest ever moves.
    ========================================================================== */
 
 @keyframes ui-fade-in {
@@ -205,7 +296,7 @@
 @keyframes ui-pop-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.985);
+    transform: translateY(4px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -227,46 +318,42 @@
 @keyframes ui-toast-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.97);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
-@keyframes ui-shimmer {
-  from {
-    background-position: 200% 0;
+/* A shimmer needs a gradient, and gradients are banned. Opacity instead. */
+@keyframes ui-pulse {
+  0%,
+  100% {
+    opacity: 1;
   }
-  to {
-    background-position: -200% 0;
+  50% {
+    opacity: 0.45;
   }
 }
 
 @utility animate-fade-in {
-  animation: ui-fade-in 0.14s ease-out both;
+  animation: ui-fade-in 0.12s ease-out both;
 }
 
 @utility animate-pop-in {
-  animation: ui-pop-in 0.16s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation: ui-pop-in 0.12s ease-out both;
 }
 
 @utility animate-slide-up {
-  animation: ui-slide-up 0.2s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation: ui-slide-up 0.18s ease-out both;
 }
 
 @utility animate-toast-in {
-  animation: ui-toast-in 0.18s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation: ui-toast-in 0.18s ease-out both;
 }
 
 @utility skeleton {
-  background-image: linear-gradient(
-    90deg,
-    var(--color-sunken) 25%,
-    var(--color-line) 37%,
-    var(--color-sunken) 63%
-  );
-  background-size: 200% 100%;
-  animation: ui-shimmer 1.4s ease-in-out infinite;
+  background-color: var(--color-inset);
+  animation: ui-pulse 1.4s ease-in-out infinite;
 }

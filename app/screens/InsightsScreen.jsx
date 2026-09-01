@@ -54,7 +54,7 @@ function BatchComparison({ record, peers }) {
   return (
     <div className="mt-4 pt-4 border-t border-line space-y-5">
       <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-3">
+        <h4 className="text-xs font-medium text-ink-3 mb-3">
           Yield across {record.product}
         </h4>
 
@@ -71,7 +71,7 @@ function BatchComparison({ record, peers }) {
                     <span
                       className={cx(
                         "w-16 shrink-0 font-mono",
-                        current ? "text-primary-ink font-semibold" : "text-ink-4"
+                        current ? "text-ink font-medium" : "text-ink-4"
                       )}
                     >
                       {p.id}
@@ -108,7 +108,7 @@ function BatchComparison({ record, peers }) {
 
       {stations.length > 0 && (
         <section>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-3">
+          <h4 className="text-xs font-medium text-ink-3 mb-3">
             Time in station
           </h4>
           <div className="space-y-2">
@@ -185,17 +185,14 @@ export default function InsightsScreen({ history }) {
         <StatCard icon={CheckCircle2} label="Average yield" value={stats.avg} unit="%" tone="primary" />
         <StatCard
           icon={AlertTriangle}
-          label="Flagged"
-          value={stats.flagged}
+          label="Flagged" value={stats.flagged}
           tone={stats.flagged ? "warn" : "ok"}
           hint="low yield or slow"
         />
         <StatCard
           icon={TrendingUp}
-          label="Best yield"
-          value={stats.best ? `${stats.best.y}%` : "—"}
-          tone="ok"
-          hint={stats.best?.product}
+          label="Best yield" value={stats.best ? `${stats.best.y}%` : "—"}
+          tone="ok" hint={stats.best?.product}
         />
       </StatGrid>
 
@@ -215,9 +212,7 @@ export default function InsightsScreen({ history }) {
         <Card>
           <EmptyState
             icon={History}
-            title="No batches match"
-            description="Closed batches appear here automatically with the numbers crews entered on the board."
-            action={
+            title="No batches match" description="Closed batches appear here automatically with the numbers crews entered on the board." action={
               query || scope !== "all" ? (
                 <Button
                   onClick={() => {
@@ -245,13 +240,13 @@ export default function InsightsScreen({ history }) {
                 <button
                   onClick={() => setExpanded(open ? null : h.id)}
                   aria-expanded={open}
-                  className="w-full text-left p-4 sm:p-5"
+                  className="w-full text-left p-4"
                 >
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-ink truncate">{h.product}</span>
-                        <span className="text-[11px] font-mono text-ink-4">{h.id}</span>
+                        <span className="text-xs font-mono text-ink-4">{h.id}</span>
                       </div>
                       <div className="mt-1 flex items-center gap-2.5 flex-wrap text-xs text-ink-3">
                         {h.closedOn && <span>{formatDay(h.closedOn)}</span>}
@@ -283,7 +278,7 @@ export default function InsightsScreen({ history }) {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <span className="w-12 shrink-0 text-[11px] uppercase tracking-wide text-ink-3">Yield</span>
+                    <span className="w-12 shrink-0 text-xs text-ink-3">Yield</span>
                     <ProgressBar value={y ?? 0} tone={yieldTone(y)} />
                     <span className="w-12 text-right text-sm font-semibold text-ink tnum">
                       {y != null ? `${y}%` : "—"}
@@ -313,7 +308,7 @@ export default function InsightsScreen({ history }) {
                 </button>
 
                 {open && (
-                  <div className="px-4 sm:px-5 pb-5 -mt-1">
+                  <div className="px-4 pb-5 -mt-1">
                     <BatchComparison
                       record={h}
                       peers={history.filter((p) => p.product === h.product && p.id !== h.id)}

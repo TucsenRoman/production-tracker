@@ -113,12 +113,6 @@ export const GATED_ACTIONS = [
     defaultRequiresLead: false,
   },
   {
-    id: "mark-order-ready",
-    label: "Mark an order ready",
-    detail: "Flags an order as picked, packed, and waiting at the counter.",
-    defaultRequiresLead: false,
-  },
-  {
     id: "reopen-batch",
     label: "Reopen a closed batch",
     detail: "Undoes a finalized batch so its weight or stage can be corrected.",
@@ -126,8 +120,8 @@ export const GATED_ACTIONS = [
   },
   {
     id: "inventory-transfer",
-    label: "Freezer → floor transfer",
-    detail: "Moves stock from the freezer count onto the sales floor.",
+    label: "Move stock between states",
+    detail: "Moves stock between made, freezer and the sales floor.",
     defaultRequiresLead: false,
   },
   {

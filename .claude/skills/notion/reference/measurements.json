@@ -1,0 +1,91 @@
+{
+  "captured": "2026-08-31",
+  "source": "app.notion.com — logged-in workspace, database page + navigation rail",
+  "viewport": [1440, 619],
+  "method": "computed-style probes run in-page; no value below was estimated by eye",
+
+  "css_custom_properties": {
+    "text": { "primary": "#2c2c2b", "secondary": "#7d7a75", "tertiary": "#a19e99", "disabled": "#bcbab6", "accent": "#5f5e59", "inverse": "#f0efed" },
+    "background": { "primary": "#ffffff", "secondary": "#f9f8f7", "tertiary": "#f0efed", "interactive": "#f4f3f3", "elevated": "#ffffff", "accent": "#2c2c2b" },
+    "border": { "primary": "#e6e5e3", "secondary": "#f0efed", "strong": "#d4d3cf", "accent": "#8e8b86", "inverse": "#5f5e59" },
+    "icon": { "primary": "#383836", "secondary": "#8e8b86", "tertiary": "#ada9a3", "disabled": "#bcbab6", "accent": "#7d7a75" },
+    "button_white": { "rest": "#ffffff", "hover": "#efefee", "pressed": "#dfdfde" },
+    "blue": { "accent": "#2383e2", "border_primary": "#cee3f7", "border_secondary": "#e5f2fc", "pill_fill": "rgba(35,131,226,.14)", "focus_ring": "0 0 0 2px #f8f8f7, 0 0 0 4px #2383e2, 0 0 0 6px rgba(255,255,255,.25)" },
+    "total_custom_properties_defined": 772
+  },
+
+  "overlays_measured_in_use": {
+    "hover_and_selected": "rgba(33,27,23,0.05)",
+    "faint": "rgba(55,53,47,0.03)",
+    "scrim": "rgba(15,15,15,0.6)"
+  },
+
+  "painted_coverage_pct_of_viewport": {
+    "note": "top-level painted area, nested fills excluded from the sum",
+    "#ffffff": 78.9,
+    "#f9f8f7 (rail)": 18.8,
+    "rgba(33,27,23,.05)": 1.6,
+    "#2383e2 (accent)": 0.2,
+    "emoji (13 × 18px images)": 0.47,
+    "everything else": "<0.3 combined"
+  },
+
+  "type_inventory": {
+    "font_family_resolved": "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI', Helvetica, Arial, sans-serif",
+    "webfonts_loaded_for_ui": 0,
+    "steps": [
+      { "px": 32, "weight": 700, "line_height_px": 38.4, "ratio": 1.2, "colour": "#2c2c2b", "use": "page title, one per page" },
+      { "px": 16, "weight": 500, "line_height_px": 24, "ratio": 1.5, "colour": "#5f5e59", "use": "rare, breadcrumb emoji scale" },
+      { "px": 14, "weight": 400, "line_height_px": 16.8, "ratio": 1.2, "colour": "#2c2c2b / #7d7a75 / #a19e99", "use": "all UI text" },
+      { "px": 14, "weight": 400, "line_height_px": 21, "ratio": 1.5, "colour": "#2c2c2b", "use": "prose" },
+      { "px": 14, "weight": 500, "line_height_px": 16.8, "ratio": 1.2, "use": "labels, active nav" },
+      { "px": 13, "weight": 400, "line_height_px": 15.6, "ratio": 1.2, "use": "dense secondary" },
+      { "px": 12, "weight": 500, "line_height_px": 16, "ratio": 1.33, "colour": "#a19e99", "use": "section labels" }
+    ],
+    "letter_spacing_on_every_step": "normal",
+    "display_to_body_ratio": 2.286,
+    "largest_to_smallest_ratio": 2.667
+  },
+
+  "geometry": {
+    "rail_width_px": 270,
+    "rail_width_pct": 18.75,
+    "rail_right_border": "none",
+    "pane_width_px": 1170,
+    "document_gutter_px": 96,
+    "document_gutter_pct_of_pane": 8.2,
+    "chrome_strip_height_px": 45,
+    "chrome_strip_padding_px": 12,
+    "chrome_strip_bottom_border": "none",
+    "nav_row_height_px": 30,
+    "nav_row_padding": "5px 8px",
+    "table_row_height_px": 36,
+    "table_header_height_px": 34,
+    "row_height_over_text_size": { "nav": 2.14, "table": 2.57 }
+  },
+
+  "radii_frequency_px": { "6": 45, "4": 39, "3.5": 14, "9999": 6, "3": 3, "100%": 3, "16": 1 },
+
+  "shadows_in_use": {
+    "count_of_elements_with_any_shadow": 5,
+    "all_of_them": "floating layers",
+    "popover": "0 8px 12px rgba(25,25,25,.027), 0 2px 6px rgba(25,25,25,.027), 0 0 0 1px rgba(42,28,0,.07)",
+    "modal": "0 20px 24px rgba(25,25,25,.05), 0 5px 8px rgba(25,25,25,.027), 0 0 0 1px rgba(42,28,0,.07)",
+    "card_hover_ring": "0 0 0 1px rgba(0,0,0,.1)"
+  },
+
+  "icons": {
+    "svg_sizes_by_frequency": { "16x16": 57, "12x12": 19, "22x22": 13, "20x20": 8, "14x14": 3 },
+    "stroke_width_samples": "1px on 126 of 126 sampled nodes, all with a solid fill — filled glyphs, not line icons",
+    "emoji_rendered_as_img_px": { "18": 13, "20": 3, "16": 2, "40": 1 }
+  },
+
+  "probes": [
+    "getComputedStyle(document.documentElement) — enumerate every --* custom property",
+    "walk all elements in viewport, bucket fontSize|fontWeight|color|lineHeight|letterSpacing by frequency",
+    "walk all elements, sum clipped bounding-box area per non-transparent backgroundColor, divide by innerWidth*innerHeight",
+    "bucket borderRadius and boxShadow by frequency across all in-viewport elements",
+    "hover a nav row, then read getComputedStyle on document.querySelectorAll(':hover')",
+    "walk ancestors of the 32px title to recover pane width and padding"
+  ]
+}

@@ -19,7 +19,7 @@ function Select({ value, onChange, options, className }) {
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className={cx(
-        "w-full px-2.5 min-h-10 bg-surface border border-line-strong rounded-md text-sm text-ink",
+        "w-full px-2.5 h-[var(--ctl-h)] bg-surface border border-line-strong rounded-md text-sm text-ink",
         "focus:border-primary transition-colors duration-100",
         className
       )}
@@ -46,15 +46,13 @@ function LocationForm({ initial, onCancel, onSave }) {
         <Input
           autoFocus
           value={form.name}
-          placeholder="e.g. Milaca Meats — Main St"
-          onChange={(e) => set("name", e.target.value)}
+          placeholder="e.g. Milaca Meats — Main St" onChange={(e) => set("name", e.target.value)}
         />
       </Field>
       <Field label="Address">
         <Input
           value={form.address}
-          placeholder="Street, city, state, ZIP"
-          onChange={(e) => set("address", e.target.value)}
+          placeholder="Street, city, state, ZIP" onChange={(e) => set("address", e.target.value)}
         />
       </Field>
       <Field label="Timezone">
@@ -110,24 +108,21 @@ function DeviceDialog({ location, station, existing, allPins, onCancel, onSave }
           the shift — it&rsquo;s not a personal login, so anyone working {station} uses the same one.
         </p>
         <Field
-          label="Device label (optional)"
-          hint='Only needed if this station runs more than one tablet at once — e.g. "Tablet 2".'
+          label="Device label (optional)" hint='Only needed if this station runs more than one tablet at once — e.g. "Tablet 2".'
         >
           <Input
             autoFocus
             value={form.label || ""}
-            placeholder="Leave blank for a single tablet"
-            onChange={(e) => set("label", e.target.value)}
+            placeholder="Leave blank for a single tablet" onChange={(e) => set("label", e.target.value)}
           />
         </Field>
         <Field label="Code" error={pinTaken ? "That code is already in use — try another." : null}>
           <div className="flex items-center gap-2">
             <Input
-              inputMode="numeric"
-              maxLength={4}
+              inputMode="numeric" maxLength={4}
               value={form.pin}
               onChange={(e) => set("pin", e.target.value.replace(/\D/g, "").slice(0, 4))}
-              className="font-mono tracking-[0.3em] text-center"
+              className="font-mono tracking-[0.3em]"
             />
             <Button variant="secondary" icon={Dices} onClick={() => set("pin", generatePin(allPins))}>
               Generate
@@ -145,7 +140,7 @@ function StationDevices({ location, station, crewPins, allPins, canManagePins, o
   const devices = stationPinsFor(crewPins, location.id, station);
 
   return (
-    <div className="px-4 sm:px-5 py-3.5 border-b border-line last:border-b-0">
+    <div className="px-4 py-3 border-b border-line last:border-b-0">
       <div className="flex items-center justify-between gap-3 mb-2">
         <span className="inline-flex items-center gap-2 text-sm font-medium text-ink">
           <Factory size={14} className="text-ink-3 shrink-0" /> {station}
@@ -163,7 +158,7 @@ function StationDevices({ location, station, crewPins, allPins, canManagePins, o
         <div className="space-y-1.5">
           {devices.map((p) => (
             <div key={p.id} className="flex items-center gap-2.5 px-3 py-2 rounded-md bg-sunken">
-              <span className="font-mono text-xs font-semibold tracking-wider text-ink-2 shrink-0">{p.pin}</span>
+              <span className="font-mono text-xs font-medium text-ink-3 shrink-0">{p.pin}</span>
               <span className="flex-1 min-w-0 truncate text-xs text-ink-3">{p.label || "Single tablet"}</span>
               {canManagePins && (
                 <div className="flex items-center gap-0.5 shrink-0">
@@ -256,7 +251,7 @@ function LocationDetail({
         <Card inset>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-2.5 min-w-0">
-              <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-soft text-primary-ink shrink-0">
+              <span className="flex items-center justify-center w-7 h-7 rounded-md bg-inset text-icon shrink-0">
                 <Store size={16} />
               </span>
               <div className="min-w-0">
@@ -286,7 +281,7 @@ function LocationDetail({
       )}
 
       <Card className="overflow-hidden">
-        <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+        <div className="px-4 py-3 border-b border-line">
           <h3 className="text-sm font-semibold text-ink">Floor stations</h3>
           <p className="mt-0.5 text-xs text-ink-3 leading-relaxed">
             Every station here gets its own device code, separate from any other location — that&rsquo;s what keeps
@@ -296,8 +291,7 @@ function LocationDetail({
         {stations.length === 0 ? (
           <EmptyState
             icon={Factory}
-            title="No stations set up yet"
-            description="Add a station from the Stations screen, then come back here to give it a device code."
+            title="No stations set up yet" description="Add a station from the Stations screen, then come back here to give it a device code."
           />
         ) : (
           <div>
@@ -388,9 +382,7 @@ export default function LocationsScreen({
         <Card>
           <EmptyState
             icon={Store}
-            title="No locations yet"
-            description="Each location gets its own staff, inventory, and Clover connection."
-            action={
+            title="No locations yet" description="Each location gets its own staff, inventory, and Clover connection." action={
               canManage ? (
                 <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
                   Add your first location
@@ -421,7 +413,7 @@ export default function LocationsScreen({
               <Card key={loc.id} inset>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-2.5 min-w-0">
-                    <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-soft text-primary-ink shrink-0">
+                    <span className="flex items-center justify-center w-7 h-7 rounded-md bg-inset text-icon shrink-0">
                       <Store size={16} />
                     </span>
                     <div className="min-w-0">

@@ -1,0 +1,599 @@
+{
+  "meta": {
+    "name": "Notion",
+    "slug": "notion",
+    "source": "app.notion.com, logged-in workspace, database page + sidebar, Chrome 1440x619, captured live via computed-style probes",
+    "captured": "2026-08-31",
+    "medium_of_origin": "productivity web app (document editor + database views)",
+    "not_copied": [
+      "The Notion 'N' cube wordmark",
+      "Notion's proprietary illustration set",
+      "Any Notion product name or trade dress",
+      "Emoji glyph artwork (platform-supplied; reference by codepoint only)"
+    ]
+  },
+  "soul": {
+    "one_line": "A sheet of warm paper with a grey margin down the left, hairline rules, near-black type at one size, and no colour except the emoji the user chose.",
+    "adjectives": [
+      "quiet",
+      "papery",
+      "warm-neutral",
+      "flat",
+      "unbranded"
+    ],
+    "lineage": "Word-processor chrome by way of Swiss document typography; the anti-dashboard — no cards, no gradients, no brand colour.",
+    "read_distance": "45cm, single reader, seated. Nothing in this system is designed to be read across a room.",
+    "energy": {
+      "density": 6,
+      "variance": 2,
+      "contrast": 4,
+      "warmth": 6
+    }
+  },
+  "palette": {
+    "note": "Every neutral is warm — biased toward red/yellow, never blue-grey. Sampled, not derived.",
+    "colors": [
+      {
+        "role": "page",
+        "hex": "#ffffff",
+        "name": "paper white",
+        "coverage_pct": 78.9
+      },
+      {
+        "role": "margin",
+        "hex": "#f9f8f7",
+        "name": "warm oat",
+        "coverage_pct": 18.8
+      },
+      {
+        "role": "sunken",
+        "hex": "#f0efed",
+        "name": "pale linen",
+        "coverage_pct": 0.6
+      },
+      {
+        "role": "interactive_fill",
+        "hex": "#f4f3f3",
+        "name": "pressed oat",
+        "coverage_pct": 0.3
+      },
+      {
+        "role": "hover_tint",
+        "hex": "rgba(33,27,23,0.05)",
+        "name": "warm soot 5%",
+        "coverage_pct": 1.6
+      },
+      {
+        "role": "faint_tint",
+        "hex": "rgba(55,53,47,0.03)",
+        "name": "warm soot 3%",
+        "coverage_pct": 0.2
+      },
+      {
+        "role": "line",
+        "hex": "#e6e5e3",
+        "name": "hairline stone",
+        "coverage_pct": 0.3
+      },
+      {
+        "role": "line_soft",
+        "hex": "#f0efed",
+        "name": "ghost rule",
+        "coverage_pct": 0.1
+      },
+      {
+        "role": "line_strong",
+        "hex": "#d4cfc6",
+        "name": "pencil stone",
+        "coverage_pct": 0.05
+      },
+      {
+        "role": "ink",
+        "hex": "#2c2c2b",
+        "name": "soft charcoal",
+        "coverage_pct": 0.4
+      },
+      {
+        "role": "ink_2",
+        "hex": "#7d7a75",
+        "name": "wet slate",
+        "coverage_pct": 0.2
+      },
+      {
+        "role": "ink_3",
+        "hex": "#a19e99",
+        "name": "dry ash",
+        "coverage_pct": 0.1
+      },
+      {
+        "role": "ink_disabled",
+        "hex": "#bcbab6",
+        "name": "chalk",
+        "coverage_pct": 0.02
+      },
+      {
+        "role": "icon",
+        "hex": "#383836",
+        "name": "graphite",
+        "coverage_pct": 0.05
+      },
+      {
+        "role": "icon_2",
+        "hex": "#8e8b86",
+        "name": "pigeon",
+        "coverage_pct": 0.05
+      },
+      {
+        "role": "accent",
+        "hex": "#2383e2",
+        "name": "signal blue",
+        "coverage_pct": 0.2
+      },
+      {
+        "role": "accent_line",
+        "hex": "#cee3f7",
+        "name": "blue haze",
+        "coverage_pct": 0.05
+      },
+      {
+        "role": "user_colour",
+        "hex": "n/a — emoji",
+        "name": "borrowed colour",
+        "coverage_pct": 0.47
+      }
+    ],
+    "measured_notes": [
+      "Ink is #2c2c2b, never #000000. Pure black appears nowhere.",
+      "Accent blue was measured at 0.2% of a full 1440x619 viewport — roughly one button.",
+      "The only saturated colour above 0.5% coverage is emoji, and the system never picks it."
+    ],
+    "banned_behaviours": [
+      "Any blue-grey or cool neutral (#f8fafc, #64748b and the whole slate family)",
+      "Gradients of any kind, including subtle surface gradients",
+      "Coloured page or card backgrounds; tinted status cards",
+      "A second accent hue; accent blue is the only chromatic UI colour",
+      "Semantic red/green/amber as filled blocks — they may only appear as 14%-alpha pill fills or as text",
+      "Pure black #000 and pure-neutral greys (#666, #999, #ccc)"
+    ]
+  },
+  "type": {
+    "families": [
+      {
+        "role": "everything",
+        "family": "ui-sans-serif",
+        "stack": "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI', Helvetica, Arial, sans-serif",
+        "fallback": "system-ui, sans-serif",
+        "weights": [
+          400,
+          500,
+          600,
+          700
+        ],
+        "note": "MEASURED: Notion loads no webfont for its UI. The interface is the reader's OS font. This is load-bearing — a webfont makes the copy look designed, and Notion's whole trick is looking undesigned."
+      },
+      {
+        "role": "numerals-in-columns",
+        "family": "same stack, tabular-nums",
+        "fallback": "ui-monospace",
+        "weights": [
+          400,
+          500
+        ]
+      }
+    ],
+    "scale": {
+      "display_to_body_ratio": 2.29,
+      "largest_to_smallest_ratio": 2.67,
+      "steps_px_at_1440": [
+        12,
+        13,
+        14,
+        16,
+        32
+      ],
+      "max_sizes_per_frame": 4,
+      "note": "MEASURED 32px title against 14px body. This is an extremely flat scale — a third to a half of a normal editorial ramp. Hierarchy is carried by WEIGHT and COLOUR, not size."
+    },
+    "treatment": {
+      "tracking": "normal everywhere; letter-spacing measured as `normal` on all five steps, title included",
+      "leading": "1.2 for UI text and titles (14/16.8, 32/38.4); 1.5 for prose (14/21). Two leadings only.",
+      "case": "sentence case everywhere; ALL-CAPS appears nowhere",
+      "measure": "prose column 708px at 14px = ~90 characters max",
+      "numerals": "tabular in any column of figures",
+      "weight_map": {
+        "400": "body and prose",
+        "500": "labels, section headers, active nav",
+        "600": "rare",
+        "700": "page title only"
+      }
+    }
+  },
+  "space": {
+    "grid": "two-column shell: fixed margin rail + fluid document pane. No card grid, ever.",
+    "margin_rail_pct": 18.75,
+    "content_gutter_pct": 8.2,
+    "gutter_note": "MEASURED 270px rail of 1440; 96px inner gutter each side of a 1170px pane.",
+    "alignment": "left, without exception. Nothing is centred — not titles, not empty states, not numbers.",
+    "rhythm": {
+      "row_height_nav_em": 2.14,
+      "row_height_table_em": 2.57,
+      "row_padding": "5px 8px at 14px text (0.36em 0.57em)",
+      "note": "Rows are ~2.1-2.6x the text size. Tight. Never the 3-4x of a marketing UI."
+    },
+    "negative_space": "concentrated in the gutters and below content, not between elements. Rows sit close; the page breathes at its edges.",
+    "safe_area": "the DOCUMENT column starts at 8.2% from the pane edge; CHROME strips (breadcrumb, toolbars) sit at a flat 12px pad and ignore the gutter. Confusing the two is the most common rebuild error.",
+    "chrome_strip": "45px tall, 12px horizontal pad, NO bottom border — the strip is separated from the document by empty space alone.",
+    "control_heights": {
+      "rule": "ONE control height per screen. --ctl-h (28px desktop / 44px touch) is it.",
+      "exception": "--ctl-h-lg (36/52) for a form's own fields — a sign-in or PIN entry — never for a control that sits in a toolbar beside a button.",
+      "note": "Rows (--row-h 30px) are not controls; a 28px button inside a 40px list row is correct.",
+      "why": "MEASURED failure: applying this spec to a real app produced six distinct control heights on one page (20/26/28/30/36/40). Nothing was wrong on its own — a 36px search field beside a 28px button is only wrong together, which is why the text-level checker cannot see it."
+    }
+  },
+  "surface": {
+    "texture": "none — flat fills only",
+    "edges": "1px hairline #e6e5e3. Structure is drawn with rules, not with elevation.",
+    "elevation": {
+      "resting": "none. MEASURED: only 5 elements on the entire page carried a box-shadow, all of them floating layers.",
+      "floating": "0 8px 12px rgba(25,25,25,.027), 0 2px 6px rgba(25,25,25,.027), 0 0 0 1px rgba(42,28,0,.07)",
+      "modal": "0 20px 24px rgba(25,25,25,.05), 0 5px 8px rgba(25,25,25,.027), 0 0 0 1px rgba(42,28,0,.07)",
+      "note": "Every shadow ends in a warm 1px ring. The ring is the shadow; the blur is atmosphere."
+    },
+    "radius": {
+      "default_px": 6,
+      "tight_px": 4,
+      "pill_px": 9999,
+      "max_px": 16,
+      "measured_frequency": {
+        "6px": 45,
+        "4px": 39,
+        "3.5px": 14,
+        "9999px": 6
+      }
+    },
+    "focus_ring": "0 0 0 2px #f8f8f7, 0 0 0 4px #2383e2 — a gap ring, keyboard only",
+    "iconography": {
+      "size_px": 16,
+      "small_px": 12,
+      "style": "MEASURED: solid filled paths, stroke-width 1px on 126/126 sampled nodes. Filled glyphs, not line icons.",
+      "colour": "#383836 primary, #8e8b86 secondary — icons are never the accent colour"
+    },
+    "imagery": "none in chrome. The only images in the interface are 18px emoji.",
+    "scrollbars": "hairline, inside the rail and scroll panes only; never on the document pane."
+  },
+  "signatures": [
+    {
+      "move": "Warm neutral, no exceptions",
+      "how": "Every grey is biased red/yellow: #f9f8f7, #e6e5e3, #7d7a75, #2c2c2b. Overlays are rgba(33,27,23,a), never rgba(0,0,0,a).",
+      "when": "every surface, line, and text colour",
+      "never": "a cool or blue-grey neutral anywhere, including shadows"
+    },
+    {
+      "move": "Hierarchy by weight and colour, never by size",
+      "how": "Title:body is 2.29:1 and everything below the title is 14px. Rank is 400 -> 500 -> 700 and #a19e99 -> #7d7a75 -> #2c2c2b.",
+      "when": "any time you want to make something more important",
+      "never": "reach for a larger font size to signal importance"
+    },
+    {
+      "move": "Hairlines instead of cards",
+      "how": "Structure is 1px #e6e5e3 rules between rows. No borders on all four sides, no card shells, no resting shadow.",
+      "when": "any list, table, or grouped content",
+      "never": "wrap a group in a bordered, rounded, shadowed box"
+    },
+    {
+      "move": "The 5% hover",
+      "how": "Interactive rows have zero resting background and fill to rgba(33,27,23,0.05) with a 6px radius on hover. Selected uses the same 5%.",
+      "when": "every clickable row, item, and menu entry",
+      "never": "a resting background on a list item, or a hover state that changes text colour"
+    },
+    {
+      "move": "The margin rail",
+      "how": "A fixed 18.75% left rail at #f9f8f7 holds all navigation; the document pane is white and fluid. The rail has no right border — the colour change is the edge.",
+      "when": "any full-app screen",
+      "never": "top navigation, or a rail that draws a border to separate itself"
+    },
+    {
+      "move": "Accent under 1%",
+      "how": "Exactly one filled blue element per screen (the primary action). Measured coverage 0.2%. Selection, identity, active states and repeated row actions are NOT the accent — selection is the 5% tint, identity is ink.",
+      "when": "the single most likely next action",
+      "never": "two blue buttons in one view, blue links inside body text, or blue used decoratively"
+    },
+    {
+      "move": "Ring-first elevation",
+      "how": "Floating layers get a warm 1px ring plus a 2.7%-alpha blur. Nothing that sits on the page has a shadow at all.",
+      "when": "menus, popovers, modals only",
+      "never": "shadow on a resting card, row, or panel"
+    },
+    {
+      "move": "Tight rows",
+      "how": "Row height is 2.1-2.6x the text size, with 0.36em/0.57em padding. Density is a feature.",
+      "when": "lists, tables, nav",
+      "never": "generous 44-56px list rows on a desktop pane"
+    },
+    {
+      "move": "Chrome ignores the gutter",
+      "how": "The document column is inset 8.2% each side; breadcrumb strips and toolbars sit at a flat 12px from the pane edge and are separated by whitespace, never by a border.",
+      "when": "any strip above or beside the document",
+      "never": "a bottom border under the breadcrumb, or chrome aligned to the document's gutter"
+    }
+  ],
+  "weird_move": {
+    "name": "The borrowed colour",
+    "description": "The system bans colour for itself and then hands 100% of colour authority to the user. A full-saturation 18px emoji sits beside every 14px item in an interface whose own palette is warm greys plus one blue at 0.2% coverage. Emoji coverage (0.47%) outweighs accent coverage (0.2%) — the loudest thing on screen is the one thing the designer did not choose.",
+    "rule": "Colour in the content layer comes from user-chosen emoji or per-record tags, never from the system's own palette. The system's job is to stay grey so the user's colour reads.",
+    "present": "exactly one per navigable item; never on system chrome, buttons, or headers",
+    "size_ratio": "emoji is 1.29x the adjacent text size (18px against 14px)"
+  },
+  "archetypes": [
+    {
+      "id": "shell",
+      "purpose": "the frame every screen lives in",
+      "anatomy": "18.75% oat rail (workspace switcher, primary nav, section-labelled lists, bottom-pinned action) + white pane (breadcrumb strip, then content at 8.2% gutters)",
+      "content_shape": "one rail, one pane, no third column"
+    },
+    {
+      "id": "document",
+      "purpose": "a single reading/editing surface",
+      "anatomy": "32/700 title, 14/400 #7d7a75 one-line description directly beneath, then content. No hero, no card, no divider under the title.",
+      "content_shape": "title + subtitle + body"
+    },
+    {
+      "id": "collection",
+      "purpose": "a table or list of records",
+      "anatomy": "view-tab chip row left, icon toolbar + one blue primary right; column header row at 14/400 #7d7a75 with a 16px filled icon per column; 2.57em rows separated by 1px #e6e5e3 rules; a '+ New' row as the last row, not a floating button",
+      "content_shape": "3-6 columns, unlimited rows"
+    },
+    {
+      "id": "nav_list",
+      "purpose": "a grouped list of destinations",
+      "anatomy": "12/500 #a19e99 sentence-case section label, then 2.14em rows of [18px emoji][8px gap][14/400 label], hover-only affordances flush right",
+      "content_shape": "labelled groups of 4-12 items"
+    },
+    {
+      "id": "overlay",
+      "purpose": "menu, popover, or dialog",
+      "anatomy": "white, 6px radius, ring-first shadow, 2.14em rows, 14/400 labels, 12px icons, no title bar unless the action is destructive",
+      "content_shape": "a short list of verbs"
+    },
+    {
+      "id": "empty",
+      "purpose": "nothing here yet",
+      "anatomy": "left-aligned 14/400 #a19e99 sentence with an inline text action. No illustration, no centred card, no bordered box.",
+      "content_shape": "one sentence"
+    }
+  ],
+  "motion": {
+    "easing": "ease-out for entrances; linear for hover tints",
+    "durations_ms": {
+      "hover_tint": 20,
+      "menu_in": 120,
+      "modal_in": 180
+    },
+    "entrances": "opacity plus <=4px translate. Overlays scale from 0.98 at most.",
+    "never_moves": "rows, rules, the rail, the title. Nothing in the resting page ever animates.",
+    "reduced_motion": "all durations to 0.01ms; opacity end-state only",
+    "confidence": "INFERRED — durations were not instrumented, only observed."
+  },
+  "voice": {
+    "register": "a competent colleague writing a note, not a product speaking",
+    "sentence_length": "under 15 words; one clause",
+    "headline_shape": "a noun phrase naming the thing, sentence case, no verb (\"Loop'd Feedback\", not \"Manage your feedback\")",
+    "labels": "verbs for actions (\"New\", \"Share\"), nouns for places",
+    "banned_words": [
+      "seamless",
+      "powerful",
+      "effortless",
+      "unlock",
+      "supercharge",
+      "beautiful",
+      "simply",
+      "just",
+      "Oops!",
+      "Whoops"
+    ],
+    "empty_state_shape": "state the absence, then offer the one action, in one sentence"
+  },
+  "bans": [
+    "Never use a cool or blue-grey neutral — every grey is warm-biased.",
+    "Never use pure black #000 or pure white text on colour.",
+    "Never put a resting box-shadow on anything; shadows belong to floating layers only.",
+    "Never wrap content in a card — hairline rules do the grouping.",
+    "Never centre anything. Everything is left-aligned.",
+    "Never load a webfont for interface text; the OS font is the design.",
+    "Never use more than 4 type sizes in one frame.",
+    "Never use size to express hierarchy where weight or ink colour would do.",
+    "Never let filled accent colour exceed 1% of the canvas.",
+    "Never use a stroke/outline icon set; icons are filled glyphs.",
+    "Never use gradients, glows, glass, or blur as decoration.",
+    "Never use ALL-CAPS labels or letter-spaced type.",
+    "Never use an illustration or spot graphic in an empty state.",
+    "Never place a border on all four sides of a list container.",
+    "Never let a border radius exceed 16px outside a pill.",
+    "Never animate a CSS value that relies on the `auto` keyword (auto margins, auto-flipped justify-content) — it can't interpolate and will snap instead of ease.",
+    "Never let a conditional change a wrapper element's type around content mid-transition — it forces a remount and silently cancels the animation."
+  ],
+  "tests": [
+    {
+      "id": "T1",
+      "test": "Filled accent colour covers under 1% of the rendered canvas.",
+      "automatable": true
+    },
+    {
+      "id": "T2",
+      "test": "No more than 4 distinct font sizes are used in any single frame.",
+      "automatable": true
+    },
+    {
+      "id": "T3",
+      "test": "Largest type is between 2.0x and 2.8x the body size; nothing sits between body and title except one 16px step.",
+      "automatable": true
+    },
+    {
+      "id": "T4",
+      "test": "Every grey in the palette is warm: for each neutral, red channel >= green channel >= blue channel.",
+      "automatable": true
+    },
+    {
+      "id": "T5",
+      "test": "No element that is part of the resting page carries a box-shadow. Only overlays do.",
+      "automatable": true
+    },
+    {
+      "id": "T6",
+      "test": "Every border radius is 4px, 6px, 16px, or a full pill. Nothing else.",
+      "automatable": true
+    },
+    {
+      "id": "T7",
+      "test": "Interactive rows have a transparent resting background and a hover fill within 1% of rgba(33,27,23,0.05).",
+      "automatable": true
+    },
+    {
+      "id": "T8",
+      "test": "The weird move is present: exactly one user-chosen colour token (emoji or tag) per navigable item, and zero elsewhere.",
+      "automatable": false
+    },
+    {
+      "id": "T9",
+      "test": "Nothing in the layout is horizontally centred; every text block is left-aligned.",
+      "automatable": true
+    },
+    {
+      "id": "T10",
+      "test": "No @font-face or webfont link is loaded for interface text.",
+      "automatable": true
+    },
+    {
+      "id": "T11",
+      "test": "Row height divided by its text size is between 2.0 and 2.7.",
+      "automatable": true
+    },
+    {
+      "id": "T12",
+      "test": "The left rail measures 17-20% of viewport width and has no right border.",
+      "automatable": true
+    },
+    {
+      "id": "T13",
+      "test": "Body text measure stays under 95 characters per line.",
+      "automatable": true
+    },
+    {
+      "id": "T14",
+      "test": "Ink colour is #2c2c2b, not #000000, and no text uses a pure-neutral grey.",
+      "automatable": true
+    },
+    {
+      "id": "T15",
+      "test": "No chrome strip (breadcrumb, toolbar, header) has a bottom border; separation is by whitespace only.",
+      "automatable": true
+    },
+    {
+      "id": "T16",
+      "test": "Chrome strips pad to a flat 12px while the document column pads to 8.2% — the two are not equal.",
+      "automatable": true
+    },
+    {
+      "id": "T17",
+      "test": "No selected state, identity marker, active tab or repeated row action uses the accent colour; the accent appears on at most one control per screen.",
+      "automatable": false
+    },
+    {
+      "id": "T18",
+      "test": "Every control on a page resolves to one of two heights: the shared control height, or the form-field height. Controls sharing a visual row have identical heights, radii and font sizes.",
+      "automatable": true,
+      "tool": "tools/audit-consistency.js"
+    },
+    {
+      "id": "T19",
+      "test": "Every collapsing/expanding control (sidebar rails, labels, revealed rows) transitions smoothly in both directions on repeated toggling — no snap, no jitter, no skipped animation on remount.",
+      "automatable": false
+    }
+  ],
+  "reconstruction": {
+    "attempted": true,
+    "passes": 3,
+    "method": "Rebuilt the captured screen as a standalone HTML file from dna.json alone, rendered headless at 1440x619 @2x, and placed it beside the original capture.",
+    "gaps_found": [
+      "PASS 1 — the rail got a right border. The original has none: the 18.8% colour change IS the edge. Folded into signatures[4].",
+      "PASS 1 — list rows got a resting #f9f8f7 fill. The original rests fully transparent inside the coloured rail and only fills at 5% on hover. Folded into signatures[3].",
+      "PASS 1 — the page description came out at 20px. The original is 14px #7d7a75, the same size as body, separated from it by colour alone. This is the flat-scale rule biting. Folded into archetypes.document.",
+      "PASS 1 — the primary action was drawn as a floating button. The original keeps blue inline in the toolbar and puts '+ New' as the last table ROW. Folded into archetypes.collection.",
+      "PASS 1 — emoji were omitted and the rebuild read as a generic grey admin panel. The clearest proof the weird move is load-bearing.",
+      "PASS 2 — the spec's safe_area rule ('content never starts closer than 8% from the pane edge') wrongly implied the breadcrumb strip should also inset 8.2%. The original pads chrome to a flat 12px. Split into space.safe_area + space.chrome_strip + signatures[8].",
+      "PASS 2 — the spec never said the breadcrumb strip has NO bottom border. Whitespace alone separates chrome from document. Added as T15.",
+      "PASS 2 — the spec never mentioned scrollbars. The original shows a hairline scrollbar inside the rail only. Added to surface.scrollbars.",
+      "PASS 3 (applying the spec to a real app, ProTrack) — the spec had no rule against spending the accent on SELECTION and IDENTITY. Active nav, selected filter chips, 'this row is you' avatars, step indicators and eighteen repeated row actions were all painted with the one accent colour, taking coverage to roughly 3% against a 1% budget. Selection is the 5% warm tint; identity is ink; a repeated row action is never primary. Folded into signatures[5] and tests T17.",
+      "PASS 4 — the spec fixed colour, type and elevation and said nothing about CONTROL SIZING, so the restyle introduced its own inconsistency: an Input whose two size branches resolved to the same value, a 36px search field beside 28px buttons, avatars at 24/32/36/44 across five screens, and `rounded-lg`/`rounded-md` as two names for 6px. None of it is visible in source text; all of it is obvious on screen. Added space.control_heights, T18, and tools/audit-consistency.js."
+    ]
+  },
+  "uncertainty": [
+    {
+      "item": "motion durations and easing curves",
+      "confidence": 0.4,
+      "why": "observed, not instrumented"
+    },
+    {
+      "item": "coverage percentages",
+      "confidence": 0.75,
+      "why": "measured on one 1440x619 frame of a near-empty database; a dense page shifts ink and line coverage upward and white downward"
+    },
+    {
+      "item": "voice / banned words",
+      "confidence": 0.5,
+      "why": "inferred from a handful of UI strings, not from a written style guide"
+    },
+    {
+      "item": "modal shadow values",
+      "confidence": 0.7,
+      "why": "read from CSS custom properties rather than from a rendered modal"
+    },
+    {
+      "item": "the 708px prose measure",
+      "confidence": 0.6,
+      "why": "the captured page was a database view; the measure comes from the pane geometry, not from a rendered paragraph"
+    },
+    {
+      "item": "whether the no-cards ban holds for gallery and timeline views",
+      "confidence": 0.5,
+      "why": "the ban was measured from a table view and survived contact with a board; gallery and timeline are still untested"
+    }
+  ],
+  "approved_forks": [
+    {
+      "fork": "Touch density",
+      "signature": "signatures[7] — tight rows",
+      "what": "Under (hover:none) and (pointer:coarse), --row-h goes 30px -> 48px and --ctl-h 28px -> 44px.",
+      "why": "Notion's 2.1-2.6x rows are desktop-reading density. ProTrack runs on station tablets where that row is a missed tap. Density is the one signature that answers to the input device rather than to the eye.",
+      "cost": "On a tablet the screen reads noticeably looser than the reference. Accepted."
+    },
+    {
+      "fork": "Item cards on a board view — PROPOSED, THEN RETRACTED",
+      "signature": "bans[3] — never wrap content in a card",
+      "what": "Kanban batch cards were going to keep a hairline box, on the argument that the ban was measured from a table view and Notion's own board view uses cards.",
+      "why_retracted": "Flattening the shared Card primitive turned the board's columns into ruled rows as a side effect, and the result reads better than the boxed version did — the columns scan as lists and the eye stops counting rectangles. The argument for the fork was sound in the abstract and wrong in the render. The ban holds.",
+      "lesson": "A fork argued from first principles is a hypothesis. Render it before writing it down."
+    },
+    {
+      "fork": "Bordered summary tiles",
+      "signature": "bans[3] — never wrap content in a card",
+      "what": "The four inventory summary tiles are 6px-radius hairline boxes with a 10px gap, instead of the ruled strip the ban produced.",
+      "why": "User's call, and the distinction holds: each tile is a separate TARGET — clicking one filters the list — so the box is the hit area, not decoration. The ban is about boxing a group; four independent controls are not a group. No shadow, no colour wash, selection still the 5% tint.",
+      "cost": "Four rectangles where the reference would have shown one ruled strip. The board's columns stayed ruled, so the two readings coexist in the same product — watch for that drifting into 'boxes everywhere'.",
+      "rule_of_thumb": "Box a thing you can click. Rule a thing you only read."
+    }
+  ],
+  "implementation_discipline": {
+    "confidence": "OBSERVED — from rebuilding a live sidebar in this app to match this DNA, 2026-09-01. Not measured from Notion; a build-quality standard this skill now holds itself to.",
+    "principle": "The DNA is not just what a frame looks like at rest — it's what every frame looks like mid-transition, and whether the interaction underneath is actually sound. A collapsing rail that jitters, mis-centers, or snaps instead of easing reads as sloppy no matter how correct the palette is.",
+    "rules": [
+      "Animate only plain numeric CSS values (width, max-width, margin, opacity). Never animate a value that includes the `auto` keyword (`margin-left: auto`, `justify-content` flips) — browsers can't interpolate it, so it snaps on one frame and looks like a jitter, not a transition.",
+      "Collapse content, never unmount it. A label that hides via `display:none` or a conditional `{show && <X/>}` cannot transition — animate its own width/max-width/opacity to zero instead, so the row visibly narrows.",
+      "Never let a conditional swap the *type* of a wrapper element around content that's mid-transition (e.g. `<Tooltip>` in one branch, `<React.Fragment>` in the other). React remounts the whole subtree on a type change, which silently kills any transition running on it — the content just snaps to its end state. Keep the wrapper constant and toggle a prop (a `disabled` flag, a class) instead.",
+      "Every state a control can be in shares one fixed alignment axis. An icon that's centered in a 32px collapsed rail must sit on the exact same axis as the same icon at rest in the 240px expanded state — work out the pixel math (padding + icon half-width) rather than eyeballing it, and centered/collapsed states should reuse the open state's box model, not their own bespoke one.",
+      "Reuse the app's own primitives for on-hover text (a Tooltip component), not the browser's native `title` — native tooltips break the DNA's own timing, radius, and type scale the moment they appear.",
+      "A hotkey for a repeated UI action should match the platform convention users already carry (e.g. Ctrl/Cmd+B for a sidebar toggle, as VS Code, Slack, Linear, and Notion all use) rather than an invented binding, and it should be discoverable — surfaced in the same tooltip that names the action, not left as tribal knowledge.",
+      "Verify a transition by triggering it back and forth several times, not once — a remount bug or an auto-margin snap is often invisible on the first toggle and only shows up on the second or third."
+    ]
+  }
+}

@@ -1,158 +1,88 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  CalendarClock,
   CalendarDays,
   History,
   LayoutGrid,
-  LogOut,
+  ListTodo,
   Package,
+  UsersRound,
 } from "lucide-react";
 
-import { Badge, ToastProvider, cx, useToast } from "./components/ui";
+import { Badge, SlotProvider, SlotTarget, ToastProvider, useToast } from "./components/ui";
+import AppShell from "./components/AppShell";
+import RoleSwitcher from "./components/RoleSwitcher";
 import SignInScreen from "./screens/SignInScreen";
 import BoardScreen from "./screens/BoardScreen";
+import TodoScreen from "./screens/TodoScreen";
 import ScheduleScreen from "./screens/ScheduleScreen";
-import OrdersScreen from "./screens/OrdersScreen";
 import InventoryScreen from "./screens/InventoryScreen";
 import InsightsScreen from "./screens/InsightsScreen";
+import TeamScreen from "./screens/TeamScreen";
 import { usePersistentState, useSession } from "./lib/store";
+import { StaffProvider } from "./lib/staff";
 import {
+  DEFAULT_TASK_CATEGORIES,
   SEED,
   STAGES,
   STATIONS,
+  categoryInUse,
+  defaultThreshold,
+  isManager,
+  moveStock,
   newId,
   nextStageIndex,
+  normalizeItem,
+  productType,
+  putOnFloor,
+  stateLabel,
   todayKey,
   yieldPct,
 } from "./lib/domain";
 
 const NAV = [
   { id: "board", label: "Production board", short: "Board", icon: LayoutGrid },
+  { id: "todo", label: "To-Do", short: "To-Do", icon: ListTodo },
   { id: "schedule", label: "Schedule", short: "Schedule", icon: CalendarDays, managerOnly: true },
-  { id: "orders", label: "Custom orders", short: "Orders", icon: CalendarClock },
   { id: "inventory", label: "Inventory", short: "Inventory", icon: Package },
   { id: "insights", label: "Insights", short: "Insights", icon: History, managerOnly: true },
+  { id: "team", label: "Team & PINs", short: "Team", icon: UsersRound },
 ];
 
 /* --------------------------------------------------------------- App shell */
 
-function Shell({ user, nav, view, onNavigate, onSignOut, children }) {
-  const active = nav.find((n) => n.id === view) || nav[0];
-
+function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, children }) {
   return (
-    <div className="min-h-screen bg-canvas">
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 lg:w-60 lg:z-20 bg-surface border-r border-line">
-        <div className="px-5 py-5">
-          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-brand">
-            Milaca Meats
-          </p>
-          <p className="mt-1 text-base font-bold text-ink font-display leading-tight">Production</p>
-        </div>
-
-        <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto thin-scrollbar">
-          {nav.map((n) => {
-            const on = n.id === view;
-            return (
-              <button
-                key={n.id}
-                onClick={() => onNavigate(n.id)}
-                aria-current={on ? "page" : undefined}
-                className={cx(
-                  "w-full flex items-center gap-2.5 px-3 min-h-10 rounded-md text-sm font-medium",
-                  "transition-colors duration-100",
-                  on ? "bg-primary-soft text-primary-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
-                )}
-              >
-                <n.icon size={16} className="shrink-0" />
-                <span className="truncate">{n.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="p-3 border-t border-line">
-          <div className="flex items-center gap-2.5 px-2 py-2">
-            <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white text-xs font-semibold shrink-0">
-              {user.initials}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-ink truncate leading-tight">{user.name}</p>
-              <p className="text-xs text-ink-3 capitalize truncate">
-                {user.role === "manager" ? "Manager" : user.station || "Crew"}
-              </p>
-            </div>
-            <button
-              onClick={onSignOut}
-              aria-label="Sign out"
-              title="Sign out"
-              className="w-8 h-8 flex items-center justify-center rounded-md text-ink-3 hover:text-danger hover:bg-sunken transition-colors"
-            >
-              <LogOut size={15} />
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      {/* Mobile top bar */}
-      <header className="lg:hidden sticky top-0 z-30 bg-canvas/90 backdrop-blur-sm border-b border-line pt-safe">
-        <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-brand leading-none mb-1.5">
-              Milaca Meats
-            </p>
-            <h1 className="text-lg font-bold text-ink font-display leading-none truncate">
-              {active.label}
-            </h1>
-          </div>
-          <button
-            onClick={onSignOut}
-            className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-full bg-surface border border-line shrink-0"
-          >
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-[10px] font-semibold">
-              {user.initials}
-            </span>
-            <LogOut size={13} className="text-ink-3" />
-          </button>
-        </div>
-      </header>
-
-      <main className="lg:pl-60">
-        <div className="mx-auto w-full max-w-5xl px-4 pt-5 pb-28 sm:px-6 lg:px-10 lg:pt-8 lg:pb-14">
-          <div className="hidden lg:flex items-center justify-between gap-4 mb-6">
-            <h2 className="text-2xl font-bold text-ink font-display">{active.label}</h2>
-            {user.role === "manager" && <Badge tone="info">Manager</Badge>}
-          </div>
-          {children}
-        </div>
-      </main>
-
-      {/* Mobile tab bar */}
-      <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-surface border-t border-line pb-safe">
-        <div className={cx("grid", nav.length === 5 ? "grid-cols-5" : "grid-cols-3")}>
-          {nav.map((n) => {
-            const on = n.id === view;
-            return (
-              <button
-                key={n.id}
-                onClick={() => onNavigate(n.id)}
-                aria-current={on ? "page" : undefined}
-                className={cx(
-                  "flex flex-col items-center justify-center gap-1 min-h-14 px-1 py-2",
-                  "text-[10px] font-medium transition-colors duration-100",
-                  on ? "text-primary-ink" : "text-ink-3"
-                )}
-              >
-                <n.icon size={19} className="shrink-0" />
-                <span className="truncate max-w-full">{n.short}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-    </div>
+    <AppShell
+      brand="Milaca Meats"
+      nav={nav}
+      view={view}
+      onNavigate={onNavigate}
+      onSignOut={onSignOut}
+      initials={user.initials}
+      userName={user.name}
+      userBadge={
+        isManager(user) ? (
+          <Badge className="shrink-0">{user.role === "owner" ? "Owner" : "Manager"}</Badge>
+        ) : null
+      }
+      userMeta={
+        !isManager(user) ? (
+          <p className="text-xs text-ink-3 capitalize truncate">{user.station || "Crew"}</p>
+        ) : null
+      }
+      pageActions={<SlotTarget name="page-actions" className="flex items-center gap-2" />}
+      pageSubtitle={
+        <SlotTarget
+          name="page-subtitle"
+          className="empty:hidden mt-1 text-sm text-ink-2 leading-normal"
+        />
+      }
+      overlay={<RoleSwitcher user={user} onChange={onViewAsRole} />}
+    >
+      {children}
+    </AppShell>
   );
 }
 
@@ -167,11 +97,16 @@ function Application() {
   const [batches, setBatches] = usePersistentState("batches", SEED.batches);
   const [history, setHistory] = usePersistentState("history", SEED.history);
   const [inventory, setInventory] = usePersistentState("inventory", SEED.inventory);
-  const [orders, setOrders] = usePersistentState("orders", SEED.orders);
   const [schedule, setSchedule] = usePersistentState("schedule", SEED.schedule);
+  const [todos, setTodos] = usePersistentState("todos", SEED.todos);
+  const [taskCategories, setTaskCategories] = usePersistentState("taskCategories", DEFAULT_TASK_CATEGORIES);
+
+  /** Records saved before the third state existed get filled in on read. */
+  const stock = useMemo(() => inventory.map(normalizeItem), [inventory]);
 
   const [cloverStatus, setCloverStatus] = useState("loading");
   const [syncedAt, setSyncedAt] = useState(null);
+  const [velocity, setVelocity] = useState({});
 
   /* ---- Clover ---- */
 
@@ -181,27 +116,50 @@ function Application() {
       const res = await fetch("/api/inventory");
       const data = await res.json();
       const items = (data.items || []).filter((i) => !i.hidden);
-      if (data.error || items.length === 0) throw new Error(data.error || "No items");
+      // An empty result is a legitimate Clover state (e.g. every product was
+      // deleted) and should render the empty state, not "Clover unreachable".
+      if (data.error) throw new Error(data.error);
+
+      // Clover lets two separate items share one display name (a duplicate
+      // entry, or two SKUs nobody renamed apart). Every other part of this
+      // app treats the name as the product's identity, so collapse
+      // same-named items into a single row here, summing their sellable
+      // stock, instead of letting the duplicate name reach the list below.
+      const stockByName = new Map();
+      for (const item of items) {
+        stockByName.set(item.name, (stockByName.get(item.name) ?? 0) + (item.stockCount ?? 0));
+      }
 
       setInventory((prev) =>
-        items.map((item) => {
-          const stock = item.stockCount ?? 0;
-          // Clover tracks a single count; the freezer/floor split lives here, so
-          // an existing local split is preserved across refreshes.
-          const existing = prev.find((p) => p.product === item.name);
-          return {
-            product: item.name,
+        Array.from(stockByName.entries()).map(([name, stock]) => {
+          // Clover only knows what is sellable. The made / freezer / floor split
+          // lives here, so an existing local split survives every refresh.
+          const existing = prev.find((p) => p.product === name);
+          return normalizeItem({
+            product: name,
+            type: existing?.type ?? productType(name),
+            made: existing?.made ?? 0,
             freezer: existing?.freezer ?? 0,
             floor: existing ? existing.floor : stock,
-            threshold: existing?.threshold ?? Math.max(3, Math.round(stock * 0.25)),
-            unit: existing?.unit ?? "unit",
-          };
+            threshold: existing?.threshold ?? defaultThreshold(name),
+            unit: existing?.unit ?? "lb",
+          });
         })
       );
       setCloverStatus("live");
       setSyncedAt(new Date().toISOString());
     } catch {
       setCloverStatus("error");
+    }
+
+    // Days-of-cover is a bonus signal — a merchant with no order history simply
+    // doesn't get one, and the screen carries on without it.
+    try {
+      const res = await fetch("/api/sales?days=28");
+      const data = await res.json();
+      setVelocity(data.perDay || {});
+    } catch {
+      setVelocity({});
     }
   }, [setInventory]);
 
@@ -216,51 +174,70 @@ function Application() {
    * (a new recipe, a first run). Dropping that weight on the floor would be a
    * silent inventory loss, so the product is created instead.
    */
-  const addStock = (product, amount, destination) => {
+  const addStock = (product, amount, state) => {
     setInventory((prev) => {
       const known = prev.some((i) => i.product === product);
       if (!known) {
         return [
           ...prev,
-          {
+          normalizeItem({
             product,
-            freezer: destination === "retail" ? 0 : amount,
-            floor: destination === "retail" ? amount : 0,
-            threshold: Math.max(3, Math.round(amount * 0.25)),
+            made: 0,
+            freezer: 0,
+            floor: 0,
+            [state]: amount,
+            threshold: defaultThreshold(product),
             unit: prev[0]?.unit ?? "lb",
-          },
+          }),
         ];
       }
-      return prev.map((i) =>
-        i.product === product
-          ? destination === "retail"
-            ? { ...i, floor: +(i.floor + amount).toFixed(1) }
-            : { ...i, freezer: +(i.freezer + amount).toFixed(1) }
-          : i
-      );
+      return prev.map((i) => {
+        if (i.product !== product) return i;
+        const item = normalizeItem(i);
+        return { ...item, [state]: +(item[state] + amount).toFixed(1) };
+      });
     });
   };
 
-  const handleTransfer = (product, amount) => {
+  const handleMove = (product, from, to, amount) => {
     setInventory((prev) =>
-      prev.map((i) =>
-        i.product === product
-          ? {
-              ...i,
-              freezer: +(i.freezer - amount).toFixed(1),
-              floor: +(i.floor + amount).toFixed(1),
-            }
-          : i
-      )
+      prev.map((i) => (i.product === product ? moveStock(normalizeItem(i), from, to, amount) : i))
     );
-    toast(`Moved ${amount} ${product} to the floor`, {
-      detail: "Location updated — Clover's total is unchanged.",
+    toast(`Moved ${amount} ${product}`, {
+      detail:
+        to === "floor"
+          ? `${stateLabel(from)} → on floor. Now sellable in Clover.`
+          : `${stateLabel(from)} → ${stateLabel(to).toLowerCase()}. Clover's floor count is unchanged.`,
+    });
+  };
+
+  const handleUpdateProduct = (product, patch) => {
+    setInventory((prev) =>
+      prev.map((i) => (i.product === product ? { ...normalizeItem(i), ...patch } : i))
+    );
+    toast(`${product} updated`, {
+      detail: `${patch.threshold}–${patch.max} ${patch.unit} · ${patch.type}`,
+    });
+  };
+
+  const handleRemoveProduct = (product) => {
+    setInventory((prev) => prev.filter((i) => i.product !== product));
+    toast(`${product} removed`, {
+      detail: "It will come back on the next sync if Clover still lists it.",
     });
   };
 
   const handleAddProduct = (item) => {
-    setInventory((prev) => [...prev, item]);
-    toast(`${item.product} added`, { detail: "Starts at zero in both locations." });
+    setInventory((prev) => [...prev, normalizeItem(item)]);
+    toast(`${item.product} added`, { detail: "Starts at zero in all three states." });
+  };
+
+  /** The item modal's one-tap "Put out" — made and freezer both land on the floor. */
+  const handlePutOut = (product) => {
+    setInventory((prev) =>
+      prev.map((i) => (i.product === product ? putOnFloor(normalizeItem(i)) : i))
+    );
+    toast(`${product} put out`, { detail: "Made and freezer stock moved to the floor." });
   };
 
   /* ---- Board ---- */
@@ -312,16 +289,73 @@ function Application() {
       ...prev,
     ]);
 
-    if (destination) {
-      addStock(batch.product, finalWeight, destination);
-      const where = destination === "retail" ? "retail floor" : "freezer";
-      const pct = yieldPct(batch.boxWeight || batch.estWeight, finalWeight);
-      toast(`${finalWeight} lb synced to Clover`, {
-        detail: `${batch.product} → ${where}${pct != null ? ` · ${pct}% yield` : ""}`,
+    addStock(batch.product, finalWeight, destination);
+
+    const where =
+      destination === "floor" ? "retail floor" : destination === "freezer" ? "freezer" : "made pile";
+    const pct = yieldPct(batch.boxWeight || batch.estWeight, finalWeight);
+    toast(destination === "floor" ? `${finalWeight} lb synced to Clover` : `${finalWeight} lb recorded`, {
+      detail: `${batch.product} → ${where}${pct != null ? ` · ${pct}% yield` : ""}`,
+    });
+  };
+
+  /* ---- To-Do ---- */
+
+  const handleAddTodo = (task, staff) => {
+    setTodos((prev) => [
+      {
+        id: newId("TD"),
+        completed: false,
+        createdBy: staff.name,
+        createdAt: new Date().toISOString(),
+        ...task,
+      },
+      ...prev,
+    ]);
+    toast(`"${task.title}" added to the list`, {
+      detail: task.assignedTo ? "Assigned to one person." : "Open to anyone on shift.",
+    });
+  };
+
+  const handleToggleTodo = (id, staff) => {
+    setTodos((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        const completed = !t.completed;
+        return {
+          ...t,
+          completed,
+          completedBy: completed ? staff.name : null,
+          completedAt: completed ? new Date().toISOString() : null,
+        };
+      })
+    );
+  };
+
+  const handleRemoveTodo = (id) => {
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const handleAddTaskCategory = ({ label, iconId }) => {
+    setTaskCategories((prev) => [...prev, { id: newId("CAT"), label, iconId }]);
+    toast(`"${label}" added as a category`);
+  };
+
+  const handleRenameTaskCategory = (id, label) => {
+    setTaskCategories((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c)));
+  };
+
+  const handleRemoveTaskCategory = (id) => {
+    const category = taskCategories.find((c) => c.id === id);
+    if (categoryInUse(todos, id)) {
+      toast(`Can't remove "${category?.label}"`, {
+        tone: "error",
+        detail: "Recategorize its tasks first.",
       });
-    } else {
-      toast(`${batch.product} ready for pickup`, { detail: batch.customer || undefined });
+      return;
     }
+    setTaskCategories((prev) => prev.filter((c) => c.id !== id));
+    toast(`"${category?.label}" removed`);
   };
 
   /* ---- Schedule ---- */
@@ -346,7 +380,6 @@ function Application() {
           boxWeight: null,
           stage: STATIONS.indexOf(station),
           needsSmoke: station === "Smokehouse",
-          customer: null,
           destination: null,
           startedAt: today,
         },
@@ -367,24 +400,27 @@ function Application() {
     }));
   };
 
-  /* ---- Orders ---- */
-
-  const handleMarkReady = (id, location, staff) => {
-    setOrders((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, status: "ready", location, readyBy: staff.name } : o))
-    );
-    toast("Marked ready for pickup", { detail: location });
-  };
-
   /* ---- Render ---- */
 
   if (!user) return <SignInScreen onSignIn={signIn} />;
 
-  const nav = NAV.filter((n) => user.role === "manager" || !n.managerOnly);
+  const nav = NAV.filter((n) => isManager(user) || !n.managerOnly);
   const current = nav.some((n) => n.id === view) ? view : "board";
 
   return (
-    <Shell user={user} nav={nav} view={current} onNavigate={setView} onSignOut={signOut}>
+    <Shell
+      user={user}
+      nav={nav}
+      view={current}
+      onNavigate={setView}
+      onSignOut={signOut}
+      onViewAsRole={(role) => {
+        // Re-signs the same person at a different role: session only, so the
+        // stored roster keeps whatever they actually hold.
+        signIn({ ...user, role });
+        toast(`Viewing as ${role}`, { tone: "info" });
+      }}
+    >
       {current === "board" && (
         <BoardScreen
           batches={batches}
@@ -398,47 +434,57 @@ function Application() {
         />
       )}
 
+      {current === "todo" && (
+        <TodoScreen
+          todos={todos}
+          categories={taskCategories}
+          user={user}
+          onAdd={handleAddTodo}
+          onToggle={(id) => handleToggleTodo(id, user)}
+          onRemove={handleRemoveTodo}
+          onAddCategory={handleAddTaskCategory}
+          onRenameCategory={handleRenameTaskCategory}
+          onRemoveCategory={handleRemoveTaskCategory}
+        />
+      )}
+
       {current === "schedule" && (
         <ScheduleScreen
           schedule={schedule}
-          inventory={inventory}
+          inventory={stock}
           today={today}
           onAdd={handleAddTask}
           onRemove={handleRemoveTask}
         />
       )}
 
-      {current === "orders" && (
-        <OrdersScreen
-          orders={orders}
-          canManage={user.role === "manager"}
-          onAdd={(o) => {
-            setOrders((prev) => [o, ...prev]);
-            toast(`Order for ${o.customer} created`);
-          }}
-          onRemove={(id) => setOrders((prev) => prev.filter((o) => o.id !== id))}
-          onMarkReady={handleMarkReady}
-          onReopen={(id) =>
-            setOrders((prev) =>
-              prev.map((o) => (o.id === id ? { ...o, status: "open", location: null, readyBy: null } : o))
-            )
-          }
-        />
-      )}
-
       {current === "inventory" && (
         <InventoryScreen
-          inventory={inventory}
+          inventory={stock}
+          velocity={velocity}
           status={cloverStatus}
           syncedAt={syncedAt}
-          canManage={user.role === "manager"}
+          canManage={isManager(user)}
+          batches={batches}
+          schedule={schedule}
+          history={history}
           onRefresh={loadClover}
-          onTransfer={handleTransfer}
+          onMove={handleMove}
+          onPutOut={handlePutOut}
           onAddProduct={handleAddProduct}
+          onUpdateProduct={handleUpdateProduct}
+          onRemoveProduct={handleRemoveProduct}
         />
       )}
 
       {current === "insights" && <InsightsScreen history={history} />}
+
+      {current === "team" && (
+        <TeamScreen
+          user={user}
+          onNotify={(message, tone = "success") => toast(message, { tone })}
+        />
+      )}
     </Shell>
   );
 }
@@ -446,7 +492,11 @@ function Application() {
 export default function ProductionTracker() {
   return (
     <ToastProvider>
-      <Application />
+      <SlotProvider>
+        <StaffProvider>
+          <Application />
+        </StaffProvider>
+      </SlotProvider>
     </ToastProvider>
   );
 }

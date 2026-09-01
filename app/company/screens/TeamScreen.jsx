@@ -46,7 +46,7 @@ function LocationChecklist({ locations, selected, onToggle }) {
             key={loc.id}
             className={cx(
               "flex items-center gap-2.5 px-3 py-2 rounded-md border cursor-pointer text-sm",
-              on ? "border-primary bg-primary-soft text-primary-ink" : "border-line-strong text-ink-2 hover:bg-sunken"
+              on ? "border-line-strong bg-hover text-ink" : "border-line text-ink-2 hover:bg-hover"
             )}
           >
             <input type="checkbox" checked={on} onChange={() => onToggle(loc.id)} className="accent-current" />
@@ -73,16 +73,14 @@ function InviteDialog({ locations, onCancel, onInvite }) {
     <Modal
       open
       onClose={onCancel}
-      title="Invite a teammate"
-      icon={UserPlus}
+      title="Invite a teammate" icon={UserPlus}
       footer={
         <>
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
           <Button
-            variant="primary"
-            icon={Mail}
+            variant="primary" icon={Mail}
             disabled={!valid}
             onClick={() =>
               onInvite({
@@ -107,10 +105,8 @@ function InviteDialog({ locations, onCancel, onInvite }) {
         </Field>
         <Field label="Email">
           <Input
-            type="email"
-            value={form.email}
-            placeholder="teammate@company.com"
-            onChange={(e) => set("email", e.target.value)}
+            type="email" value={form.email}
+            placeholder="teammate@company.com" onChange={(e) => set("email", e.target.value)}
           />
         </Field>
         <Field label="Role">
@@ -205,11 +201,10 @@ function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave }) 
           <div className="flex items-center gap-2">
             <Input
               autoFocus
-              inputMode="numeric"
-              maxLength={4}
+              inputMode="numeric" maxLength={4}
               value={pin}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-              className="font-mono tracking-[0.3em] text-center"
+              className="font-mono tracking-[0.3em]"
             />
             <Button variant="secondary" icon={Dices} onClick={() => setPin(generatePin(allPins))}>
               Generate
@@ -236,21 +231,19 @@ function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemo
         return existing ? (
           <span
             key={loc.id}
-            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-sunken text-[11px] text-ink-3"
+            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-sunken text-xs text-ink-3"
           >
-            <ShieldCheck size={10} className="text-primary-ink shrink-0" />
+            <ShieldCheck size={10} className="text-icon-2 shrink-0" />
             {shortName}: <span className="font-mono font-semibold text-ink-2">{existing.pin}</span>
             <button
-              type="button"
-              title={`Edit lead PIN for ${loc.name}`}
+              type="button" title={`Edit lead PIN for ${loc.name}`}
               onClick={() => setEditing({ location: loc, existing })}
               className="ml-0.5 text-ink-4 hover:text-ink transition-colors"
             >
               <Pencil size={10} />
             </button>
             <button
-              type="button"
-              title={`Revoke lead PIN for ${loc.name}`}
+              type="button" title={`Revoke lead PIN for ${loc.name}`}
               onClick={() => onRemovePin(existing.id)}
               className="text-ink-4 hover:text-danger transition-colors"
             >
@@ -260,10 +253,9 @@ function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemo
         ) : (
           <button
             key={loc.id}
-            type="button"
-            title={`Issue a lead PIN for ${loc.name}`}
+            type="button" title={`Issue a lead PIN for ${loc.name}`}
             onClick={() => setEditing({ location: loc, existing: null })}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-line-strong text-[11px] text-ink-3 hover:text-ink hover:border-ink-4 transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-line-strong text-xs text-ink-3 hover:text-ink hover:border-ink-4 transition-colors"
           >
             <Plus size={10} /> {shortName} PIN
           </button>
@@ -308,8 +300,8 @@ function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, o
           const assigned = locations.filter((l) => u.locationIds.includes(l.id));
           const locked = ROLE_LOCKED[u.role];
           return (
-            <div key={u.id} className="flex items-center gap-3 px-4 sm:px-5 py-3.5">
-              <span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary-soft text-primary-ink text-xs font-semibold shrink-0">
+            <div key={u.id} className="flex items-center gap-3 px-4 py-3">
+              <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-2 text-xs font-semibold shrink-0">
                 {initials(u.name)}
               </span>
               <div className="min-w-0 flex-1">
@@ -361,9 +353,9 @@ function PersonCard({ user, currentUser, locations, onEdit, onRemove }) {
   const locked = ROLE_LOCKED[user.role];
 
   return (
-    <div className="w-56 shrink-0 rounded-lg border border-line bg-surface p-3 shadow-xs">
+    <div className="w-56 shrink-0 rounded-md border border-line bg-surface p-3 shadow-xs">
       <div className="flex items-start gap-2.5">
-        <span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary-soft text-primary-ink text-xs font-semibold shrink-0">
+        <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-2 text-xs font-semibold shrink-0">
           {initials(user.name)}
         </span>
         <div className="min-w-0 flex-1">
@@ -398,8 +390,8 @@ function PersonCard({ user, currentUser, locations, onEdit, onRemove }) {
 function TierLabel({ tier, count }) {
   return (
     <div className="flex items-center gap-2 mb-3">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{TIER_LABEL[tier]}</span>
-      <span className="text-[11px] text-ink-4">
+      <span className="text-xs font-medium text-ink-3">{TIER_LABEL[tier]}</span>
+      <span className="text-xs text-ink-4">
         {count} {count === 1 ? "person" : "people"}
       </span>
       <span className="flex-1 h-px bg-line" />
@@ -476,7 +468,7 @@ function TeamHierarchy({ users, locations, currentUser, onEdit, onRemove }) {
             <TierLabel tier="manager" count={byTier.manager.length} />
             <div className="flex flex-wrap justify-center gap-4">
               {managerGroups.map((group) => (
-                <div key={group.key} className="rounded-xl border border-line bg-sunken/60 p-3">
+                <div key={group.key} className="rounded-md border border-line bg-sunken/60 p-3">
                   <p className="flex items-center gap-1.5 text-xs font-medium text-ink-3 mb-2.5">
                     <MapPin size={11} /> {group.label}
                   </p>
@@ -503,7 +495,7 @@ function TeamHierarchy({ users, locations, currentUser, onEdit, onRemove }) {
                 key={u.id}
                 className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border border-dashed border-line-strong text-xs text-ink-3"
               >
-                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-sunken text-ink-4 text-[10px] font-semibold">
+                <span className="flex items-center justify-center w-7 h-7 rounded-full bg-sunken text-ink-4 text-xs font-semibold">
                   {initials(u.name)}
                 </span>
                 <span>{u.name}</span>

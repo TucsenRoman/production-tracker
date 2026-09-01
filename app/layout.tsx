@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Production Tracker — Milaca Meats",
   description:
-    "Smokehouse and Packaging production tracking, custom orders, scheduling, and product insights.",
+    "Smokehouse and Packaging production tracking, inventory, scheduling, and product insights.",
   appleWebApp: {
     capable: true,
     title: "Production",

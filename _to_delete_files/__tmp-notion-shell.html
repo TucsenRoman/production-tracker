@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Notion DNA — reconstruction</title>
+<style>
+  :root{
+    --page:#ffffff; --rail:#f9f8f7; --sunken:#f0efed; --fill:#f4f3f3;
+    --hover:rgba(33,27,23,.05); --faint:rgba(55,53,47,.03);
+    --line:#e6e5e3; --line-soft:#f0efed; --line-strong:#d4cfc6;
+    --ink:#2c2c2b; --ink2:#7d7a75; --ink3:#a19e99; --ink-dis:#bcbab6;
+    --icon:#383836; --icon2:#8e8b86;
+    --accent:#2383e2;
+    --r:6px; --r-tight:4px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    display:flex; background:var(--page); color:var(--ink);
+    font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI Variable Display","Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.2; -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---- archetype: shell / rail ---- */
+  .rail{width:18.75%; background:var(--rail); display:flex; flex-direction:column; padding:8px 0 0}
+  .rail .pad{padding:0 8px}
+  .ws{display:flex;align-items:center;gap:8px;height:30px;padding:5px 8px;border-radius:var(--r);margin:0 8px 6px;font-weight:500}
+  .ws .em{font-size:18px;line-height:1}
+  .qrow{display:flex;align-items:center;gap:2px;margin:0 8px 10px}
+  .home{display:flex;align-items:center;gap:8px;height:30px;padding:5px 10px;border-radius:9999px;background:var(--page);box-shadow:0 0 0 1px rgba(42,28,0,.07);font-weight:500}
+  .ico{width:16px;height:16px;flex:0 0 16px;fill:var(--icon2)}
+  .ico.pri{fill:var(--icon)}
+  .qbtn{width:28px;height:28px;display:grid;place-items:center;border-radius:var(--r)}
+  .qbtn:hover,.item:hover{background:var(--hover)}
+  .lbl{font-size:12px;font-weight:500;color:var(--ink3);padding:6px 8px 2px;margin:0 8px}
+  .item{display:flex;align-items:center;gap:8px;height:30px;padding:5px 8px;margin:0 8px;border-radius:var(--r);color:var(--ink);cursor:default}
+  .item .em{font-size:18px;line-height:1;width:18px}
+  .item.sel{background:var(--hover)}
+  .item .t{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .item.muted{color:var(--ink2)}
+  .spacer{flex:1}
+  .railfoot{padding:8px;display:flex;gap:8px;align-items:center}
+  .newchat{flex:1;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:9999px;background:var(--page);box-shadow:0 0 0 1px rgba(42,28,0,.07)}
+  .kbd{margin-left:auto;font-size:12px;color:var(--ink3)}
+
+  /* ---- pane ---- */
+  .pane{flex:1;display:flex;flex-direction:column;min-width:0}
+  .crumbs{display:flex;align-items:center;gap:6px;height:45px;padding:0 12px;font-size:14px;color:var(--ink2)}
+  .crumbs .em{font-size:16px}
+  .crumbs .sep{color:var(--ink-dis)}
+  .crumbs .cur{color:var(--ink)}
+  .crumbs .right{margin-left:auto;display:flex;align-items:center;gap:14px;color:var(--ink2)}
+  .doc{padding:0 8.2%;overflow:hidden}
+
+  /* ---- archetype: document ---- */
+  h1{font-size:32px;font-weight:700;line-height:1.2;letter-spacing:normal;color:var(--ink);margin:34px 0 6px}
+  .desc{font-size:14px;color:var(--ink2);line-height:1.5;margin-bottom:26px}
+
+  /* ---- archetype: collection ---- */
+  .viewbar{display:flex;align-items:center;height:32px;margin-bottom:10px}
+  .chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:var(--r);font-weight:500;background:var(--hover)}
+  .tools{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .primary{height:28px;padding:0 10px;border:0;border-radius:var(--r-tight);background:var(--accent);color:#fff;font:inherit;font-weight:500;font-size:14px}
+  .primary-split{width:24px;height:28px;border:0;border-radius:var(--r-tight);background:var(--accent);color:#fff;margin-left:1px;display:grid;place-items:center}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{font-weight:400;font-size:14px;color:var(--ink2);text-align:left;padding:0 8px;height:34px;border-bottom:1px solid var(--line);border-right:1px solid var(--line-soft)}
+  th .h{display:flex;align-items:center;gap:6px}
+  td{height:36px;padding:0 8px;border-bottom:1px solid var(--line);border-right:1px solid var(--line-soft);font-size:14px;font-variant-numeric:tabular-nums;color:var(--ink)}
+  td.num{color:var(--ink)}
+  tr:hover td{background:var(--faint)}
+  th:last-child,td:last-child{border-right:0}
+  .newrow td{color:var(--ink3);border-bottom:1px solid var(--line)}
+  .newrow .n{display:flex;align-items:center;gap:6px}
+  .empty{font-size:14px;color:var(--ink3);padding:14px 8px}
+  .pill{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:9999px;font-size:12px;background:var(--hover);color:var(--ink)}
+</style></head>
+<body>
+
+<aside class="rail">
+  <div class="ws"><span class="em">🔥</span><span>Roman Forged LLC</span></div>
+  <div class="qrow">
+    <div class="home"><svg class="ico pri" viewBox="0 0 16 16"><path d="M8 1.6 1.5 7v7.4h4.2v-4.2h4.6v4.2h4.2V7z"/></svg><span>Home</span></div>
+    <div class="qbtn"><svg class="ico" viewBox="0 0 16 16"><path d="M8 2C4.4 2 1.5 4.3 1.5 7.2c0 1.7 1 3.2 2.5 4.1L3.4 14l2.9-1.4c.5.1 1.1.2 1.7.2 3.6 0 6.5-2.3 6.5-5.6S11.6 2 8 2z"/></svg></div>
+    <div class="qbtn"><svg class="ico" viewBox="0 0 16 16"><path d="M3 2h10v12H3z" opacity=".9"/></svg></div>
+    <div class="qbtn"><svg class="ico" viewBox="0 0 16 16"><path d="M1.5 4h13v8h-13z"/></svg></div>
+    <div class="qbtn"><svg class="ico" viewBox="0 0 16 16"><path d="M7 1.5a5.5 5.5 0 1 0 3.3 9.9l3.1 3.1 1.1-1.1-3.1-3.1A5.5 5.5 0 0 0 7 1.5zm0 1.6a3.9 3.9 0 1 1 0 7.8 3.9 3.9 0 0 1 0-7.8z"/></svg></div>
+  </div>
+
+  <div class="lbl">Recents</div>
+  <div class="item sel"><span class="em">🗂️</span><span class="t">Loop'd Feedback</span></div>
+  <div class="item"><span class="em">🎨</span><span class="t">Design</span></div>
+  <div class="item"><span class="em">🖌️</span><span class="t">Voice &amp; Feel</span></div>
+  <div class="item"><span class="em">➡️</span><span class="t">User Flows</span></div>
+  <div class="item"><span class="em">🆕</span><span class="t">Onboarding</span></div>
+  <div class="item"><span class="em">📄</span><span class="t">idk</span></div>
+  <div class="item"><span class="em">📕</span><span class="t">Design System</span></div>
+  <div class="item"><span class="em">✨</span><span class="t">Features</span></div>
+  <div class="item"><span class="em">👤</span><span class="t">User Types</span></div>
+  <div class="item"><span class="em">🚀</span><span class="t">Onboarding Flow</span></div>
+  <div class="item muted"><span class="em">···</span><span class="t">More</span></div>
+
+  <div class="lbl">Private</div>
+  <div class="item muted"><span class="em">＋</span><span class="t">Add new</span></div>
+
+  <div class="spacer"></div>
+  <div class="railfoot">
+    <div class="newchat"><svg class="ico" viewBox="0 0 16 16"><path d="M8 1.5 9.6 6l4.4 1.6L9.6 9.2 8 13.6 6.4 9.2 2 7.6 6.4 6z"/></svg><span>New chat</span><span class="kbd">Ctrl+O</span></div>
+    <div class="qbtn" style="width:36px;height:36px;border-radius:9999px;background:var(--page);box-shadow:0 0 0 1px rgba(42,28,0,.07)"><svg class="ico" viewBox="0 0 16 16"><path d="M11.3 1.9 14.1 4.7 6.4 12.4 2.6 13.4l1-3.8z"/></svg></div>
+  </div>
+</aside>
+
+<main class="pane">
+  <div class="crumbs">
+    <span class="em">📘</span><span>Loop'd</span><span class="sep">/</span>
+    <span class="em">😊</span><span>Customer Service</span><span class="sep">/</span>
+    <span class="cur">Loop'd Feedback</span>
+    <span class="right"><span>Edited Jul 27</span><span>Share</span>
+      <svg class="ico" viewBox="0 0 16 16"><path d="M8 1.8 9.9 5.7l4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>
+      <svg class="ico" viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg>
+    </span>
+  </div>
+
+  <div class="doc">
+    <h1>Loop'd Feedback</h1>
+    <p class="desc">In-app feedback submissions from Loop'd users, relayed via the send-feedback Edge Function.</p>
+
+    <div class="viewbar">
+      <div class="chip"><svg class="ico" viewBox="0 0 16 16"><path d="M1.8 3h12.4v10H1.8zM1.8 6.4h12.4M6 6.4V13"/></svg>Default view</div>
+      <div class="tools">
+        <svg class="ico" viewBox="0 0 16 16"><path d="M2 4h12l-4.6 5.2V13L6.6 11.6V9.2z"/></svg>
+        <svg class="ico" viewBox="0 0 16 16"><path d="M4 2.5 6.4 5H4.9v8.5H3.1V5H1.6zM12 13.5 9.6 11h1.5V2.5h1.8V11h1.5z"/></svg>
+        <svg class="ico" viewBox="0 0 16 16"><path d="M9 1.5 3.5 9h3.2l-.7 5.5L12.5 7H9.3z"/></svg>
+        <svg class="ico" viewBox="0 0 16 16"><path d="M8 4.6A3.4 3.4 0 1 0 8 11.4 3.4 3.4 0 0 0 8 4.6zM8 .8v2M8 13.2v2M.8 8h2M13.2 8h2"/></svg>
+        <svg class="ico" viewBox="0 0 16 16"><path d="M7 1.5a5.5 5.5 0 1 0 3.3 9.9l3.1 3.1 1.1-1.1-3.1-3.1A5.5 5.5 0 0 0 7 1.5z"/></svg>
+        <svg class="ico" viewBox="0 0 16 16"><path d="M2 4.5h12M2 8h12M2 11.5h12"/><circle cx="5" cy="4.5" r="1.6"/><circle cx="10" cy="11.5" r="1.6"/></svg>
+        <button class="primary">New</button><button class="primary-split">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="#fff"><path d="M1 3.2 5 7 9 3.2z"/></svg></button>
+      </div>
+    </div>
+
+    <table>
+      <colgroup><col style="width:31%"><col style="width:19%"><col style="width:18%"><col style="width:20%"><col style="width:12%"></colgroup>
+      <thead><tr>
+        <th><span class="h"><svg class="ico" viewBox="0 0 16 16"><path d="M2 12.5 5.4 3.5h1.3l3.4 9H8.7L7.9 10H4.8l-.8 2.5zm3.2-3.9h2.3L6.4 5.2zM11.2 12.5V3.5h1.3v9z"/></svg>Message</span></th>
+        <th><span class="h"><svg class="ico" viewBox="0 0 16 16"><path d="M11.3 1.9 14.1 4.7 6.4 12.4 2.6 13.4l1-3.8z"/></svg>Attachments</span></th>
+        <th><span class="h"><svg class="ico" viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zm0 3.4a3.1 3.1 0 1 1 0 6.2 3.1 3.1 0 0 1 0-6.2z"/></svg>Category</span></th>
+        <th><span class="h"><svg class="ico" viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM8.8 4v4.2l3 1.8-.8 1.3L7.2 9V4z"/></svg>Submitted</span></th>
+        <th><span class="h"><svg class="ico" viewBox="0 0 16 16"><path d="M7.2 2h1.6v5.2H14v1.6H8.8V14H7.2V8.8H2V7.2h5.2z"/></svg></span></th>
+      </tr></thead>
+      <tbody>
+        <tr class="newrow"><td><span class="n"><svg class="ico" viewBox="0 0 16 16"><path d="M7.2 2h1.6v5.2H14v1.6H8.8V14H7.2V8.8H2V7.2h5.2z"/></svg>New page</span></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>Filters reset when I switch tabs</td><td></td><td><span class="pill">Bug</span></td><td class="num">Jul 27, 2026</td><td></td></tr>
+        <tr><td>Would love a weekly digest</td><td></td><td><span class="pill">Idea</span></td><td class="num">Jul 24, 2026</td><td></td></tr>
+        <tr><td>Export is slow over 5k rows</td><td></td><td><span class="pill">Performance</span></td><td class="num">Jul 19, 2026</td><td></td></tr>
+        <tr><td>Sign-in loop on Safari 17</td><td></td><td><span class="pill">Bug</span></td><td class="num">Jul 11, 2026</td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body></html>

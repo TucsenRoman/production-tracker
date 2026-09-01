@@ -43,8 +43,8 @@ export default function StationsScreen({ stations, crewPins, onAdd, onUpdate, on
 
   return (
     <div className="space-y-5">
-      <p className="flex items-start gap-1.5 text-xs text-ink-3 leading-relaxed px-3 py-2.5 rounded-lg bg-sunken">
-        <Factory size={13} className="shrink-0 mt-0.5 text-primary-ink" />
+      <p className="flex items-start gap-1.5 text-xs text-ink-3 leading-relaxed px-3 py-2.5 rounded-md bg-sunken">
+        <Factory size={13} className="shrink-0 mt-0.5 text-icon-2" />
         Stations are the posts on your floor — Smokehouse, Packaging, or whatever fits your shop. Every
         location&rsquo;s device codes (under Locations) and Permissions both pull from this list, company-wide.
       </p>
@@ -75,9 +75,7 @@ export default function StationsScreen({ stations, crewPins, onAdd, onUpdate, on
         <Card>
           <EmptyState
             icon={Factory}
-            title="No stations yet"
-            description="Add at least one station before a location can issue device codes for it."
-            action={
+            title="No stations yet" description="Add at least one station before a location can issue device codes for it." action={
               <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
                 Add your first station
               </Button>
@@ -90,7 +88,7 @@ export default function StationsScreen({ stations, crewPins, onAdd, onUpdate, on
             {stations.map((name) => {
               if (editing === name) {
                 return (
-                  <div key={name} className="p-4 sm:p-5">
+                  <div key={name} className="p-4">
                     <StationForm
                       initial={name}
                       existingNames={stations}
@@ -105,8 +103,8 @@ export default function StationsScreen({ stations, crewPins, onAdd, onUpdate, on
               }
               const count = pinCount(name);
               return (
-                <div key={name} className="flex items-center gap-3 px-4 sm:px-5 py-3.5">
-                  <span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary-soft text-primary-ink shrink-0">
+                <div key={name} className="flex items-center gap-3 px-4 py-3">
+                  <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-2 shrink-0">
                     <Factory size={15} />
                   </span>
                   <div className="min-w-0 flex-1">

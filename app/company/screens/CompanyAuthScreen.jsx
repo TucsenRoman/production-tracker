@@ -45,11 +45,11 @@ export default function CompanyAuthScreen({ users, onSignIn, onCreateCompany }) 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-5 py-10 bg-canvas">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-primary-soft text-primary-ink mb-3">
+        <div className="mb-6">
+          <div className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-inset text-icon mb-3">
             <Building2 size={20} />
           </div>
-          <h1 className="text-2xl font-bold text-ink font-display">Company account</h1>
+          <h1 className="text-[32px] font-bold text-ink leading-tight">Company account</h1>
           <p className="mt-2 text-sm text-ink-3">
             Manage locations, your team, and POS integrations across your business.
           </p>
@@ -66,22 +66,20 @@ export default function CompanyAuthScreen({ users, onSignIn, onCreateCompany }) 
           />
         </div>
 
-        <div className="bg-surface border border-line rounded-xl shadow-sm p-5">
+        <div className="bg-surface border border-line rounded-md p-5">
           {mode === "signin" ? (
             <div className="space-y-4">
               <Field label="Email">
                 <Input
                   autoFocus
-                  type="email"
-                  value={signInForm.email}
+                  type="email" value={signInForm.email}
                   onChange={(e) => setSignInForm((f) => ({ ...f, email: e.target.value }))}
                   placeholder="you@company.com"
                 />
               </Field>
               <Field label="Password" error={signInError}>
                 <Input
-                  type="password"
-                  value={signInForm.password}
+                  type="password" value={signInForm.password}
                   onChange={(e) => setSignInForm((f) => ({ ...f, password: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && submitSignIn()}
                   placeholder="••••••••"
@@ -110,16 +108,14 @@ export default function CompanyAuthScreen({ users, onSignIn, onCreateCompany }) 
               </Field>
               <Field label="Email">
                 <Input
-                  type="email"
-                  value={createForm.email}
+                  type="email" value={createForm.email}
                   onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
                   placeholder="you@company.com"
                 />
               </Field>
               <Field label="Password" error={createError}>
                 <Input
-                  type="password"
-                  value={createForm.password}
+                  type="password" value={createForm.password}
                   onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && submitCreate()}
                   placeholder="At least 6 characters"
@@ -135,18 +131,17 @@ export default function CompanyAuthScreen({ users, onSignIn, onCreateCompany }) 
         <p
           className={cx(
             "mt-5 flex items-start gap-1.5 text-xs text-ink-4 leading-relaxed",
-            "px-3 py-2.5 rounded-lg bg-sunken"
+            "px-3 py-2.5 rounded-md bg-sunken"
           )}
         >
-          <Sparkles size={13} className="shrink-0 mt-0.5 text-primary-ink" />
+          <Sparkles size={13} className="shrink-0 mt-0.5 text-icon-2" />
           Demo mode — sign-in only checks the email, any password of 6+ characters works. Try{" "}
           <span className="font-mono text-ink-3">dana@milacameats.com</span> (owner) or{" "}
           <span className="font-mono text-ink-3">maria.ruiz@milacameats.com</span> (admin).
         </p>
 
         <a
-          href="/"
-          className="mt-4 flex items-center justify-center gap-1.5 text-xs font-medium text-ink-3 hover:text-primary-ink transition-colors"
+          href="/" className="mt-4 flex items-center justify-center gap-1.5 text-xs font-medium text-ink-3 hover:text-ink hover:underline transition-colors"
         >
           <ArrowLeft size={12} /> Back to the shop floor terminal
         </a>

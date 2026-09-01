@@ -27,25 +27,25 @@ function DayStrip({ days, selected, onSelect }) {
             disabled={!d.isProductionDay}
             onClick={() => onSelect(d.key)}
             className={cx(
-              "shrink-0 flex flex-col items-center justify-center w-14 py-2 rounded-lg border",
+              "shrink-0 flex flex-col items-center justify-center w-14 py-2 rounded-md border",
               "transition-colors duration-100",
               active
-                ? "bg-primary border-primary text-white"
+                ? "bg-ink border-ink text-white"
                 : d.isProductionDay
                   ? "bg-surface border-line-strong text-ink hover:bg-sunken"
                   : "bg-sunken border-line text-ink-4 cursor-not-allowed"
             )}
           >
-            <span className={cx("text-[10px] uppercase tracking-wide", active ? "text-white/70" : "text-ink-3")}>
+            <span className={cx("text-xs ", active ? "text-white/70" : "text-ink-3")}>
               {d.weekday}
             </span>
-            <span className="text-base font-semibold tnum leading-tight">{d.dayNum}</span>
+            <span className="text-sm font-semibold tnum leading-tight">{d.dayNum}</span>
             {d.isToday ? (
-              <span className={cx("text-[9px] font-medium", active ? "text-white/80" : "text-ok")}>today</span>
+              <span className={cx("text-xs font-medium", active ? "text-white/80" : "text-ok")}>today</span>
             ) : !d.isProductionDay ? (
               <Lock size={9} className="mt-0.5" />
             ) : (
-              <span className="text-[9px]">&nbsp;</span>
+              <span className="text-xs">&nbsp;</span>
             )}
           </button>
         );
@@ -86,9 +86,9 @@ function StationPlan({ station, tasks, products, onAdd, onRemove, prefill, onPre
         actions={<Badge tone={tasks.length ? "info" : "neutral"}>{tasks.length}</Badge>}
       />
 
-      <div className="flex-1 px-4 sm:px-5 py-3 space-y-1.5 min-h-24">
+      <div className="flex-1 px-4 py-3 space-y-1.5 min-h-24">
         {tasks.length === 0 && (
-          <p className="py-4 text-center text-xs text-ink-4">Nothing planned yet.</p>
+          <p className="py-4 text-xs text-ink-4">Nothing planned yet.</p>
         )}
         {tasks.map((t) => (
           <div key={t.id} className="flex items-center gap-2.5 pl-2.5 pr-1 py-2 rounded-md bg-canvas">
@@ -102,22 +102,18 @@ function StationPlan({ station, tasks, products, onAdd, onRemove, prefill, onPre
         ))}
       </div>
 
-      <div className="px-4 sm:px-5 py-3 border-t border-line space-y-2">
+      <div className="px-4 py-3 border-t border-line space-y-2">
         <div className="flex gap-2">
           <Input
-            list="product-catalogue"
-            value={product}
+            list="product-catalogue" value={product}
             onChange={(e) => setProduct(e.target.value)}
-            placeholder="Product"
-            className="flex-1 min-w-0"
+            placeholder="Product" className="flex-1 min-w-0"
           />
           <Input
-            type="number"
-            value={qty}
+            type="number" value={qty}
             onChange={(e) => setQty(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
-            placeholder="lb"
-            className="w-20 shrink-0 tnum"
+            placeholder="lb" className="w-20 shrink-0 tnum"
           />
         </div>
         <Button block variant="primary" icon={Plus} onClick={submit} disabled={!product.trim() || !Number(qty)}>
@@ -167,7 +163,7 @@ export default function ScheduleScreen({ schedule, inventory, today, onAdd, onRe
             <Card className="border-warn-line bg-warn-soft">
               <div className="flex items-center gap-2 px-4 pt-3.5 pb-1">
                 <AlertTriangle size={14} className="text-warn shrink-0" />
-                <span className="text-xs font-semibold uppercase tracking-wide text-warn">
+                <span className="text-xs font-semibold text-warn">
                   Low on the floor — schedule a run
                 </span>
               </div>
@@ -190,8 +186,7 @@ export default function ScheduleScreen({ schedule, inventory, today, onAdd, onRe
                         {STATIONS.map((s) => (
                           <Button
                             key={s}
-                            size="sm"
-                            icon={Plus}
+                            size="sm" icon={Plus}
                             onClick={() => setPrefill({ station: s, product: item.product, qty: deficit })}
                           >
                             {s}

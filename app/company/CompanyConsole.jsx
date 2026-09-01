@@ -5,16 +5,14 @@ import {
   Factory,
   KeyRound,
   LayoutGrid,
-  LogOut,
   MapPin,
-  PanelLeftClose,
-  PanelLeftOpen,
   Settings,
   ShieldCheck,
   Users,
 } from "lucide-react";
 
-import { Badge, Input, ToastProvider, cx, useToast } from "../components/ui";
+import { Badge, Input, ToastProvider, useToast } from "../components/ui";
+import AppShell from "../components/AppShell";
 import { newId } from "../lib/domain";
 import CompanyAuthScreen from "./screens/CompanyAuthScreen";
 import OverviewScreen from "./screens/OverviewScreen";
@@ -39,20 +37,11 @@ const NAV = [
   { id: "settings", label: "Settings", short: "Settings", icon: Settings, adminOnly: true },
 ];
 
-const GRID_COLS = {
-  1: "grid-cols-1",
-  2: "grid-cols-2",
-  3: "grid-cols-3",
-  4: "grid-cols-4",
-  5: "grid-cols-5",
-  6: "grid-cols-6",
-  7: "grid-cols-7",
-};
 
 /**
  * Slim, always-available search-bar version of "Ask about your business" —
  * same deterministic responder (answerCompanyQuestion), living inline in
- * the sidebar header next to the collapse toggle instead of taking up a
+ * the sidebar just under the collapse toggle instead of taking up a
  * whole section, so it's reachable from every screen without much chrome.
  * Enter submits; the latest answer shows as a compact caption underneath.
  * Desktop-only for now, same as the rest of this sidebar.
@@ -60,7 +49,7 @@ const GRID_COLS = {
  * The expand icon is a placeholder for a future dedicated full-page chat —
  * not wired up yet, just staking out where it'll live.
  */
-function AskBar({ bundle, sidebarOpen }) {
+function AskBar({ bundle }) {
   const [question, setQuestion] = useState("");
   const [lastAnswer, setLastAnswer] = useState(null);
 
@@ -71,167 +60,38 @@ function AskBar({ bundle, sidebarOpen }) {
     setQuestion("");
   };
 
-  if (!sidebarOpen) return null;
-
   return (
     <div className="min-w-0 flex-1 flex flex-col gap-1">
       <div className="flex items-center gap-1.5">
         <Input
           value={question}
-          placeholder="Ask about your business…"
-          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="Ask about your business…" onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && ask()}
-          className="flex-1 min-w-0 h-7 min-h-7 rounded-xl text-xs focus-visible:outline-none"
+          className="flex-1 min-w-0 h-[var(--ctl-h)] rounded-md text-xs focus-visible:outline-none"
         />
         {/* SquareArrowOutUpRight "open full chat" button hidden for now — coming with the dedicated chat page. */}
       </div>
-      {lastAnswer && <p className="px-0.5 text-[11px] text-ink-3 leading-snug line-clamp-2">{lastAnswer.a}</p>}
+      {lastAnswer && <p className="px-0.5 text-xs text-ink-3 leading-snug line-clamp-2">{lastAnswer.a}</p>}
     </div>
   );
 }
 
 function Shell({ company, currentUser, nav, view, onNavigate, onSignOut, bundle, children }) {
-  const active = nav.find((n) => n.id === view) || nav[0];
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-
   return (
-    <div className="min-h-screen lg:h-screen lg:flex lg:flex-col lg:overflow-hidden bg-canvas">
-      <div className="hidden lg:block shrink-0 px-6 pt-3 pb-1">
-        <p className="text-sm font-bold text-ink font-display truncate leading-tight">{company.name}</p>
-      </div>
-
-      <div className="lg:flex-1 lg:flex lg:overflow-hidden">
-        <aside
-          className={cx(
-            "hidden lg:flex lg:flex-col lg:shrink-0 bg-canvas",
-            "transition-[width] duration-200",
-            sidebarOpen ? "lg:w-60" : "lg:w-16"
-          )}
-        >
-          <div className="px-3 pb-1 flex items-center gap-2">
-            <button
-              onClick={() => setSidebarOpen((o) => !o)}
-              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-              className="w-10 h-10 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-sunken transition-colors shrink-0"
-            >
-              {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-            </button>
-            <AskBar bundle={bundle} sidebarOpen={sidebarOpen} />
-          </div>
-
-          <nav className="flex-1 flex flex-col gap-0.5 overflow-y-auto thin-scrollbar px-3">
-            {nav.map((n) => {
-              const on = n.id === view;
-              return (
-                <button
-                  key={n.id}
-                  onClick={() => onNavigate(n.id)}
-                  aria-current={on ? "page" : undefined}
-                  title={sidebarOpen ? undefined : n.label}
-                  className={cx(
-                    "w-full flex items-center gap-2.5 px-3 min-h-10 rounded-md text-sm font-medium",
-                    "transition-colors duration-100",
-                    on ? "bg-primary-soft text-primary-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
-                  )}
-                >
-                  <n.icon size={16} className="shrink-0" />
-                  {sidebarOpen && <span className="truncate">{n.label}</span>}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="p-3">
-            <div className="flex items-center gap-2.5 px-2 py-2">
-              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white text-xs font-semibold shrink-0">
-                {currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
-              </span>
-              {sidebarOpen && (
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-ink truncate leading-tight">{currentUser.name}</p>
-                  <p className="text-xs text-ink-3 truncate">{ROLE_LABEL[currentUser.role]}</p>
-                </div>
-              )}
-              {sidebarOpen && (
-                <button
-                  onClick={onSignOut}
-                  aria-label="Sign out"
-                  title="Sign out"
-                  className="w-8 h-8 flex items-center justify-center rounded-md text-ink-3 hover:text-danger hover:bg-sunken transition-colors"
-                >
-                  <LogOut size={15} />
-                </button>
-              )}
-            </div>
-          </div>
-        </aside>
-
-        <header className="lg:hidden sticky top-0 z-30 bg-canvas/90 backdrop-blur-sm border-b border-line pt-safe">
-          <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0 flex flex-col gap-1.5">
-              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-brand leading-none">
-                {company.name}
-              </p>
-              <h1 className="text-lg font-bold text-ink font-display leading-none truncate">{active.label}</h1>
-            </div>
-            <button
-              onClick={onSignOut}
-              className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-full bg-surface border border-line shrink-0"
-            >
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-[10px] font-semibold">
-                {currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
-              </span>
-              <LogOut size={13} className="text-ink-3" />
-            </button>
-          </div>
-        </header>
-
-        <main className="flex-1 lg:overflow-hidden">
-          <div className="lg:h-full">
-            <div
-              className={cx(
-                "mx-auto w-full max-w-5xl px-4 pt-5 pb-28 sm:px-6 lg:max-w-none lg:h-full lg:overflow-y-auto thin-scrollbar lg:px-6 lg:py-6",
-                "lg:rounded-xl lg:border lg:border-line lg:bg-surface lg:flex lg:flex-col lg:gap-5"
-              )}
-            >
-              <div className="hidden lg:flex items-center justify-between gap-4">
-                <h2 className="text-2xl font-bold text-ink font-display">{active.label}</h2>
-                <Badge tone="info">{ROLE_LABEL[currentUser.role]}</Badge>
-              </div>
-              {children}
-            </div>
-          </div>
-        </main>
-
-        <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-surface border-t border-line pb-safe">
-          <div className={cx("grid", GRID_COLS[nav.length] || "grid-cols-2")}>
-            {nav.map((n) => {
-              const on = n.id === view;
-              return (
-                <button
-                  key={n.id}
-                  onClick={() => onNavigate(n.id)}
-                  aria-current={on ? "page" : undefined}
-                  className={cx(
-                    "flex flex-col items-center justify-center gap-1 min-h-14 px-1 py-2",
-                    "text-[10px] font-medium transition-colors duration-100",
-                    on ? "text-primary-ink" : "text-ink-3"
-                  )}
-                >
-                  <n.icon size={19} className="shrink-0" />
-                  <span className="truncate max-w-full">{n.short}</span>
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-      </div>
-
-      <div className="hidden lg:block shrink-0 px-6 py-px">
-        <p className="text-center text-[8px] text-ink-4">Milaca Meats · v1.0</p>
-      </div>
-    </div>
+    <AppShell
+      brand={company.name}
+      nav={nav}
+      view={view}
+      onNavigate={onNavigate}
+      onSignOut={onSignOut}
+      initials={currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+      userName={currentUser.name}
+      userMeta={<p className="text-xs text-ink-3 truncate">{ROLE_LABEL[currentUser.role]}</p>}
+      sidebarExtra={<AskBar bundle={bundle} />}
+      pageActions={<Badge tone="info">{ROLE_LABEL[currentUser.role]}</Badge>}
+    >
+      {children}
+    </AppShell>
   );
 }
 

@@ -8,11 +8,11 @@ import { GATED_ACTIONS } from "../lib/companyDomain";
 
 function PermissionRow({ action, requiresLead, onToggle, onRemove }) {
   return (
-    <div className="flex items-center gap-3 px-4 sm:px-5 py-3.5">
+    <div className="flex items-center gap-3 px-4 py-3">
       <span
         className={cx(
-          "flex items-center justify-center w-9 h-9 rounded-full shrink-0",
-          requiresLead ? "bg-primary-soft text-primary-ink" : "bg-sunken text-ink-3"
+          "flex items-center justify-center w-7 h-7 rounded-full shrink-0",
+          requiresLead ? "bg-hover text-ink" : "bg-inset text-ink-3"
         )}
       >
         {requiresLead ? <Lock size={15} /> : <Unlock size={15} />}
@@ -50,8 +50,8 @@ export default function PermissionsScreen({ permissions, onToggle, customActions
 
   return (
     <div className="space-y-4">
-      <p className={cx("flex items-start gap-1.5 text-xs text-ink-3 leading-relaxed", "px-3 py-2.5 rounded-lg bg-sunken")}>
-        <ShieldCheck size={13} className="shrink-0 mt-0.5 text-primary-ink" />
+      <p className={cx("flex items-start gap-1.5 text-xs text-ink-3 leading-relaxed", "px-3 py-2.5 rounded-md bg-sunken")}>
+        <ShieldCheck size={13} className="shrink-0 mt-0.5 text-icon-2" />
         Switch an action on to require a Lead's personal PIN — off, any station PIN on the floor can do it. These
         rules apply company-wide, across every location.
       </p>
@@ -71,9 +71,8 @@ export default function PermissionsScreen({ permissions, onToggle, customActions
       </Card>
 
       <button
-        type="button"
-        onClick={onRequest}
-        className="flex items-center gap-1.5 px-1 text-sm font-medium text-primary-ink hover:text-primary transition-colors"
+        type="button" onClick={onRequest}
+        className="flex items-center gap-1.5 px-1 text-sm font-medium text-ink-2 hover:text-ink hover:underline transition-colors"
       >
         <ShieldPlus size={15} />
         Request a permission

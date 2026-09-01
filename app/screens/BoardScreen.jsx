@@ -10,6 +10,7 @@ import {
   KeyRound,
   LayoutGrid,
   Package,
+  PackageCheck,
   Scale,
   Snowflake,
   Store,
@@ -37,11 +38,12 @@ import {
   STAGES,
   STAGE_ICON,
   STATIONS,
-  findStaffByPin,
+  isManager,
   nextStageIndex,
   weighsInAt,
   yieldPct,
 } from "../lib/domain";
+import { useStaff } from "../lib/staff";
 
 /* --------------------------------------------------------------- Overview -- */
 
@@ -51,26 +53,25 @@ function StageColumn({ stage, batches }) {
     <div className="shrink-0 snap-start w-[78vw] max-w-[280px] sm:w-auto sm:max-w-none">
       <div className="flex items-center gap-2 px-1 pb-2.5">
         <Icon size={14} className="text-ink-3 shrink-0" />
-        <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">{stage}</span>
-        <span className="ml-auto text-[11px] font-medium tnum px-1.5 rounded-full bg-sunken text-ink-3">
+        <span className="text-xs font-medium text-ink-3">{stage}</span>
+        <span className="ml-auto text-xs font-medium tnum px-1.5 rounded-full bg-sunken text-ink-3">
           {batches.length}
         </span>
       </div>
 
       <div className="space-y-2 min-h-20">
         {batches.length === 0 && (
-          <div className="rounded-lg border border-dashed border-line py-6 text-center text-xs text-ink-4">
+          <div className="rounded-md border border-dashed border-line py-6 text-xs text-ink-4">
             Nothing here
           </div>
         )}
         {batches.map((b) => (
           <Card key={b.id} className="px-3.5 py-3">
             <div className="flex items-center justify-between gap-2 mb-1.5">
-              <span className="text-[11px] font-mono text-ink-4">{b.id}</span>
+              <span className="text-xs font-mono text-ink-4">{b.id}</span>
               {b.needsSmoke && <Flame size={12} className="text-warn shrink-0" />}
             </div>
             <p className="text-sm font-medium leading-snug text-ink">{b.product}</p>
-            {b.customer && <p className="mt-0.5 text-xs text-ink-3">{b.customer}</p>}
             <p className="mt-1 text-xs text-ink-3 tnum">
               {b.boxWeight ? `${b.boxWeight} lb boxed` : `~${b.estWeight} lb est.`}
             </p>
@@ -80,23 +81,23 @@ function StageColumn({ stage, batches }) {
                 <span className="inline-flex items-center gap-1 text-xs text-ink-4">
                   <Clock size={11} /> Waiting on {stage}
                 </span>
-              ) : b.customer ? (
-                <Badge tone="ok" icon={CheckCircle2}>
-                  Ready for pickup
-                </Badge>
-              ) : b.destination === "retail" ? (
+              ) : b.destination === "floor" ? (
                 <Badge tone="ok" icon={Store}>
                   {b.finalWeight} lb on floor
                 </Badge>
-              ) : (
+              ) : b.destination === "freezer" ? (
                 <Badge tone="cold" icon={Snowflake}>
                   {b.finalWeight} lb in freezer
+                </Badge>
+              ) : (
+                <Badge tone="info" icon={PackageCheck}>
+                  {b.finalWeight} lb made
                 </Badge>
               )}
             </div>
 
             {b.lastActionBy && (
-              <p className="mt-2 flex items-center gap-1 text-[11px] text-ink-4">
+              <p className="mt-2 flex items-center gap-1 text-xs text-ink-4">
                 <UserCheck size={10} /> {b.lastActionBy}
               </p>
             )}
@@ -115,7 +116,7 @@ function TaskQueue({ tasks, onComplete }) {
     <Card className="mb-4 border-warn-line bg-warn-soft">
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2.5">
         <ClipboardList size={14} className="text-warn shrink-0" />
-        <span className="text-xs font-semibold uppercase tracking-wide text-warn">
+        <span className="text-xs font-semibold text-warn">
           Planned for today
         </span>
       </div>
@@ -150,15 +151,12 @@ function BatchCard({ batch, onStart }) {
         {batch.needsSmoke && <Flame size={14} className="text-warn shrink-0" />}
       </div>
       <p className="text-base font-semibold leading-snug text-ink">{batch.product}</p>
-      {batch.customer && <p className="mt-0.5 text-xs text-ink-3">{batch.customer}</p>}
       <p className="mt-1 mb-3.5 text-sm text-ink-3 tnum">
         {batch.boxWeight ? `${batch.boxWeight} lb boxed in` : `~${batch.estWeight} lb estimated`}
       </p>
       <Button
         block
-        size="lg"
-        variant="primary"
-        icon={willWeighIn || willFinalize ? Scale : ArrowRight}
+        size="lg" variant="primary" icon={willWeighIn || willFinalize ? Scale : ArrowRight}
         onClick={() => onStart(batch)}
         className="mt-auto"
       >
@@ -171,6 +169,7 @@ function BatchCard({ batch, onStart }) {
 /* ------------------------------------------------------------ Move dialog -- */
 
 function MoveDialog({ batch, onCancel, onCommit }) {
+  const { findByPin } = useStaff();
   const stage = batch ? STAGES[batch.stage] : null;
   const willWeighIn = batch ? weighsInAt(batch) === stage : false;
   const willFinalize = stage === "Packaging";
@@ -182,24 +181,23 @@ function MoveDialog({ batch, onCancel, onCommit }) {
     if (willFinalize && batch.boxWeight) return Math.round(batch.boxWeight * 0.82);
     return batch.estWeight;
   });
-  const [destination, setDestination] = useState("freezer");
+  const [destination, setDestination] = useState("made");
   const [pin, setPin] = useState("");
 
-  const staff = findStaffByPin(pin);
+  const staff = findByPin(pin);
   const pinRejected = pin.length === 4 && !staff;
   if (!batch) return null;
 
   const reference = batch.boxWeight || batch.estWeight;
   const preview = willFinalize ? yieldPct(reference, weight) : null;
   const nextLabel = willFinalize ? "Shelf-Ready" : STAGES[nextStageIndex(batch)];
-  const isCustom = Boolean(batch.customer);
 
   const commit = () => {
     if (!staff) return;
     onCommit({
       batch,
       weight,
-      destination: willFinalize && !isCustom ? destination : null,
+      destination: willFinalize ? destination : null,
       staff,
       willWeighIn,
       willFinalize,
@@ -223,12 +221,11 @@ function MoveDialog({ batch, onCancel, onCommit }) {
             </Button>
           ) : (
             <Button
-              variant="success"
-              icon={willFinalize && !isCustom ? Zap : CheckCircle2}
+              variant="success" icon={willFinalize ? Zap : CheckCircle2}
               disabled={!staff}
               onClick={commit}
             >
-              {willFinalize && !isCustom ? "Confirm & sync" : "Confirm"}
+              {willFinalize ? "Confirm & sync" : "Confirm"}
             </Button>
           )}
         </>
@@ -236,7 +233,7 @@ function MoveDialog({ batch, onCancel, onCommit }) {
     >
       {/* Step indicator */}
       {needsWeight && (
-        <ol className="flex items-center gap-2 mb-4 text-[11px] font-medium uppercase tracking-wide">
+        <ol className="flex items-center gap-2 mb-4 text-xs font-medium">
           {["Weight", "Confirm"].map((s, i) => {
             const idx = i === 0 ? "weight" : "confirm";
             const done = idx === "weight" && step === "confirm";
@@ -245,8 +242,8 @@ function MoveDialog({ batch, onCancel, onCommit }) {
               <li key={s} className="flex items-center gap-2">
                 <span
                   className={cx(
-                    "flex items-center justify-center w-5 h-5 rounded-full text-[10px]",
-                    done ? "bg-ok text-white" : active ? "bg-primary text-white" : "bg-sunken text-ink-4"
+                    "flex items-center justify-center w-5 h-5 rounded-full text-xs",
+                    done ? "bg-ok text-white" : active ? "bg-ink text-white" : "bg-inset text-ink-4"
                   )}
                 >
                   {done ? "✓" : i + 1}
@@ -269,9 +266,7 @@ function MoveDialog({ batch, onCancel, onCommit }) {
           }
         >
           <Input
-            type="number"
-            size="lg"
-            autoFocus
+            type="number" size="lg" autoFocus
             value={weight}
             onChange={(e) => setWeight(Number(e.target.value) || 0)}
             className="tnum"
@@ -291,15 +286,30 @@ function MoveDialog({ batch, onCancel, onCommit }) {
           )}
 
           {preview != null && (
-            <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-primary-soft">
-              <span className="text-xs text-primary-ink">Yield against {reference} lb</span>
-              <span className="text-sm font-semibold text-primary-ink tnum">{preview}%</span>
+            <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-inset">
+              <span className="text-xs text-ink-2">Yield against {reference} lb</span>
+              <span className="text-sm font-semibold text-ink tnum">{preview}%</span>
             </div>
           )}
 
-          {willFinalize && !isCustom ? (
-            <Field label="Send to" hint={`Syncs ${weight} lb to Clover immediately.`}>
-              <div className="grid grid-cols-2 gap-2">
+          {willFinalize ? (
+            <Field
+              label="Send to" hint={
+                destination === "floor"
+                  ? `Syncs ${weight} lb to Clover immediately.`
+                  : destination === "freezer"
+                    ? "Put away in the freezer — not sellable yet."
+                    : "Stays on the made pile until someone puts it away."
+              }
+            >
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  variant={destination === "made" ? "primary" : "secondary"}
+                  icon={PackageCheck}
+                  onClick={() => setDestination("made")}
+                >
+                  Made
+                </Button>
                 <Button
                   variant={destination === "freezer" ? "primary" : "secondary"}
                   icon={Snowflake}
@@ -308,23 +318,22 @@ function MoveDialog({ batch, onCancel, onCommit }) {
                   Freezer
                 </Button>
                 <Button
-                  variant={destination === "retail" ? "primary" : "secondary"}
+                  variant={destination === "floor" ? "primary" : "secondary"}
                   icon={Store}
-                  onClick={() => setDestination("retail")}
+                  onClick={() => setDestination("floor")}
                 >
-                  Retail floor
+                  Floor
                 </Button>
               </div>
             </Field>
           ) : (
             <p className="text-sm text-ink-2">
-              Moving to <span className="font-medium text-ink">{isCustom ? "customer pickup" : nextLabel}</span>.
+              Moving to <span className="font-medium text-ink">{nextLabel}</span>.
             </p>
           )}
 
           <Field
-            label="Your PIN"
-            error={pinRejected ? "That PIN isn't recognised." : null}
+            label="Your PIN" error={pinRejected ? "That PIN isn't recognised." : null}
             hint={staff ? null : "Confirms who handled this batch."}
           >
             <PinInput
@@ -358,7 +367,7 @@ export default function BoardScreen({
   onAdvance,
   onCompleteTask,
 }) {
-  const canSeeAll = user.role === "manager";
+  const canSeeAll = isManager(user);
   const [view, setView] = useState(canSeeAll ? "all" : user.station || STATIONS[0]);
   const [moving, setMoving] = useState(null);
 

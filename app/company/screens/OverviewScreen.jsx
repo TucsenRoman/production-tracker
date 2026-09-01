@@ -22,12 +22,12 @@ import { answerInsightQuestion } from "../lib/insights";
 
 function ChecklistItem({ done, title, detail, action }) {
   return (
-    <div className="flex items-start gap-3 px-4 sm:px-5 py-3.5 border-b border-line last:border-b-0">
+    <div className="flex items-start gap-3 px-4 py-3 border-b border-line last:border-b-0">
       <span
         className={
           done
-            ? "flex items-center justify-center w-6 h-6 rounded-full bg-ok-soft text-ok shrink-0 mt-0.5"
-            : "flex items-center justify-center w-6 h-6 rounded-full border-2 border-line-strong text-transparent shrink-0 mt-0.5"
+            ? "flex items-center justify-center w-7 h-7 rounded-full bg-ok-soft text-ok shrink-0 mt-0.5"
+            : "flex items-center justify-center w-7 h-7 rounded-full border-2 border-line-strong text-transparent shrink-0 mt-0.5"
         }
       >
         <CheckCircle2 size={14} />
@@ -45,7 +45,7 @@ function ChecklistItem({ done, title, detail, action }) {
 
 function AttentionRow({ icon: Icon, text, action }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3">
+    <div className="flex items-center justify-between gap-3 px-4 py-3">
       <span className="inline-flex items-center gap-2 min-w-0 text-sm text-ink-2">
         <Icon size={14} className="text-warn shrink-0" />
         <span className="truncate">{text}</span>
@@ -58,7 +58,7 @@ function AttentionRow({ icon: Icon, text, action }) {
 /* -------------------------------------------------------------- Insights -- */
 
 const INSIGHT_TONE_ICON = { warn: AlertTriangle, danger: AlertTriangle, ok: CheckCircle2, neutral: Sparkles };
-const INSIGHT_TONE_CLASS = { warn: "text-warn", danger: "text-danger", ok: "text-ok", neutral: "text-primary-ink" };
+const INSIGHT_TONE_CLASS = { warn: "text-warn", danger: "text-danger", ok: "text-ok", neutral: "text-ink" };
 
 /**
  * Each card can answer a follow-up about itself — scoped to that card's own
@@ -80,7 +80,7 @@ function InsightCard({ card }) {
   };
 
   return (
-    <div className="px-4 sm:px-5 py-3.5 border-b border-line last:border-b-0">
+    <div className="px-4 py-3 border-b border-line last:border-b-0">
       <div className="flex items-start gap-3">
         <span className={cx("shrink-0 mt-0.5", INSIGHT_TONE_CLASS[card.tone])}>
           <Icon size={15} />
@@ -105,8 +105,7 @@ function InsightCard({ card }) {
               <Input
                 autoFocus
                 value={question}
-                placeholder="Ask about this…"
-                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Ask about this…" onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && ask()}
                 className="flex-1"
               />
@@ -116,9 +115,8 @@ function InsightCard({ card }) {
             </div>
           ) : (
             <button
-              type="button"
-              onClick={() => setAsking(true)}
-              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:text-primary transition-colors"
+              type="button" onClick={() => setAsking(true)}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-ink-2 hover:text-ink hover:underline transition-colors"
             >
               <MessageCircle size={12} /> Ask about this
             </button>
@@ -132,9 +130,9 @@ function InsightCard({ card }) {
 function InsightsSection({ insights }) {
   return (
     <Card>
-      <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+      <div className="px-4 py-3 border-b border-line">
         <h3 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-          <Sparkles size={14} className="text-primary-ink" /> Insights
+          <Sparkles size={14} className="text-icon-2" /> Insights
         </h3>
         <p className="mt-0.5 text-xs text-ink-3">
           Rolled up from every location&rsquo;s closed batches — same numbers the floor sees, compared across the
@@ -142,7 +140,7 @@ function InsightsSection({ insights }) {
         </p>
       </div>
       {insights.cards.length === 0 ? (
-        <p className="px-4 sm:px-5 py-6 text-center text-xs text-ink-4">
+        <p className="px-4 py-6 text-xs text-ink-4">
           Insights show up once locations start closing batches on the floor.
         </p>
       ) : (
@@ -191,8 +189,7 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
         <StatCard icon={Fingerprint} label="Floor PINs" value={crewPins.length} hint="issued company-wide" />
         <StatCard
           icon={KeyRound}
-          label="POS connected"
-          value={`${connectedLocationIds.size}/${locations.length || 0}`}
+          label="POS connected" value={`${connectedLocationIds.size}/${locations.length || 0}`}
           tone={locations.length > 0 && connectedLocationIds.size === locations.length ? "ok" : "neutral"}
           hint="locations"
         />
@@ -200,14 +197,13 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
 
       {onboarding && (
         <Card>
-          <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+          <div className="px-4 py-3 border-b border-line">
             <h3 className="text-sm font-semibold text-ink">Get your account set up</h3>
             <p className="mt-0.5 text-xs text-ink-3">A few steps to get {company.name} fully running.</p>
           </div>
           <ChecklistItem
             done={hasLocation}
-            title="Add your first location"
-            detail={hasLocation ? `${locations.length} location${locations.length === 1 ? "" : "s"} added` : "Every location gets its own staff and inventory."}
+            title="Add your first location" detail={hasLocation ? `${locations.length} location${locations.length === 1 ? "" : "s"} added` : "Every location gets its own staff and inventory."}
             action={
               <Button size="sm" icon={MapPin} onClick={() => onNavigate("locations")}>
                 Add
@@ -216,8 +212,7 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
           />
           <ChecklistItem
             done={hasTeammate}
-            title="Invite your team"
-            detail={hasTeammate ? "Teammates invited" : "Bring in managers and admins to help run things."}
+            title="Invite your team" detail={hasTeammate ? "Teammates invited" : "Bring in managers and admins to help run things."}
             action={
               <Button size="sm" icon={UserPlus} onClick={() => onNavigate("team")}>
                 Invite
@@ -226,8 +221,7 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
           />
           <ChecklistItem
             done={hasIntegration}
-            title="Connect a POS"
-            detail={hasIntegration ? "Clover connected" : "Sync inventory automatically from Clover."}
+            title="Connect a POS" detail={hasIntegration ? "Clover connected" : "Sync inventory automatically from Clover."}
             action={
               <Button size="sm" icon={KeyRound} onClick={() => onNavigate("integrations")}>
                 Connect
@@ -239,7 +233,7 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
 
       {!onboarding && (
         <Card>
-          <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-line">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line">
             <h3 className="text-sm font-semibold text-ink">Needs attention</h3>
             {attentionCount > 0 ? (
               <Badge tone="warn">{attentionCount}</Badge>
@@ -250,7 +244,7 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
             )}
           </div>
           {attentionCount === 0 ? (
-            <p className="px-4 sm:px-5 py-6 text-center text-xs text-ink-4">
+            <p className="px-4 py-6 text-xs text-ink-4">
               Every location has coverage, a POS connection, and issued PINs.
             </p>
           ) : (
@@ -311,11 +305,11 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
       <InsightsSection insights={insights} />
 
       <Card>
-        <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+        <div className="px-4 py-3 border-b border-line">
           <h3 className="text-sm font-semibold text-ink">Locations at a glance</h3>
         </div>
         {locations.length === 0 ? (
-          <p className="px-4 sm:px-5 py-6 text-center text-xs text-ink-4">No locations yet.</p>
+          <p className="px-4 py-6 text-xs text-ink-4">No locations yet.</p>
         ) : (
           <div className="divide-y divide-line">
             {locations.map((loc) => {
@@ -323,7 +317,7 @@ export default function OverviewScreen({ company, locations, users, crewPins, in
               const pins = crewPins.filter((p) => p.role === "station" && p.locationId === loc.id).length;
               const connected = connectedLocationIds.has(loc.id);
               return (
-                <div key={loc.id} className="flex items-center justify-between gap-3 flex-wrap px-4 sm:px-5 py-3">
+                <div key={loc.id} className="flex items-center justify-between gap-3 flex-wrap px-4 py-3">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-ink truncate">{loc.name}</p>
                     <p className="text-xs text-ink-3 truncate">{loc.address}</p>

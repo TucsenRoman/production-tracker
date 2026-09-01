@@ -24,8 +24,7 @@ function ConnectDialog({ location, provider, existing, onCancel, onConnect }) {
             Cancel
           </Button>
           <Button
-            variant="primary"
-            icon={PlugZap}
+            variant="primary" icon={PlugZap}
             disabled={!valid}
             onClick={() => onConnect({ merchantId: merchantId.trim(), apiKey: apiKey.trim() })}
           >
@@ -40,8 +39,7 @@ function ConnectDialog({ location, provider, existing, onCancel, onConnect }) {
         </Field>
         <Field label="API key" hint="A private token — kept encrypted and never shown again after saving.">
           <Input
-            type="password"
-            value={apiKey}
+            type="password" value={apiKey}
             placeholder={existing?.apiKey ? "Enter a new key to replace the current one" : "clv_live_…"}
             onChange={(e) => setApiKey(e.target.value)}
           />
@@ -57,9 +55,9 @@ function ProviderRow({ location, provider, record, onConnect, onDisconnect, onTe
 
   if (!provider.available) {
     return (
-      <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5">
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-sunken text-ink-4 shrink-0">
+          <span className="flex items-center justify-center w-7 h-7 rounded-md bg-inset text-icon-2 shrink-0">
             <provider.icon size={15} />
           </span>
           <div className="min-w-0">
@@ -75,12 +73,12 @@ function ProviderRow({ location, provider, record, onConnect, onDisconnect, onTe
   }
 
   return (
-    <div className="px-4 sm:px-5 py-3.5">
+    <div className="px-4 py-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2.5 min-w-0">
           <span
             className={cx(
-              "flex items-center justify-center w-8 h-8 rounded-lg shrink-0",
+              "flex items-center justify-center w-7 h-7 rounded-md shrink-0",
               connected ? "bg-ok-soft text-ok" : "bg-sunken text-ink-3"
             )}
           >
@@ -145,8 +143,7 @@ export default function IntegrationsScreen({ locations, integrations, onConnect,
       <Card>
         <EmptyState
           icon={KeyRound}
-          title="Add a location first"
-          description="Integrations connect per location — add one from the Locations tab, then come back here."
+          title="Add a location first" description="Integrations connect per location — add one from the Locations tab, then come back here."
         />
       </Card>
     );
@@ -156,7 +153,7 @@ export default function IntegrationsScreen({ locations, integrations, onConnect,
     <div className="space-y-4">
       {locations.map((loc) => (
         <Card key={loc.id} className="overflow-hidden">
-          <div className="px-4 sm:px-5 py-3.5 border-b border-line">
+          <div className="px-4 py-3 border-b border-line">
             <h3 className="text-sm font-semibold text-ink">{loc.name}</h3>
             <p className="text-xs text-ink-3">{loc.address}</p>
           </div>
