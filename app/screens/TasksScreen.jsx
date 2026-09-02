@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowUp,
   Calendar,
+  Check,
   CheckCircle2,
-  Circle,
   ClipboardList,
   ClockFading,
   Pencil,
@@ -27,6 +28,7 @@ import {
   Label,
   Modal,
   Segmented,
+  Tooltip,
   cx,
 } from "../components/ui";
 import {
@@ -43,6 +45,7 @@ import {
   todayKey,
   visibleTasks,
 } from "../lib/domain";
+import { useDoubleTapHotkey } from "../lib/useDoubleTapHotkey";
 import { useStaff } from "../lib/staff";
 
 /**
@@ -88,7 +91,19 @@ const TABS = [
 
 /* ------------------------------------------------------------------ Row -- */
 
-function TaskRow({ task, staff, categories, canManage, onToggle, onRemove, completedView = false }) {
+function TaskRow({
+  task,
+  staff,
+  categories,
+  canManage,
+  onToggle,
+  onEdit,
+  onRemove,
+  completedView = false,
+  // Off inside a category section, where the section header already
+  // carries the icon — repeating it on every row under it said nothing new.
+  showCategoryIcon = true,
+}) {
   const categoryMeta = categories.find((c) => c.id === task.category);
   const Icon = TASK_CATEGORY_ICONS[categoryMeta?.iconId] || ClipboardList;
   const overdue = !task.completed && task.dueDate != null && daysUntil(task.dueDate) < 0;
@@ -98,40 +113,48 @@ function TaskRow({ task, staff, categories, canManage, onToggle, onRemove, compl
   // no dimming or strikethrough there, and the toggle becomes an undo.
   const struck = task.completed && !completedView;
 
+  const toggleLabel = completedView
+    ? `Restore "${task.title}"`
+    : task.completed
+      ? `Mark "${task.title}" not done`
+      : `Mark "${task.title}" done`;
+
   return (
     <li
+      role="button"
+      tabIndex={0}
+      aria-label={toggleLabel}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onToggle();
+      }}
       className={cx(
-        "flex items-start gap-3 py-3 px-1 -mx-1 rounded-md transition-colors",
+        "group flex items-start gap-3 py-3 px-1 -mx-1 rounded-md transition-colors cursor-pointer",
         struck ? "opacity-60" : "hover:bg-faint"
       )}
     >
-      <button
-        type="button"
-        aria-label={
-          completedView
-            ? `Restore "${task.title}"`
-            : task.completed
-              ? `Mark "${task.title}" not done`
-              : `Mark "${task.title}" done`
-        }
-        onClick={onToggle}
+      {/* Purely visual now that the whole row toggles — a second focusable
+       *  control here would just be a same-action duplicate of the row
+       *  itself, tabbed to twice for no reason. */}
+      <span
+        aria-hidden="true"
         className={cx(
-          "mt-0.5 shrink-0 transition-colors",
-          !completedView && task.completed ? "text-ok" : "text-ink-4 hover:text-ink-2"
+          "mt-0.5 shrink-0 flex items-center justify-center w-4 h-4 rounded border transition-colors duration-100",
+          completedView
+            ? "border-line text-ink-3"
+            : task.completed
+              ? "border-ok bg-ok text-white"
+              : "border-line-strong text-transparent"
         )}
       >
-        {completedView ? (
-          <Undo2 size={17} />
-        ) : task.completed ? (
-          <CheckCircle2 size={19} />
-        ) : (
-          <Circle size={19} />
-        )}
-      </button>
+        {completedView ? <Undo2 size={10} /> : task.completed ? <Check size={10} strokeWidth={3} /> : null}
+      </span>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <Icon size={13} className="text-icon-2 shrink-0" />
+          {showCategoryIcon && <Icon size={13} className="text-icon-2 shrink-0" />}
           <p className={cx("text-sm font-medium text-ink", struck && "line-through text-ink-3")}>
             {task.title}
           </p>
@@ -140,7 +163,11 @@ function TaskRow({ task, staff, categories, canManage, onToggle, onRemove, compl
           )}
         </div>
 
-        {task.note && <p className="mt-0.5 text-xs text-ink-3 leading-relaxed">{task.note}</p>}
+        {task.note && (
+          <p className="mt-0.5 text-xs text-ink-3 leading-relaxed">
+            <span className="font-medium text-ink-4">Note:</span> {task.note}
+          </p>
+        )}
 
         <div className="mt-1.5 flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-ink-3">
           <span className="inline-flex items-center gap-1.5">
@@ -180,12 +207,27 @@ function TaskRow({ task, staff, categories, canManage, onToggle, onRemove, compl
       </div>
 
       {canManage && (
-        <IconButton
-          label={`Remove "${task.title}"`}
-          icon={Trash2}
-          onClick={onRemove}
-          className="shrink-0"
-        />
+        // Hidden until the row is actually being looked at — hover or
+        // keyboard focus — so a completed list doesn't read as a wall of
+        // controls when all you're doing is scanning it.
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity duration-100">
+          <IconButton
+            label={`Edit "${task.title}"`}
+            icon={Pencil}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+          />
+          <IconButton
+            label={`Remove "${task.title}"`}
+            icon={Trash2}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+          />
+        </div>
       )}
     </li>
   );
@@ -193,13 +235,14 @@ function TaskRow({ task, staff, categories, canManage, onToggle, onRemove, compl
 
 /* --------------------------------------------------------------- Add form -- */
 
-function AddTaskModal({ staff, categories, onCancel, onSave }) {
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState(categories[0]?.id);
-  const [priority, setPriority] = useState("normal");
-  const [assignedTo, setAssignedTo] = useState("anyone");
-  const [dueDate, setDueDate] = useState("");
-  const [note, setNote] = useState("");
+function AddTaskModal({ staff, categories, task = null, onCancel, onSave }) {
+  const editing = Boolean(task);
+  const [title, setTitle] = useState(task?.title ?? "");
+  const [category, setCategory] = useState(task?.category ?? categories[0]?.id);
+  const [priority, setPriority] = useState(task?.priority ?? "normal");
+  const [assignedTo, setAssignedTo] = useState(task?.assignedTo ?? "anyone");
+  const [dueDate, setDueDate] = useState(task?.dueDate ?? "");
+  const [note, setNote] = useState(task?.note ?? "");
 
   const ready = title.trim().length > 1 && Boolean(category);
 
@@ -219,15 +262,15 @@ function AddTaskModal({ staff, categories, onCancel, onSave }) {
     <Modal
       open
       onClose={onCancel}
-      title="New task"
-      icon={ClipboardList}
+      title={editing ? "Edit task" : "New task"}
+      icon={editing ? Pencil : ClipboardList}
       footer={
         <>
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" icon={Plus} disabled={!ready} onClick={save}>
-            Add task
+          <Button variant="primary" icon={editing ? Check : Plus} disabled={!ready} onClick={save}>
+            {editing ? "Save changes" : "Add task"}
           </Button>
         </>
       }
@@ -397,12 +440,13 @@ function ManageCategoriesModal({ categories, counts, onCancel, onAdd, onRename, 
 
 /* ----------------------------------------------------------------- Screen -- */
 
-export default function TodoScreen({
-  todos,
+export default function TasksScreen({
+  tasks,
   categories,
   user,
   onAdd,
   onToggle,
+  onEdit,
   onRemove,
   onAddCategory,
   onRenameCategory,
@@ -412,18 +456,49 @@ export default function TodoScreen({
   const canManage = isManager(user);
 
   const [tab, setTab] = useState("open");
-  const [category, setCategory] = useState("all");
   const [adding, setAdding] = useState(false);
+  // The task being edited, or null — AddTaskModal doubles as the editor
+  // when it's given one to seed from.
+  const [editingTask, setEditingTask] = useState(null);
   const [managingCategories, setManagingCategories] = useState(false);
   // Tasks checked off in this view stay put — struck through, not removed —
   // until the tab is switched (a stand-in for "refresh"). Otherwise a task
   // vanishing the instant you tap it reads like the click didn't register.
   const [stickyDone, setStickyDone] = useState(() => new Set());
+  // Drives the "back to top" button — on past the point the sticky toolbar
+  // has already taken over, so it's only offered once there's somewhere to
+  // go back to.
+  const [scrolledPast, setScrolledPast] = useState(false);
 
   const changeTab = (v) => {
     setStickyDone(new Set());
     setTab(v);
   };
+
+  // Desktop scrolls the AppShell's own card (`[data-app-scroll]`); mobile
+  // scrolls the page itself. Both listeners are attached — whichever one is
+  // actually the scrolling element in a given layout is the one that fires.
+  useEffect(() => {
+    const container = document.querySelector("[data-app-scroll]");
+    const check = () => {
+      const y = Math.max(window.scrollY, container?.scrollTop || 0);
+      setScrolledPast(y > 240);
+    };
+    check();
+    window.addEventListener("scroll", check, { passive: true });
+    container?.addEventListener("scroll", check, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", check);
+      container?.removeEventListener("scroll", check);
+    };
+  }, []);
+
+  const scrollToTop = () => {
+    document.querySelector("[data-app-scroll]")?.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  useDoubleTapHotkey({ t: scrollToTop });
 
   const handleToggle = (task) => {
     setStickyDone((prev) => {
@@ -435,7 +510,7 @@ export default function TodoScreen({
     onToggle(task.id);
   };
 
-  const base = useMemo(() => visibleTasks(todos, user), [todos, user]);
+  const base = useMemo(() => visibleTasks(tasks, user), [tasks, user]);
 
   /** Dot counts: each tab's own filter, except Completed's dot counts today's
    *  completions specifically ("nice work") rather than the whole history
@@ -445,18 +520,13 @@ export default function TodoScreen({
     [base, user.id]
   );
 
-  const categoriesPresent = useMemo(
-    () => categories.filter((c) => base.some((t) => t.category === c.id)),
-    [categories, base]
-  );
-
   /** Counts across every task (not just what this user can see) — the manage
    *  dialog is manager-only and needs the real picture to gate deletion. */
   const categoryTaskCounts = useMemo(() => {
     const tally = {};
-    for (const t of todos) tally[t.category] = (tally[t.category] || 0) + 1;
+    for (const t of tasks) tally[t.category] = (tally[t.category] || 0) + 1;
     return tally;
-  }, [todos]);
+  }, [tasks]);
 
   const filtered = useMemo(() => {
     return base.filter((t) => {
@@ -469,10 +539,9 @@ export default function TodoScreen({
         if (tab === "dueToday" && !(t.dueDate != null && daysUntil(t.dueDate) === 0)) return false;
         if (tab === "overdue" && !(t.dueDate != null && daysUntil(t.dueDate) < 0)) return false;
       }
-      if (category !== "all" && t.category !== category) return false;
       return true;
     });
-  }, [base, tab, category, user.id, stickyDone]);
+  }, [base, tab, user.id, stickyDone]);
 
   // Sticky-done tasks keep the sort position they'd have if still open —
   // sortTasks would otherwise drop them to the bottom, which reads as the
@@ -484,13 +553,47 @@ export default function TodoScreen({
     return sortTasks(forSort).map((t) => byId.get(t.id));
   }, [filtered, tab, stickyDone]);
 
+  // Every tab sections by category instead of leaving one flat list —
+  // consistent with Open, where this started, rather than a filter that
+  // hides everything but one category at a time. Always sectioned, even
+  // down to one category present — a tab that happens to be all "Cleaning"
+  // today still says so, rather than silently reverting to an unlabeled
+  // list the moment a second category empties out.
+  const groups = useMemo(() => {
+    const byCategory = new Map();
+    for (const task of ordered) {
+      const list = byCategory.get(task.category);
+      if (list) list.push(task);
+      else byCategory.set(task.category, [task]);
+    }
+    return categories
+      .filter((c) => byCategory.has(c.id))
+      .map((c) => ({ category: c, tasks: byCategory.get(c.id) }));
+  }, [ordered, categories]);
+
   return (
     <div className="space-y-5">
-      <div className="space-y-2.5">
-        {/* Its own row, not sharing a flex line with the category filters
-         *  below — sharing one made the browser shrink this row to fit
-         *  both, which permanently squeezed it into "overflowing" and lit
-         *  the scroll fade even on a wide screen with room to spare. */}
+      {/* Its own row: the view tabs on the left, categories admin and add
+       *  on the right — no separate category filter row, since every tab
+       *  below sections its list by category instead of hiding the rest
+       *  behind one. Sticky so it's still there once you've scrolled past
+       *  it. `--app-mobile-header-h` (set by AppShell from the mobile
+       *  header's own measured height) clears that sticky bar without a
+       *  guessed px value — it's already 0 once that header goes
+       *  `lg:hidden`, so mobile needs no separate handling here.
+       *
+       *  Desktop needs one more correction `lg:top-[-1.5rem]`. There, the
+       *  actual sticky containing block is [data-app-scroll] itself (its
+       *  `lg:overflow-y-auto`, not the page), and that card has its own
+       *  `lg:py-6` (24px) top padding — `top-0` sticks this bar *below*
+       *  that padding rather than into it, leaving the padding itself as
+       *  a band nothing paints into, so whatever's still mid-scroll shows
+       *  straight through above the bar. A matching negative-margin/
+       *  positive-padding trick on this element does NOT fix it — a
+       *  stuck sticky box ignores margin for repositioning — the offset
+       *  itself has to move: -1.5rem (== `lg:py-6`) pulls the stuck
+       *  position up flush with the card's actual top edge instead. */}
+      <div className="relative sticky top-[var(--app-mobile-header-h,0px)] lg:top-[-1.5rem] z-10 bg-canvas lg:bg-surface pb-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           {/* fade only — scroll mode engages itself when the row actually
            *  overflows; forcing it on left the rail 14px scrollable (its
@@ -511,38 +614,45 @@ export default function TodoScreen({
           />
 
           {canManage && (
-            <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
-              New task
-            </Button>
-          )}
-        </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
+                New task
+              </Button>
 
-        {(categoriesPresent.length > 1 || canManage) && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {categoriesPresent.length > 1 && (
-              <Segmented
-                size="sm" scroll value={category} onChange={setCategory}
-                options={[
-                  { value: "all", label: "All" },
-                  ...categoriesPresent.map((c) => ({
-                    value: c.id,
-                    label: c.label,
-                    icon: categoryIcon(categories, c.id),
-                  })),
-                ]}
-              />
-            )}
-
-            {canManage && (
               <IconButton
                 label="Manage categories"
                 icon={Settings}
                 onClick={() => setManagingCategories(true)}
                 className="shrink-0"
               />
-            )}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
+
+        {/* Where the opaque toolbar meets scrolling content underneath
+         *  it. Two zones, not a plain top-to-bottom fade: a solid held
+         *  band first, THEN a fade — not "solid → immediately fading",
+         *  because a pure linear fade starts revealing content the instant
+         *  it clears the toolbar, and a task row's meta line (which is
+         *  already light, low-contrast text) was legible again within a
+         *  few px of the seam — still read as an abrupt, headerless
+         *  fragment jammed against the toolbar ("too tight on top" /
+         *  "still too tight and cutoff") even with a taller pure-gradient
+         *  fade (h-4 → h-10 wasn't enough on its own). Held solid through
+         *  ~45% (roughly a row's title/checkbox line) fully hides whatever
+         *  is mid-transition instead of letting it show through faint,
+         *  then fades over the remainder so a row still eases in rather
+         *  than snapping to full opacity. Anchored to the toolbar's own
+         *  bottom edge (top-full), so it scrolls with the sticky bar
+         *  rather than sitting fixed against the viewport. */}
+        <div
+          aria-hidden="true"
+          className={cx(
+            "pointer-events-none absolute inset-x-0 top-full h-14",
+            "bg-[linear-gradient(to_bottom,var(--color-canvas)_0%,var(--color-canvas)_45%,transparent_100%)]",
+            "lg:bg-[linear-gradient(to_bottom,var(--color-surface)_0%,var(--color-surface)_45%,transparent_100%)]"
+          )}
+        />
       </div>
 
       {ordered.length === 0 ? (
@@ -566,6 +676,46 @@ export default function TodoScreen({
             }
           />
         </div>
+      ) : groups ? (
+        <div className="space-y-5">
+          {groups.map(({ category: cat, tasks }) => {
+            const Icon = TASK_CATEGORY_ICONS[cat.iconId] || ClipboardList;
+            return (
+              <div key={cat.id}>
+                {/* The rule sits ON the heading's line, not under it — a
+                 *  hairline below read as just another row divider, easy to
+                 *  mistake for one more line in the list rather than a break
+                 *  between sections. */}
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon size={14} className="text-icon-2 shrink-0" />
+                  <h3 className="text-xs font-semibold text-ink-2 uppercase tracking-wide shrink-0">{cat.label}</h3>
+                  <span className="text-xs text-ink-4 tnum shrink-0">{tasks.length}</span>
+                  <span className="flex-1 h-px bg-line" aria-hidden="true" />
+                </div>
+                {/* Nested under its heading, not flush with it — the
+                 *  indent is what actually reads as "belongs to this
+                 *  section" now that there's no box or rule around the
+                 *  list itself. */}
+                <ul className="pl-6">
+                  {tasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      staff={staff}
+                      categories={categories}
+                      canManage={canManage}
+                      completedView={tab === "completed"}
+                      showCategoryIcon={false}
+                      onToggle={() => handleToggle(task)}
+                      onEdit={() => setEditingTask(task)}
+                      onRemove={() => onRemove(task.id)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <ul className="divide-y divide-line border-b border-line">
           {ordered.map((task) => (
@@ -577,20 +727,27 @@ export default function TodoScreen({
               canManage={canManage}
               completedView={tab === "completed"}
               onToggle={() => handleToggle(task)}
+              onEdit={() => setEditingTask(task)}
               onRemove={() => onRemove(task.id)}
             />
           ))}
         </ul>
       )}
 
-      {adding && (
+      {(adding || editingTask) && (
         <AddTaskModal
           staff={staff}
           categories={categories}
-          onCancel={() => setAdding(false)}
-          onSave={(task) => {
-            onAdd(task, user);
+          task={editingTask}
+          onCancel={() => {
             setAdding(false);
+            setEditingTask(null);
+          }}
+          onSave={(fields) => {
+            if (editingTask) onEdit(editingTask.id, fields);
+            else onAdd(fields, user);
+            setAdding(false);
+            setEditingTask(null);
           }}
         />
       )}
@@ -605,6 +762,44 @@ export default function TodoScreen({
           onRemove={onRemoveCategory}
         />
       )}
+
+      {/* `fixed` lives on THIS wrapper, not the button — Tooltip's own
+       *  positioning depends on a normal-flow box to anchor its bubble to,
+       *  and a `fixed` child contributes no flow size to its parent, so
+       *  putting `fixed` on the button itself left the tooltip anchored to
+       *  a collapsed point instead of the button (it rendered off at the
+       *  far edge of the page). Desktop's own scroll container doesn't
+       *  change any of this, since nothing between here and the viewport
+       *  is transformed. Parked above the mobile tab bar, clear of it. */}
+      {/* bottom-36 (not bottom-20) on mobile — the draggable role-switcher chip defaults to bottom-20 right-4 too, and the two would render stacked on top of each other, with the chip's higher z-index eating this button's clicks. */}
+      <div className="fixed z-20 bottom-36 right-4 lg:bottom-8 lg:right-8">
+        {/* Tooltip only supports top/bottom/right — "left" isn't a real
+         *  option, and this button sits at the right edge anyway, so above
+         *  it (the default) is both correct and all that's available. */}
+        <Tooltip label="Scroll to top (T T)">
+          <button
+            type="button"
+            aria-label="Scroll to top"
+            onClick={scrollToTop}
+            className={cx(
+              // Same control height token as every other icon control
+              // (`IconButton`, toolbar chips) rather than a bespoke size —
+              // "one control height" is load-bearing to this app's whole
+              // look, and a bigger bespoke FAB read as a foreign control.
+              "flex items-center justify-center w-[var(--ctl-h)] h-[var(--ctl-h)] rounded-full",
+              // Elevation here is the same warm 1px ring every other
+              // floating surface in this system uses (`shadow-xs`) — no
+              // added `border` (would double the ring) and no blur-y
+              // `shadow-md`, which reads as heavier than this deserves.
+              "bg-surface text-ink-3 shadow-xs hover:text-ink-2 hover:bg-hover",
+              "transition-all duration-150",
+              scrolledPast ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"
+            )}
+          >
+            <ArrowUp size={14} />
+          </button>
+        </Tooltip>
+      </div>
     </div>
   );
 }

@@ -131,6 +131,18 @@
   }
 }
 
+/* Lets the floor demo's TabletFrame force the touch-density tokens on for
+   a mouse-driven browser, via its "Simulate touch" toggle — mirrors the
+   media query above exactly. Applied on <html> since that's where the
+   toggle sets the class; see TabletFrame.jsx. */
+html.force-touch-density {
+  --row-h: 48px;
+  --cell-h: 48px;
+  --ctl-h: 44px;
+  --ctl-h-lg: 52px;
+  --gutter: 16px;
+}
+
 @layer base {
   html {
     scrollbar-gutter: stable;
@@ -139,7 +151,14 @@
   html,
   body {
     max-width: 100vw;
-    overflow-x: hidden;
+    /* overflow-x: clip (not hidden) — hidden pairs with an unset overflow-y
+       per the CSS overflow spec, silently turning html/body into scroll
+       containers of their own and breaking every `position: sticky`
+       element on the page (they'd "stick" to body's box instead of the
+       real viewport, and since body never has a clipped viewport of its
+       own, they just scroll away like static content). clip prevents the
+       horizontal overflow without opting into that pairing. */
+    overflow-x: clip;
   }
 
   body {
@@ -207,6 +226,14 @@
       user-select: none;
       touch-action: manipulation;
     }
+  }
+
+  html.force-touch-density button,
+  html.force-touch-density [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
   }
 
   @media (prefers-reduced-motion: reduce) {

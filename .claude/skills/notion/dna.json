@@ -581,6 +581,20 @@
       "why": "User's call, and the distinction holds: each tile is a separate TARGET — clicking one filters the list — so the box is the hit area, not decoration. The ban is about boxing a group; four independent controls are not a group. No shadow, no colour wash, selection still the 5% tint.",
       "cost": "Four rectangles where the reference would have shown one ruled strip. The board's columns stayed ruled, so the two readings coexist in the same product — watch for that drifting into 'boxes everywhere'.",
       "rule_of_thumb": "Box a thing you can click. Rule a thing you only read."
+    },
+    {
+      "fork": "Sign-in illustration panel",
+      "signature": "bans[12] — never use an illustration or spot graphic in an empty state",
+      "what": "SignInScreen now pairs its PIN card with a companion isometric line illustration of the production floor (app/components/OpsIllustration.jsx), shown on a lg:-and-up viewport, hidden below it (single centred card, unchanged, on mobile).",
+      "why": "User-directed: wanted the sign-in screen to carry the same isometric-illustration identity as an external product mockup they supplied, but insisted the app's own DNA — not the mockup's colours — stay the source of truth for every token. The illustration is drawn from nothing but --color-canvas/--color-sunken/--color-inset/--color-line-strong/--color-ink(-2)/--color-primary — the same three-step neutral ramp the rest of the app shades with — so it restyles automatically if those tokens ever change, and it never introduces a colour the rest of the product doesn't already use.",
+      "how_it_still_obeys_the_dna": [
+        "Accent budget: exactly one screen inside the illustration uses --color-primary; everything else is the neutral ramp + ink. Combined with the UI's own accent usage this still holds signatures[5] (accent under 1%).",
+        "No gradient, glow, or blur anywhere in it — flat fills and one hairline stroke weight only, per bans[10].",
+        "No card: the illustration sits directly on --color-canvas behind a single hairline divider (border-line), never a bordered box, per bans[3].",
+        "Decorative only — role=\"img\" with one aria-label, no text baked into the graphic, so it never competes with the DNA's own type system."
+      ],
+      "cost": "Ban 12 is now non-absolute — a second, different empty state (or another future screen) invoking this fork on its own aesthetic judgment rather than a specific user decision would be scope creep. Restrict this exception to the sign-in screen unless the user asks for it elsewhere.",
+      "rule_of_thumb": "An illustration is allowed exactly where its every colour is already a token the rest of the product uses. The moment an illustration needs a hue the DNA doesn't already have, the fork doesn't apply."
     }
   ],
   "implementation_discipline": {

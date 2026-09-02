@@ -23,7 +23,7 @@ export const ROLES = ["owner", "admin", "manager"];
 export const ROLE_LABEL = {
   owner: "Owner",
   admin: "Admin",
-  manager: "Manager",
+  manager: "Floor manager",
 };
 
 /** Owner is the only role that can't be changed or removed by another admin. */

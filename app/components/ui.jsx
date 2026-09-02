@@ -8,7 +8,7 @@
  * class-variance library so there's no dependency to keep in step.
  */
 
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, ChevronDown, Info, Loader2, Search, X } from "lucide-react";
 
@@ -315,9 +315,30 @@ export function SearchInput({ value, onChange, placeholder = "Search…", pill =
  * delays and styles differently (and some skip on touch entirely). Keyboard
  * focus shows it too, so it isn't a mouse-only explanation.
  */
+const TOOLTIP_GAP = 6; // trigger-to-bubble gap, in every direction
+const TOOLTIP_MARGIN = 8; // never closer than this to the viewport edge
+
+/**
+ * Boundary-aware: `side` is a preference, not a promise. The bubble is
+ * measured against the trigger's actual on-screen rect and the current
+ * viewport after it mounts, then placed with `position: fixed` in real
+ * viewport coordinates (portaled to `document.body`, so no ancestor's
+ * `overflow`/stacking context gets a vote) — flipped to the opposite side
+ * if the preferred one doesn't fit, and slid along the cross-axis to stay
+ * fully on-screen either way. A trigger pinned in a screen corner (see
+ * TasksScreen's back-to-top button) is exactly the case a fixed CSS
+ * placement (centered on the trigger, no matter what's beside it) can't
+ * handle — this can, because it actually knows where the edges are.
+ */
 export function Tooltip({ label, children, side = "top", className, disabled = false }) {
   const [open, setOpen] = useState(false);
+  // Where to actually draw the bubble, in viewport coordinates — null
+  // until the first post-mount measurement resolves it, so nothing paints
+  // at the wrong (0,0, pre-measurement) spot even for one frame.
+  const [pos, setPos] = useState(null);
   const timerRef = useRef(null);
+  const wrapRef = useRef(null);
+  const bubbleRef = useRef(null);
 
   const show = () => {
     if (disabled) return;
@@ -327,11 +348,47 @@ export function Tooltip({ label, children, side = "top", className, disabled = f
   const hide = () => {
     clearTimeout(timerRef.current);
     setOpen(false);
+    setPos(null);
   };
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
+  // Runs after the (invisible, unmeasured) bubble is in the DOM but before
+  // the browser paints, so the flip/clamp math is invisible to the user —
+  // it never shows the wrong position first and then jumps.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const trigger = wrapRef.current?.getBoundingClientRect();
+    const bubble = bubbleRef.current?.getBoundingClientRect();
+    if (!trigger || !bubble) return;
+
+    const fits = (s) => {
+      if (s === "top") return trigger.top - bubble.height - TOOLTIP_GAP >= TOOLTIP_MARGIN;
+      if (s === "bottom") return trigger.bottom + bubble.height + TOOLTIP_GAP <= window.innerHeight - TOOLTIP_MARGIN;
+      if (s === "left") return trigger.left - bubble.width - TOOLTIP_GAP >= TOOLTIP_MARGIN;
+      return trigger.right + bubble.width + TOOLTIP_GAP <= window.innerWidth - TOOLTIP_MARGIN; // "right"
+    };
+    const opposite = { top: "bottom", bottom: "top", left: "right", right: "left" };
+    const placed = fits(side) ? side : fits(opposite[side]) ? opposite[side] : side;
+
+    const clamp = (value, size, max) => Math.min(Math.max(value, TOOLTIP_MARGIN), Math.max(TOOLTIP_MARGIN, max - size - TOOLTIP_MARGIN));
+
+    let top, left;
+    if (placed === "top" || placed === "bottom") {
+      top = placed === "top" ? trigger.top - bubble.height - TOOLTIP_GAP : trigger.bottom + TOOLTIP_GAP;
+      left = clamp(trigger.left + trigger.width / 2 - bubble.width / 2, bubble.width, window.innerWidth);
+    } else {
+      left = placed === "left" ? trigger.left - bubble.width - TOOLTIP_GAP : trigger.right + TOOLTIP_GAP;
+      top = clamp(trigger.top + trigger.height / 2 - bubble.height / 2, bubble.height, window.innerHeight);
+    }
+    setPos({ top, left });
+    // Re-measures only on the signals that can actually move the trigger or
+    // change the bubble's own size — not every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, side, label]);
+
   return (
     <span
+      ref={wrapRef}
       className={cx("relative inline-flex shrink-0", className)}
       onMouseEnter={show}
       onMouseLeave={hide}
@@ -339,20 +396,28 @@ export function Tooltip({ label, children, side = "top", className, disabled = f
       onBlur={hide}
     >
       {children}
-      {!disabled && open && (
-        <span
-          role="tooltip"
-          className={cx(
-            "pointer-events-none absolute z-40 whitespace-nowrap",
-            "px-2 py-1 rounded-md bg-ink text-white text-xs font-medium shadow-md animate-fade-in",
-            side === "top" && "left-1/2 -translate-x-1/2 bottom-full mb-1.5",
-            side === "bottom" && "left-1/2 -translate-x-1/2 top-full mt-1.5",
-            side === "right" && "left-full top-1/2 -translate-y-1/2 ml-1.5"
-          )}
-        >
-          {label}
-        </span>
-      )}
+      {!disabled &&
+        open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <span
+            ref={bubbleRef}
+            role="tooltip"
+            style={{
+              position: "fixed",
+              top: pos?.top ?? 0,
+              left: pos?.left ?? 0,
+              visibility: pos ? "visible" : "hidden",
+            }}
+            className={cx(
+              "pointer-events-none z-40 whitespace-nowrap",
+              "px-2 py-1 rounded-md bg-ink text-white text-xs font-medium shadow-md animate-fade-in"
+            )}
+          >
+            {label}
+          </span>,
+          document.body
+        )}
     </span>
   );
 }
@@ -663,14 +728,30 @@ export function ScrollRail({
  *  always the brand color, so it reads as "count" rather than a severity
  *  signal. Pinned to the tab's top-right corner. Zero renders nothing — an
  *  empty dot just adds noise. */
-function TabDot({ count }) {
+export function TabDot({ count, variant = "corner" }) {
   if (!count) return null;
   return (
     <span
       className={cx(
-        "absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full",
+        "absolute inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full",
         "text-[10px] font-semibold leading-none tnum shrink-0 ring-2 ring-surface",
-        "bg-primary text-white"
+        "bg-primary text-white transition-[top,right] duration-300",
+        // "corner" (default): pinned to the row's own top-right corner —
+        // the in-screen tab-dot look, and also the collapsed nav rail /
+        // mobile tab bar, where the row is icon-width and there's no
+        // "inside the row" to tuck into.
+        // "trailing": the expanded nav rail, where the row is wider than
+        // the icon — vertically centered and tucked inside the row's own
+        // trailing edge instead of pinned to its corner. Centered with a
+        // calc'd `top` rather than inset-y-0/my-auto on purpose: an
+        // auto-margin can't be transitioned, so collapsing the sidebar
+        // (which flips this variant against "corner") would snap instead
+        // of sliding. A plain top/right pair, matched in kind with
+        // "corner"'s, is what lets `transition-[top,right]` actually
+        // animate the move.
+        variant === "trailing"
+          ? "top-[calc((var(--ctl-h)-1rem)/2)] right-2"
+          : "-top-1.5 -right-1.5"
       )}
     >
       {count > 99 ? "99+" : count}

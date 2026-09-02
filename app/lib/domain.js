@@ -55,7 +55,7 @@ export const LOW_YIELD_PCT = 75;
  */
 export const ROLES = ["crew", "manager", "owner"];
 
-export const ROLE_LABEL = { crew: "Crew", manager: "Manager", owner: "Owner" };
+export const ROLE_LABEL = { crew: "Crew", manager: "Floor manager", owner: "Owner" };
 
 export const ROLE_BLURB = {
   crew: "Runs batches, records weights, moves stock.",
@@ -477,12 +477,12 @@ export function newId(prefix) {
   return `${prefix}-${Date.now().toString(36).slice(-4)}${idCounter.toString(36)}`.toUpperCase();
 }
 
-/* -------------------------------------------------------------- To-Do ---- */
+/* -------------------------------------------------------------- Tasks ---- */
 
 /**
  * Tasks the floor sees and checks off — stocking call-outs plus whatever else
  * management assigns. Deliberately its own list rather than riding on batches
- * or the schedule: a to-do can exist with nothing behind it ("wipe the display
+ * or the schedule: a task can exist with nothing behind it ("wipe the display
  * case") and it outlives a single shift.
  */
 /**
@@ -630,11 +630,11 @@ export const SEED = {
   },
 
   /**
-   * Floor to-do list. A mix of stocking call-outs and general tasks, some
+   * Floor tasks list. A mix of stocking call-outs and general tasks, some
    * open to anyone on shift and some assigned to a specific person — the way
    * Maria and Sam actually hand out work at open and mid-shift.
    */
-  todos: [
+  tasks: [
     {
       id: "TD-1",
       title: "Move Pork Bellies to the prep table",

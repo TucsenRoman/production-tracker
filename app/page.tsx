@@ -1,5 +1,10 @@
 import ProductionTracker from "./ProductionTracker";
+import TabletFrame from "./components/TabletFrame";
 
 export default function Home() {
-  return <ProductionTracker />;
+  return (
+    <TabletFrame>
+      <ProductionTracker />
+    </TabletFrame>
+  );
 }

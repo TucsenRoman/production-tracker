@@ -2,6 +2,8 @@
 
 import React, { useMemo, useState } from "react";
 import {
+  CalendarDays,
+  ClipboardList,
   Factory,
   KeyRound,
   LayoutGrid,
@@ -11,9 +13,10 @@ import {
   Users,
 } from "lucide-react";
 
-import { Badge, Input, ToastProvider, useToast } from "../components/ui";
+import { Badge, Input, ToastProvider, cx, useToast } from "../components/ui";
 import AppShell from "../components/AppShell";
 import { newId } from "../lib/domain";
+import { StaffProvider } from "../lib/staff";
 import CompanyAuthScreen from "./screens/CompanyAuthScreen";
 import OverviewScreen from "./screens/OverviewScreen";
 import LocationsScreen from "./screens/LocationsScreen";
@@ -22,14 +25,20 @@ import StationsScreen from "./screens/StationsScreen";
 import IntegrationsScreen from "./screens/IntegrationsScreen";
 import PermissionsScreen from "./screens/PermissionsScreen";
 import SettingsScreen from "./screens/SettingsScreen";
+import ProductionScreen from "./screens/ProductionScreen";
+import FloorTasksScreen from "../screens/TasksScreen";
 import { usePersistentState, useCompanySession } from "./lib/companyStore";
+import { usePersistentState as useFloorPersistentState } from "../lib/store";
 import { COMPANY_SEED, ROLE_LABEL, DEFAULT_STATIONS, defaultPermissions, isValidStationName } from "./lib/companyDomain";
 import { PRODUCTION_SEED } from "./lib/companyProduction";
+import { SEED, DEFAULT_TASK_CATEGORIES, todayKey, categoryInUse } from "../lib/domain";
 import { answerCompanyQuestion, buildCompanyInsights } from "./lib/insights";
 
 const NAV = [
   { id: "overview", label: "Overview", short: "Overview", icon: LayoutGrid },
   { id: "locations", label: "Locations", short: "Locations", icon: MapPin },
+  { id: "production", label: "Production planning", short: "Production", icon: CalendarDays, managerOnly: true },
+  { id: "tasks", label: "Tasks", short: "Tasks", icon: ClipboardList, managerOnly: true },
   { id: "team", label: "Team", short: "Team", icon: Users, adminOnly: true },
   { id: "stations", label: "Stations", short: "Stations", icon: Factory, adminOnly: true },
   { id: "permissions", label: "Permissions", short: "Access", icon: ShieldCheck, adminOnly: true },
@@ -49,34 +58,107 @@ const NAV = [
  * The expand icon is a placeholder for a future dedicated full-page chat —
  * not wired up yet, just staking out where it'll live.
  */
-function AskBar({ bundle }) {
-  const [question, setQuestion] = useState("");
-  const [lastAnswer, setLastAnswer] = useState(null);
+// function AskBar({ bundle }) {
+//   const [question, setQuestion] = useState("");
+//   const [lastAnswer, setLastAnswer] = useState(null);
 
-  const ask = () => {
-    const q = question.trim();
-    if (!q) return;
-    setLastAnswer({ q, a: answerCompanyQuestion(bundle, q) });
-    setQuestion("");
-  };
+//   const ask = () => {
+//     const q = question.trim();
+//     if (!q) return;
+//     setLastAnswer({ q, a: answerCompanyQuestion(bundle, q) });
+//     setQuestion("");
+//   };
+
+//   return (
+//     <div className="min-w-0 flex-1 flex flex-col gap-1">
+//       <div className="flex items-center gap-1.5">
+//         <Input
+//           value={question}
+//           placeholder="Ask about your business…" onChange={(e) => setQuestion(e.target.value)}
+//           onKeyDown={(e) => e.key === "Enter" && ask()}
+//           className="flex-1 min-w-0 h-[var(--ctl-h)] rounded-md text-xs focus-visible:outline-none"
+//         />
+//         {/* SquareArrowOutUpRight "open full chat" button hidden for now — coming with the dedicated chat page. */}
+//       </div>
+//       {lastAnswer && <p className="px-0.5 text-xs text-ink-3 leading-snug line-clamp-2">{lastAnswer.a}</p>}
+//     </div>
+//   );
+// }
+
+/**
+ * The console's "view as" — Dana signing in doesn't mean Dana is who cares
+ * about today's task list or the smokehouse queue; a floor manager does.
+ * Clicking the account block in the sidebar footer opens this instead of
+ * making anyone remember a second password: pick a teammate, the session
+ * (real, persisted — see useCompanySession) switches to them, same as if
+ * they'd signed in themselves. A refresh keeps whoever you switched to,
+ * exactly like actually signing in as them would.
+ *
+ * Pending invites (Jordan Reyes, "invited") aren't offered — there's no one
+ * to "become" yet.
+ */
+function AccountSwitcherMenu({ users, locations, currentUser, onSwitch }) {
+  const locationName = (id) => locations.find((l) => l.id === id)?.name;
+  const scopeFor = (u) =>
+    u.locationIds?.length === 1 ? locationName(u.locationIds[0]) : "All locations";
 
   return (
-    <div className="min-w-0 flex-1 flex flex-col gap-1">
-      <div className="flex items-center gap-1.5">
-        <Input
-          value={question}
-          placeholder="Ask about your business…" onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && ask()}
-          className="flex-1 min-w-0 h-[var(--ctl-h)] rounded-md text-xs focus-visible:outline-none"
-        />
-        {/* SquareArrowOutUpRight "open full chat" button hidden for now — coming with the dedicated chat page. */}
+    <div className="w-64 bg-surface border border-line rounded-xl shadow-pop overflow-hidden animate-pop-in">
+      <div className="px-3 py-2 border-b border-line">
+        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-ink-4">Switch account</p>
+        <p className="mt-0.5 text-xs text-ink-3 truncate">See the console the way they do.</p>
       </div>
-      {lastAnswer && <p className="px-0.5 text-xs text-ink-3 leading-snug line-clamp-2">{lastAnswer.a}</p>}
+
+      <div className="p-1 max-h-72 overflow-y-auto">
+        {users.filter((u) => u.status === "active").map((u) => {
+          const active = u.id === currentUser.id;
+          return (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => onSwitch(u)}
+              className={cx(
+                "w-full flex items-center gap-2.5 text-left px-2.5 py-2 rounded-md transition-colors duration-100",
+                active ? "bg-primary-soft" : "hover:bg-sunken"
+              )}
+            >
+              <span className="flex items-center justify-center w-7 h-7 rounded-full bg-ink text-white text-[11px] font-semibold shrink-0">
+                {u.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className={cx("block text-sm font-medium truncate", active ? "text-primary-ink" : "text-ink")}>
+                  {u.name}
+                  {active && <span className="ml-1.5 text-[11px] font-normal">· current</span>}
+                </span>
+                <span className="block mt-0.5 text-[11px] leading-snug text-ink-3 truncate">
+                  {ROLE_LABEL[u.role]} · {scopeFor(u)}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="px-3 py-2 border-t border-line text-[11px] leading-snug text-ink-4">
+        Demo mode — switches your signed-in account, no password needed.
+      </p>
     </div>
   );
 }
 
-function Shell({ company, currentUser, nav, view, onNavigate, onSignOut, bundle, children }) {
+function Shell({
+  company,
+  currentUser,
+  nav,
+  view,
+  onNavigate,
+  onSignOut,
+  bundle,
+  userMenuOpen,
+  onUserMenuOpenChange,
+  onSwitchUser,
+  children,
+}) {
   return (
     <AppShell
       brand={company.name}
@@ -87,8 +169,18 @@ function Shell({ company, currentUser, nav, view, onNavigate, onSignOut, bundle,
       initials={currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
       userName={currentUser.name}
       userMeta={<p className="text-xs text-ink-3 truncate">{ROLE_LABEL[currentUser.role]}</p>}
-      sidebarExtra={<AskBar bundle={bundle} />}
+      // sidebarExtra={<AskBar bundle={bundle} />}
       pageActions={<Badge tone="info">{ROLE_LABEL[currentUser.role]}</Badge>}
+      userMenuOpen={userMenuOpen}
+      onUserMenuOpenChange={onUserMenuOpenChange}
+      userMenu={
+        <AccountSwitcherMenu
+          users={bundle.users}
+          locations={bundle.locations}
+          currentUser={currentUser}
+          onSwitch={onSwitchUser}
+        />
+      }
     >
       {children}
     </AppShell>
@@ -109,7 +201,18 @@ function Application() {
   const [permissions, setPermissions] = usePersistentState("permissions", defaultPermissions());
   const [customActions, setCustomActions] = usePersistentState("customActions", []);
 
+  // Shared with the floor terminal — same localStorage namespace (see
+  // ../lib/store) — so a plan or task added from the console is waiting on
+  // the shop-floor tablet too, and vice versa. Fast mockup against the
+  // existing single-location demo data; not location-scoped yet.
+  const [schedule, setSchedule] = useFloorPersistentState("schedule", SEED.schedule);
+  const [tasks, setTasks] = useFloorPersistentState("tasks", SEED.tasks);
+  const [taskCategories, setTaskCategories] = useFloorPersistentState("taskCategories", DEFAULT_TASK_CATEGORIES);
+  const [inventory] = useFloorPersistentState("inventory", SEED.inventory);
+  const today = todayKey();
+
   const [view, setView] = useState("overview");
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const currentUser = session ? users.find((u) => u.id === session.userId) : null;
 
@@ -124,6 +227,12 @@ function Application() {
   const handleSignIn = (user) => {
     signIn(user);
     toast(`Welcome back, ${user.name.split(" ")[0]}`);
+  };
+
+  const handleSwitchUser = (user) => {
+    signIn(user);
+    setUserMenuOpen(false);
+    toast(`Switched to ${user.name.split(" ")[0]}`, { tone: "info" });
   };
 
   const handleCreateCompany = ({ companyName, name, email }) => {
@@ -305,6 +414,80 @@ function Application() {
     toast("Connection verified", { detail: "Test sync completed successfully." });
   };
 
+  /* ---- Production planning & tasks (shared with the floor terminal) ---- */
+
+  const handleAddScheduleTask = (day, station, product, qty) => {
+    setSchedule((prev) => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        [station]: [...((prev[day] && prev[day][station]) || []), { id: newId("T"), text: product, qty, unit: "lb" }],
+      },
+    }));
+    toast(`${product} planned`, { detail: `${station} · ${qty} lb` });
+    // Deliberately never touches `batches` — unlike the floor terminal's own
+    // handleAddTask, planning from the console never spawns a live batch,
+    // even when today happens to be the selected day.
+  };
+
+  const handleRemoveScheduleTask = (day, station, id) => {
+    setSchedule((prev) => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        [station]: ((prev[day] && prev[day][station]) || []).filter((t) => t.id !== id),
+      },
+    }));
+  };
+
+  const handleCreateTaskItem = (task, staff) => {
+    setTasks((prev) => [
+      { id: newId("TD"), completed: false, createdBy: staff.name, createdAt: new Date().toISOString(), ...task },
+      ...prev,
+    ]);
+    toast(`"${task.title}" added to the list`, {
+      detail: task.assignedTo ? "Assigned to one person." : "Open to anyone on shift.",
+    });
+  };
+
+  const handleToggleTaskItem = (id, staff) => {
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        const completed = !t.completed;
+        return { ...t, completed, completedBy: completed ? staff.name : null, completedAt: completed ? new Date().toISOString() : null };
+      })
+    );
+  };
+
+  const handleEditTaskItem = (id, fields) => {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...fields } : t)));
+    toast(`"${fields.title}" updated`);
+  };
+
+  const handleRemoveTaskItem = (id) => {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const handleAddTaskCategory = ({ label, iconId }) => {
+    setTaskCategories((prev) => [...prev, { id: newId("CAT"), label, iconId }]);
+    toast(`"${label}" added as a category`);
+  };
+
+  const handleRenameTaskCategory = (id, label) => {
+    setTaskCategories((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c)));
+  };
+
+  const handleRemoveTaskCategory = (id) => {
+    const category = taskCategories.find((c) => c.id === id);
+    if (categoryInUse(tasks, id)) {
+      toast(`Can't remove "${category?.label}"`, { tone: "error", detail: "Recategorize its tasks first." });
+      return;
+    }
+    setTaskCategories((prev) => prev.filter((c) => c.id !== id));
+    toast(`"${category?.label}" removed`);
+  };
+
   /* ---- Render ---- */
 
   if (!session || !currentUser) {
@@ -317,7 +500,18 @@ function Application() {
   const current = nav.some((n) => n.id === view) ? view : "overview";
 
   return (
-    <Shell company={company} currentUser={currentUser} nav={nav} view={current} onNavigate={setView} onSignOut={signOut} bundle={bundle}>
+    <Shell
+      company={company}
+      currentUser={currentUser}
+      nav={nav}
+      view={current}
+      onNavigate={setView}
+      onSignOut={signOut}
+      bundle={bundle}
+      userMenuOpen={userMenuOpen}
+      onUserMenuOpenChange={setUserMenuOpen}
+      onSwitchUser={handleSwitchUser}
+    >
       {current === "overview" && (
         <OverviewScreen
           company={company}
@@ -344,6 +538,31 @@ function Application() {
           onAddPin={handleAddPin}
           onUpdatePin={handleUpdatePin}
           onRemovePin={handleRemovePin}
+        />
+      )}
+
+      {current === "production" && isManagerTier && (
+        <ProductionScreen
+          schedule={schedule}
+          inventory={inventory}
+          today={today}
+          onAddTask={handleAddScheduleTask}
+          onRemoveTask={handleRemoveScheduleTask}
+        />
+      )}
+
+      {current === "tasks" && isManagerTier && (
+        <FloorTasksScreen
+          tasks={tasks}
+          categories={taskCategories}
+          user={{ ...currentUser, role: "manager" }}
+          onAdd={handleCreateTaskItem}
+          onToggle={(id) => handleToggleTaskItem(id, currentUser)}
+          onEdit={handleEditTaskItem}
+          onRemove={handleRemoveTaskItem}
+          onAddCategory={handleAddTaskCategory}
+          onRenameCategory={handleRenameTaskCategory}
+          onRemoveCategory={handleRemoveTaskCategory}
         />
       )}
 
@@ -402,7 +621,9 @@ function Application() {
 export default function CompanyConsole() {
   return (
     <ToastProvider>
-      <Application />
+      <StaffProvider>
+        <Application />
+      </StaffProvider>
     </ToastProvider>
   );
 }

@@ -457,7 +457,7 @@ export default function ItemModal({
  *    means adding `lastChangedBy`/`lastChangedAt` wherever `onSave` and
  *    `onMove`/`onPutOut` write back to the item.
  *
- * 6. Linked to-do tasks — To-Do tasks (see TodoScreen.jsx / SEED.todos in
+ * 6. Linked tasks — Tasks screen items (see TasksScreen.jsx / SEED.tasks in
  *    lib/domain.js) reference a product only by accident, in free-text
  *    titles. A real link needs a `relatedProduct` field on new tasks going
  *    forward; a fuzzy title-includes-product-name match would work without

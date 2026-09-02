@@ -29,7 +29,7 @@ import {
 
 const ROLE_TONE = { owner: "info", admin: "ok", manager: "neutral" };
 const TIER_ORDER = ["owner", "admin", "manager"];
-const TIER_LABEL = { owner: "Owner", admin: "Admins", manager: "Managers" };
+const TIER_LABEL = { owner: "Owner", admin: "Admins", manager: "Floor managers" };
 
 const initials = (name) => name.split(" ").map((p) => p[0]).slice(0, 2).join("");
 

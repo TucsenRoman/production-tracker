@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useId, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
-  CalendarDays,
-  History,
-  LayoutGrid,
+  Factory,
   ListTodo,
   Package,
   UsersRound,
@@ -13,10 +12,10 @@ import {
 import { Badge, SlotProvider, SlotTarget, ToastProvider, useToast } from "./components/ui";
 import AppShell from "./components/AppShell";
 import RoleSwitcher from "./components/RoleSwitcher";
+import { TabletFrameContext } from "./components/TabletFrame";
 import SignInScreen from "./screens/SignInScreen";
 import BoardScreen from "./screens/BoardScreen";
-import TodoScreen from "./screens/TodoScreen";
-import ScheduleScreen from "./screens/ScheduleScreen";
+import TasksScreen from "./screens/TasksScreen";
 import InventoryScreen from "./screens/InventoryScreen";
 import InsightsScreen from "./screens/InsightsScreen";
 import TeamScreen from "./screens/TeamScreen";
@@ -38,51 +37,116 @@ import {
   putOnFloor,
   stateLabel,
   todayKey,
+  visibleTasks,
   yieldPct,
 } from "./lib/domain";
 
+/**
+ * Insights' own icon: a magnifying glass with an AI sparkle tucked into its
+ * top-right corner — one glyph, not two icons floating next to each other.
+ * A knockout circle clears its own patch out of the glass's stroke so the
+ * sparkle reads as sitting ON the glass. That knockout fills with --row-bg,
+ * a custom property the nav row itself sets (see AppShell's renderNavItem)
+ * to the row's *actual* current background — canvas at rest, the
+ * pre-composited hover/selected tint otherwise — so the patch never shows
+ * up as a mismatched halo the way a fixed canvas/surface fill did. Falls
+ * back to canvas when nothing sets --row-bg (e.g. the mobile tab bar,
+ * whose background never changes on selection). Everything else is
+ * monochrome currentColor except the sparkle, which carries its own
+ * blue-to-violet gradient — the rail's one deliberate spot of color, fixed
+ * regardless of hover/selected state.
+ */
+function InsightsIcon({ size = 16, className }) {
+  const gradientId = useId();
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#2383e2" />
+          <stop offset="100%" stopColor="#8b5cf6" />
+        </linearGradient>
+      </defs>
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <line x1="15.2" y1="15.2" x2="20.5" y2="20.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle
+        cx="16.5"
+        cy="6"
+        r="5.5"
+        style={{ fill: "var(--row-bg, var(--color-canvas))", transition: "fill 100ms" }}
+      />
+      <g transform="translate(11 1) scale(0.42)">
+        <path
+          d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
+          fill={`url(#${gradientId})`}
+        />
+      </g>
+    </svg>
+  );
+}
+
 const NAV = [
-  { id: "board", label: "Production board", short: "Board", icon: LayoutGrid },
-  { id: "todo", label: "To-Do", short: "To-Do", icon: ListTodo },
-  { id: "schedule", label: "Schedule", short: "Schedule", icon: CalendarDays, managerOnly: true },
+  { id: "board", label: "Production board", short: "Board", icon: Factory },
+  { id: "tasks", label: "Tasks", short: "Tasks", icon: ListTodo },
   { id: "inventory", label: "Inventory", short: "Inventory", icon: Package },
-  { id: "insights", label: "Insights", short: "Insights", icon: History, managerOnly: true },
   { id: "team", label: "Team & PINs", short: "Team", icon: UsersRound },
+  // Pinned to the rail's bottom, after a divider — see AppShell's
+  // `pinned: "bottom"` handling. Manager-only, so crew never see a bare
+  // divider with nothing below it.
+  { id: "insights", label: "Insights", short: "Insights", icon: InsightsIcon, managerOnly: true, pinned: "bottom" },
 ];
 
 /* --------------------------------------------------------------- App shell */
 
 function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, children }) {
+  // Inside a TabletFrame, RoleSwitcher portals straight to document.body
+  // instead of going through AppShell's overlay slot — the bezel's own
+  // `transform: scale()` becomes a new containing block for anything
+  // `position: fixed` inside it, which would otherwise trap the chip's
+  // drag-and-clamp positioning against the mock device instead of the real
+  // viewport. Outside a TabletFrame (framed === false) nothing changes.
+  const framed = useContext(TabletFrameContext);
+  const roleSwitcher = <RoleSwitcher user={user} onChange={onViewAsRole} />;
+
   return (
-    <AppShell
-      brand="Milaca Meats"
-      nav={nav}
-      view={view}
-      onNavigate={onNavigate}
-      onSignOut={onSignOut}
-      initials={user.initials}
-      userName={user.name}
-      userBadge={
-        isManager(user) ? (
-          <Badge className="shrink-0">{user.role === "owner" ? "Owner" : "Manager"}</Badge>
-        ) : null
-      }
-      userMeta={
-        !isManager(user) ? (
-          <p className="text-xs text-ink-3 capitalize truncate">{user.station || "Crew"}</p>
-        ) : null
-      }
-      pageActions={<SlotTarget name="page-actions" className="flex items-center gap-2" />}
-      pageSubtitle={
-        <SlotTarget
-          name="page-subtitle"
-          className="empty:hidden mt-1 text-sm text-ink-2 leading-normal"
-        />
-      }
-      overlay={<RoleSwitcher user={user} onChange={onViewAsRole} />}
-    >
-      {children}
-    </AppShell>
+    <>
+      {framed && typeof document !== "undefined" ? createPortal(roleSwitcher, document.body) : null}
+      <AppShell
+        brand="Protrack - Milaca Meats"
+        nav={nav}
+        view={view}
+        onNavigate={onNavigate}
+        onSignOut={onSignOut}
+        initials={user.initials}
+        userName={user.name}
+        userBadge={
+          isManager(user) ? (
+            <Badge className="shrink-0">{user.role === "owner" ? "Owner" : "Floor manager"}</Badge>
+          ) : null
+        }
+        userMeta={
+          !isManager(user) ? (
+            <p className="text-xs text-ink-3 capitalize truncate">{user.station || "Crew"}</p>
+          ) : null
+        }
+        pageActions={<SlotTarget name="page-actions" className="flex items-center gap-2" />}
+        pageSubtitle={
+          <SlotTarget
+            name="page-subtitle"
+            className="empty:hidden mt-1 text-sm text-ink-2 leading-normal"
+          />
+        }
+        overlay={framed ? null : roleSwitcher}
+      >
+        {children}
+      </AppShell>
+    </>
   );
 }
 
@@ -98,11 +162,20 @@ function Application() {
   const [history, setHistory] = usePersistentState("history", SEED.history);
   const [inventory, setInventory] = usePersistentState("inventory", SEED.inventory);
   const [schedule, setSchedule] = usePersistentState("schedule", SEED.schedule);
-  const [todos, setTodos] = usePersistentState("todos", SEED.todos);
+  const [tasks, setTasks] = usePersistentState("tasks", SEED.tasks);
   const [taskCategories, setTaskCategories] = usePersistentState("taskCategories", DEFAULT_TASK_CATEGORIES);
 
   /** Records saved before the third state existed get filled in on read. */
   const stock = useMemo(() => inventory.map(normalizeItem), [inventory]);
+
+  // Same "how much is waiting for me" signal as the Tasks screen's own Open
+  // tab dot, scoped the same way (visibleTasks: everyone sees unclaimed
+  // work, managers see everything) so the rail badge never disagrees with
+  // the screen it's shortcutting to.
+  const openTaskCount = useMemo(
+    () => (user ? visibleTasks(tasks, user).filter((t) => !t.completed).length : 0),
+    [tasks, user]
+  );
 
   const [cloverStatus, setCloverStatus] = useState("loading");
   const [syncedAt, setSyncedAt] = useState(null);
@@ -299,10 +372,10 @@ function Application() {
     });
   };
 
-  /* ---- To-Do ---- */
+  /* ---- Tasks ---- */
 
-  const handleAddTodo = (task, staff) => {
-    setTodos((prev) => [
+  const handleCreateTask = (task, staff) => {
+    setTasks((prev) => [
       {
         id: newId("TD"),
         completed: false,
@@ -317,8 +390,8 @@ function Application() {
     });
   };
 
-  const handleToggleTodo = (id, staff) => {
-    setTodos((prev) =>
+  const handleToggleTask = (id, staff) => {
+    setTasks((prev) =>
       prev.map((t) => {
         if (t.id !== id) return t;
         const completed = !t.completed;
@@ -332,8 +405,13 @@ function Application() {
     );
   };
 
-  const handleRemoveTodo = (id) => {
-    setTodos((prev) => prev.filter((t) => t.id !== id));
+  const handleEditTask = (id, fields) => {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...fields } : t)));
+    toast(`"${fields.title}" updated`);
+  };
+
+  const handleDeleteTask = (id) => {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
   };
 
   const handleAddTaskCategory = ({ label, iconId }) => {
@@ -347,7 +425,7 @@ function Application() {
 
   const handleRemoveTaskCategory = (id) => {
     const category = taskCategories.find((c) => c.id === id);
-    if (categoryInUse(todos, id)) {
+    if (categoryInUse(tasks, id)) {
       toast(`Can't remove "${category?.label}"`, {
         tone: "error",
         detail: "Recategorize its tasks first.",
@@ -404,7 +482,9 @@ function Application() {
 
   if (!user) return <SignInScreen onSignIn={signIn} />;
 
-  const nav = NAV.filter((n) => isManager(user) || !n.managerOnly);
+  const nav = NAV.filter((n) => isManager(user) || !n.managerOnly).map((n) =>
+    n.id === "tasks" ? { ...n, count: openTaskCount } : n
+  );
   const current = nav.some((n) => n.id === view) ? view : "board";
 
   return (
@@ -425,38 +505,32 @@ function Application() {
         <BoardScreen
           batches={batches}
           schedule={schedule}
+          inventory={stock}
           today={today}
           user={user}
           onAdvance={handleAdvance}
           onWeighIn={handleWeighIn}
           onFinalize={handleFinalize}
-          onCompleteTask={(station, id) => handleRemoveTask(today, station, id)}
+          onAddTask={handleAddTask}
+          onRemoveTask={handleRemoveTask}
         />
       )}
 
-      {current === "todo" && (
-        <TodoScreen
-          todos={todos}
+      {current === "tasks" && (
+        <TasksScreen
+          tasks={tasks}
           categories={taskCategories}
           user={user}
-          onAdd={handleAddTodo}
-          onToggle={(id) => handleToggleTodo(id, user)}
-          onRemove={handleRemoveTodo}
+          onAdd={handleCreateTask}
+          onToggle={(id) => handleToggleTask(id, user)}
+          onEdit={handleEditTask}
+          onRemove={handleDeleteTask}
           onAddCategory={handleAddTaskCategory}
           onRenameCategory={handleRenameTaskCategory}
           onRemoveCategory={handleRemoveTaskCategory}
         />
       )}
 
-      {current === "schedule" && (
-        <ScheduleScreen
-          schedule={schedule}
-          inventory={stock}
-          today={today}
-          onAdd={handleAddTask}
-          onRemove={handleRemoveTask}
-        />
-      )}
 
       {current === "inventory" && (
         <InventoryScreen
