@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 import { cx, TabDot, Tooltip } from "./ui";
 import { useDoubleTapHotkey } from "../lib/useDoubleTapHotkey";
@@ -53,9 +53,24 @@ export default function AppShell({
   userMenuOpen = false,
   onUserMenuOpenChange = null,
   userMenu = null,
+  // Same opt-in shape as the account switcher above, for a menu hung off
+  // the brand title instead of the footer — only the console passes these
+  // (see CompanyConsole's BrandMenu). Omitted, the header renders exactly
+  // as it always has: brand text, then the collapse toggle, nothing else.
+  brandMenuOpen = false,
+  onBrandMenuOpenChange = null,
+  brandMenu = null,
   children,
 }) {
   const active = nav.find((n) => n.id === view) || nav[0];
+  // Opt-in `hidden: true` on a nav item keeps it addressable (still
+  // findable above for `active`, so its own `label` becomes the page
+  // title when `view` points at it) without giving it a sidebar row, a
+  // mobile tab, or a hotkey digit — for a screen reachable only from
+  // somewhere else (e.g. the console's Settings, opened from the account
+  // popover). Neither app set this before, so this is purely additive:
+  // no `n.hidden` means no behavior change from today.
+  const visibleNav = useMemo(() => nav.filter((n) => !n.hidden), [nav]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Same outside-click/Escape pattern as the Dropdown in ui.jsx — closes the
@@ -74,6 +89,23 @@ export default function AppShell({
       document.removeEventListener("keydown", onKey);
     };
   }, [userMenuOpen, onUserMenuOpenChange]);
+
+  // Same pattern again for the brand dropdown — two independent popovers,
+  // each closing on its own outside click/Escape, never on each other's.
+  const brandMenuRef = useRef(null);
+  useEffect(() => {
+    if (!brandMenuOpen) return;
+    const onDown = (e) => {
+      if (brandMenuRef.current && !brandMenuRef.current.contains(e.target)) onBrandMenuOpenChange?.(false);
+    };
+    const onKey = (e) => e.key === "Escape" && onBrandMenuOpenChange?.(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [brandMenuOpen, onBrandMenuOpenChange]);
 
   // Measured, not guessed — a page that wants a sticky element to clear the
   // mobile header (see TasksScreen's sticky toolbar) needs the header's real
@@ -103,11 +135,11 @@ export default function AppShell({
   // useDoubleTapHotkey for the shared typing/repeat/modifier guard.
   const hotkeyBindings = useMemo(() => {
     const bindings = { b: () => setSidebarOpen((o) => !o) };
-    nav.slice(0, 9).forEach((n, i) => {
+    visibleNav.slice(0, 9).forEach((n, i) => {
       bindings[String(i + 1)] = () => onNavigate(n.id);
     });
     return bindings;
-  }, [nav, onNavigate]);
+  }, [visibleNav, onNavigate]);
   useDoubleTapHotkey(hotkeyBindings);
 
   // Split once so a pinned item (Insights) renders after a divider at the
@@ -172,7 +204,7 @@ export default function AppShell({
   // divider; everything else keeps its normal order.
   const mainNavItems = [];
   const bottomNavItems = [];
-  nav.forEach((n, i) => (n.pinned === "bottom" ? bottomNavItems : mainNavItems).push([n, i]));
+  visibleNav.forEach((n, i) => (n.pinned === "bottom" ? bottomNavItems : mainNavItems).push([n, i]));
 
   // Inside a TabletFrame the shell fills a fixed-size mock device instead of
   // the real browser viewport, so `min-h-screen`/`h-screen` (which measure
@@ -218,14 +250,41 @@ export default function AppShell({
                 the button's own width. Only the title's width/opacity
                 animate; nothing needs an (unanimatable) auto-margin flip. */}
             <div className="flex items-center justify-between px-2 h-[var(--ctl-h)] mb-1">
-              <p
-                className={cx(
-                  "overflow-hidden whitespace-nowrap text-sm font-medium text-ink transition-all duration-300",
-                  sidebarOpen ? "ml-2 max-w-[160px] opacity-100" : "ml-0 max-w-0 opacity-0"
+              {/* Relative anchor for the optional brand dropdown (Settings
+                  and other real pages, on the console) — the chevron only
+                  renders when a caller wires onBrandMenuOpenChange, and
+                  only while the rail is open (collapsed, there's no room
+                  for the brand text it sits beside either). */}
+              <div ref={brandMenuRef} className="relative min-w-0">
+                <div className="flex items-center min-w-0">
+                  <p
+                    className={cx(
+                      "overflow-hidden whitespace-nowrap text-sm font-medium text-ink transition-all duration-300",
+                      sidebarOpen ? "ml-2 max-w-[160px] opacity-100" : "ml-0 max-w-0 opacity-0"
+                    )}
+                  >
+                    {brand}
+                  </p>
+                  {onBrandMenuOpenChange && sidebarOpen && (
+                    <button
+                      type="button"
+                      onClick={() => onBrandMenuOpenChange(!brandMenuOpen)}
+                      aria-haspopup="true"
+                      aria-expanded={brandMenuOpen}
+                      aria-label={`${brand} menu`}
+                      className="ml-0.5 w-5 h-5 flex items-center justify-center rounded text-icon-3 hover:text-ink hover:bg-hover transition-colors shrink-0"
+                    >
+                      <ChevronDown
+                        size={14}
+                        className={cx("transition-transform duration-150", brandMenuOpen && "rotate-180")}
+                      />
+                    </button>
+                  )}
+                </div>
+                {brandMenuOpen && brandMenu && (
+                  <div className="absolute left-0 top-full mt-1 z-40">{brandMenu}</div>
                 )}
-              >
-                {brand}
-              </p>
+              </div>
               <Tooltip label={sidebarOpen ? "Collapse sidebar (B B)" : "Expand sidebar (B B)"} side="right">
                 <button
                   onClick={() => setSidebarOpen((o) => !o)}
@@ -240,7 +299,45 @@ export default function AppShell({
             {sidebarExtra && sidebarOpen && <div className="px-2 pb-2">{sidebarExtra}</div>}
 
             <nav className="flex-1 flex flex-col gap-0.5 overflow-visible px-2">
-              {mainNavItems.map(([n, i]) => renderNavItem(n, i))}
+              {/* Optional `group` on a nav item clusters it with its
+                  neighbors of the same group under one quiet section label.
+                  Expanded: a small uppercase caption above the cluster —
+                  collapsed: the caption has nothing to sit next to, so it
+                  shrinks away and a hairline divider stands in for it
+                  instead, same treatment as the bottom-pinned divider below.
+                  Both the divider and the label are always in the tree;
+                  only their classes change with sidebarOpen, so nothing
+                  swaps element type or remounts mid-transition. */}
+              {mainNavItems.map(([n, i], idx) => {
+                const prevGroup = idx > 0 ? mainNavItems[idx - 1][0].group : undefined;
+                const isNewGroup = idx > 0 && n.group !== prevGroup;
+                return (
+                  <React.Fragment key={n.id}>
+                    {isNewGroup && (
+                      <div className="shrink-0 mt-2">
+                        <div
+                          className={cx(
+                            "border-t transition-colors duration-300 my-1",
+                            sidebarOpen ? "border-transparent" : "border-line"
+                          )}
+                        />
+                        {n.group && (
+                          <p
+                            className={cx(
+                              "px-2 text-[10px] font-semibold uppercase tracking-wide text-ink-3",
+                              "overflow-hidden whitespace-nowrap transition-all duration-300",
+                              sidebarOpen ? "max-h-6 opacity-100 mb-1" : "max-h-0 opacity-0 mb-0"
+                            )}
+                          >
+                            {n.group}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {renderNavItem(n, i)}
+                  </React.Fragment>
+                );
+              })}
               {/* A hairline, not a labeled section — Insights is still a nav
                   item, just one the user asked kept visually apart from the
                   rest of the tabs. */}
@@ -387,8 +484,8 @@ export default function AppShell({
 
         {/* Mobile tab bar */}
         <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-surface border-t border-line pb-safe">
-          <div className={cx("grid", TAB_COLS[nav.length] || "grid-cols-4")}>
-            {nav.map((n) => {
+          <div className={cx("grid", TAB_COLS[visibleNav.length] || "grid-cols-4")}>
+            {visibleNav.map((n) => {
               const on = n.id === view;
               return (
                 <button

@@ -13,21 +13,25 @@
 import { Boxes, ShoppingBag, Store } from "lucide-react";
 
 /**
- * Only owner/admin/manager are invitable company accounts — deliberately no
- * "staff" tier here. That's what floor PINs are for: floor-level people churn
- * too fast for named email accounts to make sense, so a station gets a code
- * instead of a login (see PIN_KINDS below).
+ * Two tiers, as of now — Admin (full company access) and Floor manager
+ * (their own location's Production planning + Tasks; day-to-day floor
+ * work). There used to be a separate "Owner" above Admin; it was dissolved
+ * into Admin since nothing in this build actually needed a role only one
+ * person could hold. If that's ever needed again — or a third custom tier,
+ * or per-permission toggles instead of fixed tiers — this is the array to
+ * extend; PermissionsScreen's GATED_ACTIONS is already action-scoped rather
+ * than role-scoped, so it wouldn't need to change.
+ *
+ * Deliberately no "staff" tier here. That's what floor PINs are for:
+ * floor-level people churn too fast for named email accounts to make sense,
+ * so a station gets a code instead of a login (see PIN_KINDS below).
  */
-export const ROLES = ["owner", "admin", "manager"];
+export const ROLES = ["admin", "manager"];
 
 export const ROLE_LABEL = {
-  owner: "Owner",
   admin: "Admin",
   manager: "Floor manager",
 };
-
-/** Owner is the only role that can't be changed or removed by another admin. */
-export const ROLE_LOCKED = { owner: true };
 
 /**
  * Floor PINs come in two kinds that behave nothing alike, which is why they
@@ -130,6 +134,20 @@ export const GATED_ACTIONS = [
     detail: "Dismisses a below-threshold yield warning without a manager review.",
     defaultRequiresLead: true,
   },
+  {
+    id: "manage-task-categories",
+    label: "Manage assignment categories",
+    detail: "Adds, renames, or removes the task categories in Assignments — the Settings button beside New task.",
+    defaultRequiresLead: true,
+    // This one's a mock of a different, more granular control than the rest
+    // of this list: instead of a company-wide Lead-PIN toggle, it's scoped
+    // to specific named people (`accessUserIds`, into COMPANY_SEED.users).
+    // PermissionsScreen renders it as an overlapping-avatars-plus-pencil
+    // control rather than the Switch — a stand-in for what a real
+    // per-person permissions UI would look like, not a wired-up one.
+    targeted: true,
+    accessUserIds: ["U-1", "U-2"],
+  },
 ];
 
 /** One boolean per gated action, keyed by id — the shape `permissions` state takes. */
@@ -185,7 +203,7 @@ export const COMPANY_SEED = {
       id: "U-1",
       name: "Dana Whitfield",
       email: "dana@milacameats.com",
-      role: "owner",
+      role: "admin",
       locationIds: ["LOC-1", "LOC-2"],
       status: "active",
       invitedAt: "2024-03-12T00:00:00.000Z",

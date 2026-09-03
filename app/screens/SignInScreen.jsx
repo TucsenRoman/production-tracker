@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { Building2, Delete, KeyRound, LogIn } from "lucide-react";
 
 import { Button, PinInput, cx } from "../components/ui";
-import OpsIllustration from "../components/OpsIllustration";
 import { useStaff } from "../lib/staff";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", null, "0", "del"];
@@ -15,7 +14,8 @@ const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", null, "0", "del"];
  * are wall-mounted tablets with gloves nearby.
  *
  * On a tablet-and-up viewport (matching TabletFrame's own `lg` tablet preset)
- * the sign-in card gets a companion illustration panel — a deliberate,
+ * the sign-in card gets a companion illustration panel (public/sign-in-
+ * illustration.jpg, supplied by the user and used as-is) — a deliberate,
  * recorded exception to the DNA's "never an illustration" rule (see
  * .claude/skills/notion/dna.json -> approved_forks). Below `lg` the screen is
  * exactly what it always was: a single centred card, no illustration. The
@@ -46,8 +46,17 @@ export default function SignInScreen({ onSignIn }) {
 
   return (
     <main className="min-h-screen flex bg-canvas">
-      <div className="hidden lg:flex lg:w-1/2 items-center justify-center border-r border-line px-12 py-10">
-        <OpsIllustration className="w-full max-w-md" />
+      <div className="hidden lg:flex lg:w-1/2 items-center justify-center border-r border-line overflow-hidden">
+        {/* Reference illustration supplied directly by the user — dropped in
+            as-is rather than redrawn, per their instruction. Its own
+            near-white background (see the img) already sits close enough to
+            --color-canvas that it reads as native to the page. Scaled up
+            2.5x from its fitted size, cropped by the panel's overflow. */}
+        <img
+          src="/sign-in-illustration.jpg"
+          alt="Illustration of a production floor with a rear office loft"
+          className="w-full h-auto scale-[2.5]"
+        />
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center px-5 py-10">

@@ -1,24 +1,25 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useId, useMemo, useState } from "react";
 import {
-  CalendarDays,
-  ClipboardList,
-  Factory,
-  KeyRound,
-  LayoutGrid,
-  MapPin,
+  ArrowLeft,
+  Blocks,
+  Building2,
+  ChartColumnIncreasing,
+  ListTodo,
+  Package,
+  Route,
   Settings,
   ShieldCheck,
-  Users,
+  UsersRound,
 } from "lucide-react";
 
-import { Badge, Input, ToastProvider, cx, useToast } from "../components/ui";
+import { Input, ToastProvider, cx, useToast } from "../components/ui";
 import AppShell from "../components/AppShell";
 import { newId } from "../lib/domain";
 import { StaffProvider } from "../lib/staff";
 import CompanyAuthScreen from "./screens/CompanyAuthScreen";
-import OverviewScreen from "./screens/OverviewScreen";
+import InsightsScreen from "./screens/InsightsScreen";
 import LocationsScreen from "./screens/LocationsScreen";
 import TeamScreen from "./screens/TeamScreen";
 import StationsScreen from "./screens/StationsScreen";
@@ -26,6 +27,7 @@ import IntegrationsScreen from "./screens/IntegrationsScreen";
 import PermissionsScreen from "./screens/PermissionsScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import ProductionScreen from "./screens/ProductionScreen";
+import InventoryScreen from "./screens/InventoryScreen";
 import FloorTasksScreen from "../screens/TasksScreen";
 import { usePersistentState, useCompanySession } from "./lib/companyStore";
 import { usePersistentState as useFloorPersistentState } from "../lib/store";
@@ -34,16 +36,77 @@ import { PRODUCTION_SEED } from "./lib/companyProduction";
 import { SEED, DEFAULT_TASK_CATEGORIES, todayKey, categoryInUse } from "../lib/domain";
 import { answerCompanyQuestion, buildCompanyInsights } from "./lib/insights";
 
+/**
+ * Insights' own icon: a magnifying glass with an AI sparkle tucked into its
+ * top-right corner — one glyph, not two icons floating next to each other.
+ * A knockout circle clears its own patch out of the glass's stroke so the
+ * sparkle reads as sitting ON the glass. That knockout fills with --row-bg,
+ * a custom property the nav row itself sets (see AppShell's renderNavItem)
+ * to the row's *actual* current background — canvas at rest, the
+ * pre-composited hover/selected tint otherwise — so the patch never shows
+ * up as a mismatched halo the way a fixed canvas/surface fill did. Falls
+ * back to canvas when nothing sets --row-bg (e.g. the mobile tab bar,
+ * whose background never changes on selection). Everything else is
+ * monochrome currentColor except the sparkle, which carries its own
+ * blue-to-violet gradient — the rail's one deliberate spot of color, fixed
+ * regardless of hover/selected state. Ported over from the shop floor's own
+ * Insights tab — Insights now lives here instead.
+ */
+function InsightsIcon({ size = 16, className }) {
+  const gradientId = useId();
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#2383e2" />
+          <stop offset="100%" stopColor="#8b5cf6" />
+        </linearGradient>
+      </defs>
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <line x1="15.2" y1="15.2" x2="20.5" y2="20.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle
+        cx="16.5"
+        cy="6"
+        r="5.5"
+        style={{ fill: "var(--row-bg, var(--color-canvas))", transition: "fill 100ms" }}
+      />
+      <g transform="translate(11 1) scale(0.42)">
+        <path
+          d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
+          fill={`url(#${gradientId})`}
+        />
+      </g>
+    </svg>
+  );
+}
+
+// Grouped so the rail reads as a few clusters instead of nine loose items:
+// Insights stands alone up top, then Operations (day-to-day planning work)
+// / Setup (structural config) / People (who + what they can touch) / System
+// (integrations & settings). `group` drives AppShell's section label — see
+// the nav-render comment there for how open vs. collapsed treats it.
 const NAV = [
-  { id: "overview", label: "Overview", short: "Overview", icon: LayoutGrid },
-  { id: "locations", label: "Locations", short: "Locations", icon: MapPin },
-  { id: "production", label: "Production planning", short: "Production", icon: CalendarDays, managerOnly: true },
-  { id: "tasks", label: "Tasks", short: "Tasks", icon: ClipboardList, managerOnly: true },
-  { id: "team", label: "Team", short: "Team", icon: Users, adminOnly: true },
-  { id: "stations", label: "Stations", short: "Stations", icon: Factory, adminOnly: true },
-  { id: "permissions", label: "Permissions", short: "Access", icon: ShieldCheck, adminOnly: true },
-  { id: "integrations", label: "Integrations", short: "Keys", icon: KeyRound, adminOnly: true },
-  { id: "settings", label: "Settings", short: "Settings", icon: Settings, adminOnly: true },
+  { id: "insights", label: "Insights", short: "Insights", icon: InsightsIcon },
+  { id: "production", label: "Targets", short: "Targets", icon: ChartColumnIncreasing, managerOnly: true, group: "Operations" },
+  { id: "tasks", label: "Assignments", short: "Assignments", icon: ListTodo, managerOnly: true, group: "Operations" },
+  { id: "inventory", label: "Inventory", short: "Inventory", icon: Package, managerOnly: true, group: "Operations" },
+  { id: "team", label: "Team", short: "Team", icon: UsersRound, adminOnly: true, group: "People" },
+  { id: "permissions", label: "Permissions", short: "Permissions", icon: ShieldCheck, adminOnly: true, group: "People" },
+  { id: "locations", label: "Locations", short: "Locations", icon: Building2, adminOnly: true, group: "Setup" },
+  { id: "stations", label: "Stations", short: "Stations", icon: Blocks, adminOnly: true, group: "Setup" },
+  { id: "integrations", label: "Integrations", short: "Integrations", icon: Route, adminOnly: true, group: "Setup" },
+  // Not a sidebar item: `hidden` keeps it out of the rail/mobile tabs/hotkeys
+  // (see AppShell's `visibleNav`) while staying reachable via `onNavigate`
+  // from the account popover below, with the page header still resolving
+  // to "Settings" (AppShell's `active` lookup scans the full nav array).
+  { id: "settings", label: "Settings", short: "Settings", icon: Settings, adminOnly: true, hidden: true },
 ];
 
 
@@ -139,9 +202,47 @@ function AccountSwitcherMenu({ users, locations, currentUser, onSwitch }) {
         })}
       </div>
 
+      <div className="p-1 border-t border-line">
+        <a
+          href="/"
+          className="w-full flex items-center gap-2.5 text-left px-2.5 py-2 rounded-md text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-100"
+        >
+          <span className="flex items-center justify-center w-7 h-7 rounded-full bg-sunken text-icon-2 shrink-0">
+            <ArrowLeft size={14} />
+          </span>
+          Switch to the shop floor terminal
+        </a>
+      </div>
+
       <p className="px-3 py-2 border-t border-line text-[11px] leading-snug text-ink-4">
         Demo mode — switches your signed-in account, no password needed.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Hangs off the chevron next to the brand title in the sidebar header —
+ * company-level places to go, as opposed to the account switcher above
+ * (which is about WHO you are) or the nav rail (shop-floor-style working
+ * screens). Settings lives here now, having moved out of the account
+ * popover once this menu existed to hold it. Deliberately just a plain
+ * panel, not modeled on AccountSwitcherMenu's scrollable list — there's
+ * one entry today.
+ */
+function BrandMenu({ onOpenSettings }) {
+  return (
+    <div className="w-56 bg-surface border border-line rounded-xl shadow-pop overflow-hidden animate-pop-in p-1">
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        className="w-full flex items-center gap-2.5 text-left px-2.5 py-2 rounded-md text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-100"
+      >
+        <span className="flex items-center justify-center w-7 h-7 rounded-full bg-sunken text-icon-2 shrink-0">
+          <Settings size={14} />
+        </span>
+        Settings
+      </button>
     </div>
   );
 }
@@ -157,6 +258,8 @@ function Shell({
   userMenuOpen,
   onUserMenuOpenChange,
   onSwitchUser,
+  brandMenuOpen,
+  onBrandMenuOpenChange,
   children,
 }) {
   return (
@@ -170,7 +273,6 @@ function Shell({
       userName={currentUser.name}
       userMeta={<p className="text-xs text-ink-3 truncate">{ROLE_LABEL[currentUser.role]}</p>}
       // sidebarExtra={<AskBar bundle={bundle} />}
-      pageActions={<Badge tone="info">{ROLE_LABEL[currentUser.role]}</Badge>}
       userMenuOpen={userMenuOpen}
       onUserMenuOpenChange={onUserMenuOpenChange}
       userMenu={
@@ -179,6 +281,16 @@ function Shell({
           locations={bundle.locations}
           currentUser={currentUser}
           onSwitch={onSwitchUser}
+        />
+      }
+      brandMenuOpen={brandMenuOpen}
+      onBrandMenuOpenChange={onBrandMenuOpenChange}
+      brandMenu={
+        <BrandMenu
+          onOpenSettings={() => {
+            onNavigate("settings");
+            onBrandMenuOpenChange(false);
+          }}
         />
       }
     >
@@ -211,14 +323,35 @@ function Application() {
   const [inventory] = useFloorPersistentState("inventory", SEED.inventory);
   const today = todayKey();
 
-  const [view, setView] = useState("overview");
+  const [view, setView] = useState("insights");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [brandMenuOpen, setBrandMenuOpen] = useState(false);
 
   const currentUser = session ? users.find((u) => u.id === session.userId) : null;
 
+  // Insights is scoped by role, not one fixed view: an admin sees every
+  // location, a floor manager only the location(s) on their own account —
+  // same restriction Locations/Team/etc. already apply, just carried into
+  // the numbers here instead of gating a whole screen on/off.
+  const visibleLocations = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === "admin") return locations;
+    return locations.filter((l) => currentUser.locationIds?.includes(l.id));
+  }, [locations, currentUser]);
+
+  const insightsScopeLabel = !currentUser
+    ? ""
+    : currentUser.role === "admin"
+    ? `Company-wide across ${visibleLocations.length} location${visibleLocations.length === 1 ? "" : "s"}`
+    : visibleLocations.length === 1
+    ? visibleLocations[0].name
+    : visibleLocations.length > 1
+    ? `Across ${visibleLocations.length} of your locations`
+    : "No location assigned yet";
+
   const insights = useMemo(
-    () => buildCompanyInsights({ locations, stations, production }),
-    [locations, stations, production]
+    () => buildCompanyInsights({ locations: visibleLocations, stations, production }),
+    [visibleLocations, stations, production]
   );
   const bundle = { company, locations, users, crewPins, integrations, insights };
 
@@ -236,23 +369,23 @@ function Application() {
   };
 
   const handleCreateCompany = ({ companyName, name, email }) => {
-    const owner = {
+    const admin = {
       id: newId("U"),
       name,
       email,
-      role: "owner",
+      role: "admin",
       locationIds: [],
       status: "active",
       invitedAt: new Date().toISOString(),
     };
     setCompany({ name: companyName, plan: "Enterprise", ownerEmail: email, createdAt: new Date().toISOString() });
     setLocations([]);
-    setUsers([owner]);
+    setUsers([admin]);
     setIntegrations([]);
     setStations(DEFAULT_STATIONS);
     setCrewPins([]);
     setProduction({});
-    signIn(owner);
+    signIn(admin);
     toast(`${companyName} is set up`, { detail: "Add your first location to get started." });
   };
 
@@ -363,6 +496,12 @@ function Application() {
 
   const handleRequestPermission = () => {
     toast("Request received — sort of", { detail: "This is a placeholder for now; the real request flow comes with the full build." });
+  };
+
+  const handleManageAccess = (action) => {
+    toast(`Editing who can ${action.label.toLowerCase()} — sort of`, {
+      detail: "This is a mock of a per-person permissions control; the real picker comes with the full build.",
+    });
   };
 
   const handleRemoveCustomAction = (id) => {
@@ -494,10 +633,10 @@ function Application() {
     return <CompanyAuthScreen users={users} onSignIn={handleSignIn} onCreateCompany={handleCreateCompany} />;
   }
 
-  const isAdmin = currentUser.role === "owner" || currentUser.role === "admin";
+  const isAdmin = currentUser.role === "admin";
   const isManagerTier = isAdmin || currentUser.role === "manager";
   const nav = NAV.filter((n) => (isAdmin || !n.adminOnly) && (isManagerTier || !n.managerOnly));
-  const current = nav.some((n) => n.id === view) ? view : "overview";
+  const current = nav.some((n) => n.id === view) ? view : "insights";
 
   return (
     <Shell
@@ -511,20 +650,18 @@ function Application() {
       userMenuOpen={userMenuOpen}
       onUserMenuOpenChange={setUserMenuOpen}
       onSwitchUser={handleSwitchUser}
+      brandMenuOpen={brandMenuOpen}
+      onBrandMenuOpenChange={setBrandMenuOpen}
     >
-      {current === "overview" && (
-        <OverviewScreen
-          company={company}
-          locations={locations}
-          users={users}
-          crewPins={crewPins}
-          integrations={integrations}
+      {current === "insights" && (
+        <InsightsScreen
+          scopeLabel={insightsScopeLabel}
           insights={insights}
-          onNavigate={setView}
+          history={visibleLocations.flatMap((l) => production[l.id] || [])}
         />
       )}
 
-      {current === "locations" && (
+      {current === "locations" && isAdmin && (
         <LocationsScreen
           locations={locations}
           users={users}
@@ -549,6 +686,10 @@ function Application() {
           onAddTask={handleAddScheduleTask}
           onRemoveTask={handleRemoveScheduleTask}
         />
+      )}
+
+      {current === "inventory" && isManagerTier && (
+        <InventoryScreen scopeLabel={insightsScopeLabel} inventory={inventory} />
       )}
 
       {current === "tasks" && isManagerTier && (
@@ -598,6 +739,8 @@ function Application() {
           customActions={customActions}
           onRemoveCustom={handleRemoveCustomAction}
           onRequest={handleRequestPermission}
+          users={users}
+          onManageAccess={handleManageAccess}
         />
       )}
 

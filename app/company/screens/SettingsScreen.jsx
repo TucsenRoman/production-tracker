@@ -37,7 +37,7 @@ export default function SettingsScreen({ company, canManage, onUpdate }) {
           <p className="mt-0.5 text-xs text-ink-3">
             {canManage
               ? "The name and contact on file for this account."
-              : "Only an owner or admin can change these."}
+              : "Only an admin can change these."}
           </p>
         </div>
 

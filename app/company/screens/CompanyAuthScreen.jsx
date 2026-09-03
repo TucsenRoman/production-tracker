@@ -136,7 +136,7 @@ export default function CompanyAuthScreen({ users, onSignIn, onCreateCompany }) 
         >
           <Sparkles size={13} className="shrink-0 mt-0.5 text-icon-2" />
           Demo mode — sign-in only checks the email, any password of 6+ characters works. Try{" "}
-          <span className="font-mono text-ink-3">dana@milacameats.com</span> (owner) or{" "}
+          <span className="font-mono text-ink-3">dana@milacameats.com</span> (admin) or{" "}
           <span className="font-mono text-ink-3">maria.ruiz@milacameats.com</span> (admin).
         </p>
 

@@ -585,16 +585,15 @@
     {
       "fork": "Sign-in illustration panel",
       "signature": "bans[12] — never use an illustration or spot graphic in an empty state",
-      "what": "SignInScreen now pairs its PIN card with a companion isometric line illustration of the production floor (app/components/OpsIllustration.jsx), shown on a lg:-and-up viewport, hidden below it (single centred card, unchanged, on mobile).",
-      "why": "User-directed: wanted the sign-in screen to carry the same isometric-illustration identity as an external product mockup they supplied, but insisted the app's own DNA — not the mockup's colours — stay the source of truth for every token. The illustration is drawn from nothing but --color-canvas/--color-sunken/--color-inset/--color-line-strong/--color-ink(-2)/--color-primary — the same three-step neutral ramp the rest of the app shades with — so it restyles automatically if those tokens ever change, and it never introduces a colour the rest of the product doesn't already use.",
+      "what": "SignInScreen now pairs its PIN card with a companion illustration of the production floor, shown on a lg:-and-up viewport and hidden below it (single centred card, unchanged, on mobile). The illustration is the actual reference image the user supplied (public/sign-in-illustration.jpg), used as-is rather than redrawn.",
+      "why": "User-directed: wanted the sign-in screen to carry the same isometric-illustration identity as an external product mockup they supplied, and then explicitly said to drop the image in rather than rebuild it as a themed vector redraw. The app's own DNA still governs everything around the image — layout, divider, type, the PIN card itself — the image is content, not a token source.",
       "how_it_still_obeys_the_dna": [
-        "Accent budget: exactly one screen inside the illustration uses --color-primary; everything else is the neutral ramp + ink. Combined with the UI's own accent usage this still holds signatures[5] (accent under 1%).",
-        "No gradient, glow, or blur anywhere in it — flat fills and one hairline stroke weight only, per bans[10].",
-        "No card: the illustration sits directly on --color-canvas behind a single hairline divider (border-line), never a bordered box, per bans[3].",
-        "Decorative only — role=\"img\" with one aria-label, no text baked into the graphic, so it never competes with the DNA's own type system."
+        "No card: the image sits directly on --color-canvas behind a single hairline divider (border-line), never a bordered box, per bans[3].",
+        "Decorative only — alt text describes it, no text is read out of the image, so it never competes with the DNA's own type system.",
+        "The image's own background is a near-white close enough to --color-canvas that it reads as native to the page rather than a pasted photo."
       ],
-      "cost": "Ban 12 is now non-absolute — a second, different empty state (or another future screen) invoking this fork on its own aesthetic judgment rather than a specific user decision would be scope creep. Restrict this exception to the sign-in screen unless the user asks for it elsewhere.",
-      "rule_of_thumb": "An illustration is allowed exactly where its every colour is already a token the rest of the product uses. The moment an illustration needs a hue the DNA doesn't already have, the fork doesn't apply."
+      "cost": "The image is a fixed asset, not tokens — if --color-canvas or the rest of the palette ever moves, this illustration will NOT move with it (unlike a token-driven redraw would have). Ban 12 is also now non-absolute for this one screen; a different empty state reaching for this fork on its own aesthetic judgment, rather than a specific user decision, would be scope creep.",
+      "rule_of_thumb": "The image is content the user chose to place, not a design system input — everything around it still answers to the DNA."
     }
   ],
   "implementation_discipline": {

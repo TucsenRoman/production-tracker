@@ -70,6 +70,15 @@
   --color-cold: #2f79a6;
   --color-cold-soft: rgba(47, 121, 166, 0.12);
 
+  /* ---- Identity. A small solid palette for per-person UI — an avatar
+     stack, initials chips — never for status (that's ok/warn/danger/cold
+     above). Deliberately its own hue family per swatch so it never gets
+     mistaken for a status color at a glance. ---- */
+  --color-identity-1: #8b5fa3;
+  --color-identity-2: #b25f7c;
+  --color-identity-3: #3f8f7f;
+  --color-identity-4: #c9852f;
+
   /* ---- The 5% hover. One interaction tint for the whole product. ---- */
   --color-hover: rgba(33, 27, 23, 0.05);
   --color-faint: rgba(55, 53, 47, 0.03);

@@ -19,7 +19,6 @@ import {
 import {
   ROLES,
   ROLE_LABEL,
-  ROLE_LOCKED,
   generatePin,
   isValidEmail,
   isValidPin,
@@ -27,9 +26,9 @@ import {
   newCompanyId,
 } from "../lib/companyDomain";
 
-const ROLE_TONE = { owner: "info", admin: "ok", manager: "neutral" };
-const TIER_ORDER = ["owner", "admin", "manager"];
-const TIER_LABEL = { owner: "Owner", admin: "Admins", manager: "Floor managers" };
+const ROLE_TONE = { admin: "info", manager: "neutral" };
+const TIER_ORDER = ["admin", "manager"];
+const TIER_LABEL = { admin: "Admins", manager: "Floor managers" };
 
 const initials = (name) => name.split(" ").map((p) => p[0]).slice(0, 2).join("");
 
@@ -113,7 +112,7 @@ function InviteDialog({ locations, onCancel, onInvite }) {
           <Segmented
             value={form.role}
             onChange={(v) => set("role", v)}
-            options={ROLES.filter((r) => r !== "owner").map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
+            options={ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
           />
         </Field>
         <Field label="Locations">
@@ -152,7 +151,7 @@ function EditDialog({ user, locations, onCancel, onSave }) {
           <Segmented
             value={role}
             onChange={setRole}
-            options={ROLES.filter((r) => r !== "owner").map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
+            options={ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
           />
         </Field>
         <Field label="Locations">
@@ -298,7 +297,10 @@ function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, o
       <div className="divide-y divide-line">
         {users.map((u) => {
           const assigned = locations.filter((l) => u.locationIds.includes(l.id));
-          const locked = ROLE_LOCKED[u.role];
+          // No more a single locked "owner" role — the guard now is just
+          // "you can't edit or remove yourself from here" (same idea as the
+          // floor roster's own self-exclusion).
+          const locked = u.id === currentUser.id;
           return (
             <div key={u.id} className="flex items-center gap-3 px-4 py-3">
               <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-2 text-xs font-semibold shrink-0">
@@ -350,7 +352,7 @@ function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, o
 
 function PersonCard({ user, currentUser, locations, onEdit, onRemove }) {
   const assigned = locations.filter((l) => user.locationIds.includes(l.id));
-  const locked = ROLE_LOCKED[user.role];
+  const locked = user.id === currentUser.id;
 
   return (
     <div className="w-56 shrink-0 rounded-md border border-line bg-surface p-3 shadow-xs">
@@ -436,29 +438,15 @@ function TeamHierarchy({ users, locations, currentUser, onEdit, onRemove }) {
 
   return (
     <div className="space-y-6">
-      {byTier.owner.length > 0 && (
+      {byTier.admin.length > 0 && (
         <section>
-          <TierLabel tier="owner" count={byTier.owner.length} />
+          <TierLabel tier="admin" count={byTier.admin.length} />
           <div className="flex flex-wrap justify-center gap-3">
-            {byTier.owner.map((u) => (
+            {byTier.admin.map((u) => (
               <PersonCard key={u.id} user={u} currentUser={currentUser} locations={locations} onEdit={onEdit} onRemove={onRemove} />
             ))}
           </div>
         </section>
-      )}
-
-      {byTier.admin.length > 0 && (
-        <>
-          <Connector />
-          <section>
-            <TierLabel tier="admin" count={byTier.admin.length} />
-            <div className="flex flex-wrap justify-center gap-3">
-              {byTier.admin.map((u) => (
-                <PersonCard key={u.id} user={u} currentUser={currentUser} locations={locations} onEdit={onEdit} onRemove={onRemove} />
-              ))}
-            </div>
-          </section>
-        </>
       )}
 
       {byTier.manager.length > 0 && (

@@ -72,14 +72,22 @@ export function buildCompanyInsights({ locations, stations, production }) {
 
   const byStation = stations.map((s) => stationStats(production, locations, s));
 
+  // Scoped views (a floor manager sees just their own location) get
+  // location-specific wording instead of the company-wide phrasing below.
+  const singleLocation = locations.length === 1 ? locations[0] : null;
+
   const cards = [];
 
   if (company.batches > 0) {
     cards.push({
       id: "overall",
       tone: "neutral",
-      title: `${company.batches} batches closed company-wide`,
-      detail: `Averaging ${fmtPct(company.avgYield)} yield across every location.`,
+      title: singleLocation
+        ? `${company.batches} batches closed at ${singleLocation.name}`
+        : `${company.batches} batches closed company-wide`,
+      detail: singleLocation
+        ? `Averaging ${fmtPct(company.avgYield)} yield.`
+        : `Averaging ${fmtPct(company.avgYield)} yield across every location.`,
       context: { type: "overall", company, byLocation },
     });
   }
@@ -118,9 +126,15 @@ export function buildCompanyInsights({ locations, stations, production }) {
     cards.push({
       id: `station-${st.station}`,
       tone: "warn",
-      title: `${st.station} is running over target company-wide`,
+      title: singleLocation
+        ? `${st.station} is running over target at ${singleLocation.name}`
+        : `${st.station} is running over target company-wide`,
       detail: `${st.overCount} of ${st.runs} runs went over the ${st.target}-minute target${
-        concentrated ? `, mostly at ${worst.name}` : " — spread fairly evenly across locations"
+        singleLocation
+          ? ""
+          : concentrated
+          ? `, mostly at ${worst.name}`
+          : " — spread fairly evenly across locations"
       }.`,
       context: { type: "station", st },
     });
@@ -174,11 +188,17 @@ export function answerInsightQuestion(card, question) {
 
   // "overall"
   const { company, byLocation } = card.context;
+  const singleLocation = byLocation.length === 1 ? byLocation[0] : null;
   if (/why|driv|cause/.test(q)) {
+    if (singleLocation) {
+      return `That's everything closed at ${singleLocation.name} — there's only one location in view here, so there's nothing to compare it against.`;
+    }
     const worst = [...byLocation].filter((l) => l.avgYield != null).sort((a, b) => (a.avgYield ?? 0) - (b.avgYield ?? 0))[0];
     return worst ? `${worst.name} is pulling the average down the most, at ${fmtPct(worst.avgYield)}.` : "Not enough closed batches yet to point at a specific driver.";
   }
-  return `${company.batches} batches closed company-wide, ${fmtPct(company.avgYield)} average yield, ${company.flagged} flagged. I don't have a specific answer for that yet, but that's everything behind this card.`;
+  return singleLocation
+    ? `${company.batches} batches closed at ${singleLocation.name}, ${fmtPct(company.avgYield)} average yield, ${company.flagged} flagged. I don't have a specific answer for that yet, but that's everything behind this card.`
+    : `${company.batches} batches closed company-wide, ${fmtPct(company.avgYield)} average yield, ${company.flagged} flagged. I don't have a specific answer for that yet, but that's everything behind this card.`;
 }
 
 /** Deterministic Q&A over the whole company — locations, team, POS, PINs, and the insights bundle. */
