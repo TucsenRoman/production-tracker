@@ -3,17 +3,33 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Beef,
   ChevronDown,
   Copy,
   Download,
+  Drumstick,
   Eye,
+  Ham,
   Package,
   PackageX,
+  Sandwich,
   Snowflake,
 } from "lucide-react";
 
-import { Badge, Card, EmptyState, SearchInput, StatCard, StatGrid, Tooltip, cx, useToast } from "../../components/ui";
 import {
+  Badge,
+  EmptyState,
+  SearchInput,
+  SectionHeading,
+  StatCard,
+  StatGrid,
+  StickyFadeHeader,
+  Tooltip,
+  cx,
+  useToast,
+} from "../../components/ui";
+import {
+  PRODUCT_TYPES,
   behindStock,
   normalizeItem,
   stockIn,
@@ -21,6 +37,25 @@ import {
 } from "../../lib/domain";
 
 const FLOOR_TONE = { out: "text-danger", low: "text-warn", ok: "text-ok" };
+
+/* One icon per product family, so a section is identifiable at a glance and
+ * not just a word. Families the catalogue invents later fall back to a box. */
+const FAMILY_ICON = {
+  Bacon: Beef,
+  Brats: Beef,
+  Sausage: Beef,
+  Sticks: Beef,
+  Jerky: Beef,
+  Ham: Ham,
+  Deli: Sandwich,
+  Roasts: Beef,
+  Steaks: Beef,
+  Chops: Beef,
+  Ribs: Beef,
+  Ground: Beef,
+  Poultry: Drumstick,
+  Other: Package,
+};
 
 const CSV_HEADER = ["Product", "Family", "On floor (lb)", "Target min", "Target max", "Back (made+freezer)", "Status"];
 
@@ -189,17 +224,28 @@ export default function InventoryScreen({ scopeLabel, inventory }) {
       .sort((a, b) => a.product.localeCompare(b.product));
   }, [items, query]);
 
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-2 flex-wrap">
-        {scopeLabel && <p className="text-sm text-ink-3">{scopeLabel}</p>}
-        <Tooltip label="Can't edit numbers here — view & export only.">
-          <Badge tone="neutral" icon={Eye}>
-            Read-only
-          </Badge>
-        </Tooltip>
-      </div>
+  /* Sectioned by product family (`item.type`), in the catalogue's own family
+   * order rather than alphabetically — the case is scanned family by family.
+   * A family with nothing in it gets no heading; one holding a single product
+   * still gets one, even when a search has narrowed the list down to it. */
+  const groups = useMemo(() => {
+    const byFamily = new Map();
+    for (const item of visible) {
+      const family = item.type || "Other";
+      const list = byFamily.get(family);
+      if (list) list.push(item);
+      else byFamily.set(family, [item]);
+    }
+    const known = PRODUCT_TYPES.filter((t) => byFamily.has(t));
+    const extra = [...byFamily.keys()].filter((t) => !PRODUCT_TYPES.includes(t)).sort();
+    return [...known, ...extra].map((family) => ({ family, items: byFamily.get(family) }));
+  }, [visible]);
 
+  return (
+    <div>
+      {/* The three numbers worth knowing before any row is read — kept above
+       *  the toolbar, so what sticks while the case scrolls is the line that
+       *  says what you're looking at, not the tiles. */}
       <StatGrid>
         <StatCard icon={Package} label="Products" value={stats.total} />
         <StatCard
@@ -216,14 +262,37 @@ export default function InventoryScreen({ scopeLabel, inventory }) {
         />
       </StatGrid>
 
-      <Card>
-        <div className="px-4 py-3 border-b border-line flex items-center gap-2">
-          <div className="flex-1 min-w-0">
-            <SearchInput value={query} onChange={setQuery} placeholder="Search products…" />
+      {/* The same sticky toolbar Tasks and Team use. This screen is read-only,
+       *  so there's no primary action to sit on the right — scope, count and
+       *  the read-only reminder on the left, search and export (which act on
+       *  the whole screen, not on one row) on the right. */}
+      <StickyFadeHeader>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            {scopeLabel && <p className="text-sm text-ink-3">{scopeLabel}</p>}
+            <p className="text-sm text-ink-3">
+              {visible.length} product{visible.length === 1 ? "" : "s"}
+            </p>
+            <Tooltip label="Can't edit numbers here — view & export only.">
+              <Badge tone="neutral" icon={Eye}>
+                Read-only
+              </Badge>
+            </Tooltip>
           </div>
-          <ExportMenu items={visible} />
-        </div>
 
+          <div className="flex items-center gap-1.5 shrink-0">
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Search products…"
+              className="w-48 max-w-[45vw]"
+            />
+            <ExportMenu items={visible} />
+          </div>
+        </div>
+      </StickyFadeHeader>
+
+      <div className="space-y-5">
         {visible.length === 0 ? (
           <EmptyState
             icon={Package}
@@ -231,63 +300,76 @@ export default function InventoryScreen({ scopeLabel, inventory }) {
             description={query ? "Try a different search." : "Products will show up here once the floor starts stocking them."}
           />
         ) : (
-          <ul>
-            {visible.map((item) => {
-              const status = stockStatus(item);
-              const floor = stockIn(item, "floor");
-              const back = behindStock(item);
-              const made = stockIn(item, "made");
+          groups.map(({ family, items: familyItems }) => {
+            const Icon = FAMILY_ICON[family] || Package;
+            return (
+              <div key={family}>
+                <SectionHeading icon={Icon} label={family} count={familyItems.length} />
 
-              return (
-                <li
-                  key={item.product}
-                  className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink truncate">{item.product}</p>
-                    <p className="text-xs text-ink-3">{item.type}</p>
-                  </div>
+                {/* Nested under its heading rather than flush with it — with
+                 *  no box or divider around the list, the indent is what
+                 *  reads as "these belong to that heading". */}
+                <ul className="pl-6">
+                  {familyItems.map((item) => {
+                    const status = stockStatus(item);
+                    const floor = stockIn(item, "floor");
+                    const back = behindStock(item);
+                    const made = stockIn(item, "made");
 
-                  <div className="flex items-center gap-4 shrink-0">
-                    <div className="hidden sm:flex items-center gap-3 text-xs text-ink-3">
-                      <span>
-                        <span className={cx("font-medium", FLOOR_TONE[status])}>{floor}</span>{" "}
-                        {item.unit} on floor
-                      </span>
-                      <span
-                        className="text-ink-4"
-                        title={`Flagged low under ${item.threshold} ${item.unit}; a full case is ${item.max} ${item.unit}`}
+                    return (
+                      <li
+                        key={item.product}
+                        className="group flex items-center gap-3 py-3 px-1 rounded-md transition-colors hover:bg-faint"
                       >
-                        target {item.threshold}&ndash;{item.max}
-                      </span>
-                      <span
-                        className={cx("inline-flex items-center gap-1", back > 0 ? "text-ink-3" : "text-ink-4")}
-                        title="Held back: made plus freezer. Neither is sellable until it is out front."
-                      >
-                        <Snowflake size={11} className={back > 0 ? "text-cold" : undefined} />
-                        {back} {item.unit} back
-                        {made > 0 && <span className="text-ink-4">({made} not put away)</span>}
-                      </span>
-                    </div>
+                        {/* No family line under the name any more — the
+                         *  section heading above already said it. */}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-ink truncate">{item.product}</p>
+                        </div>
 
-                    {status === "out" ? (
-                      <Badge tone="danger" icon={PackageX}>
-                        Out
-                      </Badge>
-                    ) : status === "low" ? (
-                      <Badge tone="warn" icon={AlertTriangle}>
-                        Low
-                      </Badge>
-                    ) : (
-                      <Badge tone="ok">In stock</Badge>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                        <div className="flex items-center gap-4 shrink-0">
+                          <div className="hidden sm:flex items-center gap-3 text-xs text-ink-3">
+                            <span>
+                              <span className={cx("font-medium", FLOOR_TONE[status])}>{floor}</span>{" "}
+                              {item.unit} on floor
+                            </span>
+                            <span
+                              className="text-ink-4"
+                              title={`Flagged low under ${item.threshold} ${item.unit}; a full case is ${item.max} ${item.unit}`}
+                            >
+                              target {item.threshold}&ndash;{item.max}
+                            </span>
+                            <span
+                              className={cx("inline-flex items-center gap-1", back > 0 ? "text-ink-3" : "text-ink-4")}
+                              title="Held back: made plus freezer. Neither is sellable until it is out front."
+                            >
+                              <Snowflake size={11} className={back > 0 ? "text-cold" : undefined} />
+                              {back} {item.unit} back
+                              {made > 0 && <span className="text-ink-4">({made} not put away)</span>}
+                            </span>
+                          </div>
+
+                          {status === "out" ? (
+                            <Badge tone="danger" icon={PackageX}>
+                              Out
+                            </Badge>
+                          ) : status === "low" ? (
+                            <Badge tone="warn" icon={AlertTriangle}>
+                              Low
+                            </Badge>
+                          ) : (
+                            <Badge tone="ok">In stock</Badge>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })
         )}
-      </Card>
+      </div>
     </div>
   );
 }

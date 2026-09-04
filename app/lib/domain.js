@@ -589,15 +589,15 @@ export const SEED = {
     { product: "Applewood Bacon", made: 12, freezer: 30, floor: 18, threshold: 45, unit: "lb" },
     { product: "Peppered Bacon", made: 0, freezer: 10, floor: 22, threshold: 30, unit: "lb" },
     { product: "Pork Bellies - Raw", made: 88, freezer: 40, floor: 0, threshold: 60, unit: "lb" },
-    { product: "Summer Sausage", made: 0, freezer: 15, floor: 34, threshold: 28, unit: "lb" },
-    { product: "Bratwurst - Original", made: 0, freezer: 0, floor: 41, threshold: 35, unit: "lb" },
+    { product: "Summer Sausage", made: 0, freezer: 15, floor: 62, threshold: 28, unit: "lb" },
+    { product: "Bratwurst - Original", made: 0, freezer: 0, floor: 78, threshold: 35, unit: "lb" },
     { product: "Bratwurst - Jalapeño Cheddar", made: 16, freezer: 25, floor: 14, threshold: 24, unit: "lb" },
     { product: "Bratwurst - Maple", made: 0, freezer: 5, floor: 9, threshold: 16, unit: "lb" },
     { product: "Snack Sticks - Original", made: 0, freezer: 0, floor: 20, threshold: 22, unit: "lb" },
     { product: "Snack Sticks - Honey BBQ", made: 9, freezer: 18, floor: 12, threshold: 15, unit: "lb" },
     { product: "Snack Sticks - Hot", made: 0, freezer: 0, floor: 27, threshold: 20, unit: "lb" },
     { product: "Beef Jerky - Original", made: 0, freezer: 22, floor: 31, threshold: 14, unit: "lb" },
-    { product: "Beef Jerky - Teriyaki", made: 5, freezer: 8, floor: 11, threshold: 8, unit: "lb" },
+    { product: "Beef Jerky - Teriyaki", made: 5, freezer: 8, floor: 22, threshold: 8, unit: "lb" },
     { product: "Ground Beef - 80/20", made: 0, freezer: 35, floor: 52, threshold: 50, unit: "lb" },
     { product: "Pork Chops - Center Cut", made: 0, freezer: 12, floor: 26, threshold: 25, unit: "lb" },
     { product: "Prime Rib Roast", made: 0, freezer: 18, floor: 9, threshold: 12, unit: "lb" },
@@ -626,6 +626,35 @@ export const SEED = {
         { id: "T-04", text: "Summer Sausage", qty: 40, unit: "lb" },
         { id: "T-05", text: "Bratwurst - Maple", qty: 24, unit: "lb" },
       ],
+    },
+    /* Demo only — runs already booked on the days ahead, so the "Planned"
+     * tab on Targets has something in it without having to add one by hand.
+     * Spread across +3..+5 so they land on weekdays whatever day the demo is
+     * opened; the Targets screen scans a rolling week forward and skips
+     * weekends. */
+    [shiftDate(T, 3)]: {
+      Smokehouse: [
+        { id: "T-06", text: "Bratwurst - Jalapeño Cheddar", qty: 30, unit: "lb" },
+        { id: "T-07", text: "Tomahawk Steak", qty: 25, unit: "lb" },
+        { id: "T-08", text: "Baby Back Ribs", qty: 20, unit: "lb" },
+      ],
+      Packaging: [
+        { id: "T-09", text: "Snack Sticks - Original", qty: 32, unit: "lb" },
+        { id: "T-10", text: "Ring Bologna", qty: 14, unit: "lb" },
+      ],
+    },
+    [shiftDate(T, 4)]: {
+      Smokehouse: [
+        { id: "T-11", text: "T-Bone Steak", qty: 12, unit: "lb" },
+        { id: "T-12", text: "Prime Rib Roast", qty: 16, unit: "lb" },
+      ],
+      Packaging: [
+        { id: "T-13", text: "Snack Sticks - Honey BBQ", qty: 24, unit: "lb" },
+      ],
+    },
+    [shiftDate(T, 5)]: {
+      Smokehouse: [{ id: "T-14", text: "Bone-In Ribeye Steak", qty: 18, unit: "lb" }],
+      Packaging: [{ id: "T-15", text: "Bratwurst - Maple", qty: 22, unit: "lb" }],
     },
   },
 

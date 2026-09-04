@@ -1,21 +1,10 @@
 "use client";
 
-import React, { useId, useMemo, useState } from "react";
-import {
-  ArrowLeft,
-  Blocks,
-  Building2,
-  ChartColumnIncreasing,
-  ListTodo,
-  Package,
-  Route,
-  Settings,
-  ShieldCheck,
-  UsersRound,
-} from "lucide-react";
+import React, { useMemo, useState } from "react";
 
-import { Input, ToastProvider, cx, useToast } from "../components/ui";
-import AppShell from "../components/AppShell";
+import { Input, ToastProvider, useToast } from "../components/ui";
+import ConsoleShell from "./components/ConsoleShell";
+import BrandModals from "./components/BrandModals";
 import { newId } from "../lib/domain";
 import { StaffProvider } from "../lib/staff";
 import CompanyAuthScreen from "./screens/CompanyAuthScreen";
@@ -25,89 +14,21 @@ import TeamScreen from "./screens/TeamScreen";
 import StationsScreen from "./screens/StationsScreen";
 import IntegrationsScreen from "./screens/IntegrationsScreen";
 import PermissionsScreen from "./screens/PermissionsScreen";
-import SettingsScreen from "./screens/SettingsScreen";
 import ProductionScreen from "./screens/ProductionScreen";
 import InventoryScreen from "./screens/InventoryScreen";
 import FloorTasksScreen from "../screens/TasksScreen";
 import { usePersistentState, useCompanySession } from "./lib/companyStore";
 import { usePersistentState as useFloorPersistentState } from "../lib/store";
-import { COMPANY_SEED, ROLE_LABEL, DEFAULT_STATIONS, defaultPermissions, isValidStationName } from "./lib/companyDomain";
+import { useBrandModals } from "./lib/useBrandModals";
+import { COMPANY_SEED, DEFAULT_STATIONS, defaultPermissions, isValidStationName } from "./lib/companyDomain";
 import { PRODUCTION_SEED } from "./lib/companyProduction";
 import { SEED, DEFAULT_TASK_CATEGORIES, todayKey, categoryInUse } from "../lib/domain";
 import { answerCompanyQuestion, buildCompanyInsights } from "./lib/insights";
+import { navFor } from "./lib/nav";
 
-/**
- * Insights' own icon: a magnifying glass with an AI sparkle tucked into its
- * top-right corner — one glyph, not two icons floating next to each other.
- * A knockout circle clears its own patch out of the glass's stroke so the
- * sparkle reads as sitting ON the glass. That knockout fills with --row-bg,
- * a custom property the nav row itself sets (see AppShell's renderNavItem)
- * to the row's *actual* current background — canvas at rest, the
- * pre-composited hover/selected tint otherwise — so the patch never shows
- * up as a mismatched halo the way a fixed canvas/surface fill did. Falls
- * back to canvas when nothing sets --row-bg (e.g. the mobile tab bar,
- * whose background never changes on selection). Everything else is
- * monochrome currentColor except the sparkle, which carries its own
- * blue-to-violet gradient — the rail's one deliberate spot of color, fixed
- * regardless of hover/selected state. Ported over from the shop floor's own
- * Insights tab — Insights now lives here instead.
- */
-function InsightsIcon({ size = 16, className }) {
-  const gradientId = useId();
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      className={className}
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#2383e2" />
-          <stop offset="100%" stopColor="#8b5cf6" />
-        </linearGradient>
-      </defs>
-      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <line x1="15.2" y1="15.2" x2="20.5" y2="20.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <circle
-        cx="16.5"
-        cy="6"
-        r="5.5"
-        style={{ fill: "var(--row-bg, var(--color-canvas))", transition: "fill 100ms" }}
-      />
-      <g transform="translate(11 1) scale(0.42)">
-        <path
-          d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
-          fill={`url(#${gradientId})`}
-        />
-      </g>
-    </svg>
-  );
-}
-
-// Grouped so the rail reads as a few clusters instead of nine loose items:
-// Insights stands alone up top, then Operations (day-to-day planning work)
-// / Setup (structural config) / People (who + what they can touch) / System
-// (integrations & settings). `group` drives AppShell's section label — see
-// the nav-render comment there for how open vs. collapsed treats it.
-const NAV = [
-  { id: "insights", label: "Insights", short: "Insights", icon: InsightsIcon },
-  { id: "production", label: "Targets", short: "Targets", icon: ChartColumnIncreasing, managerOnly: true, group: "Operations" },
-  { id: "tasks", label: "Assignments", short: "Assignments", icon: ListTodo, managerOnly: true, group: "Operations" },
-  { id: "inventory", label: "Inventory", short: "Inventory", icon: Package, managerOnly: true, group: "Operations" },
-  { id: "team", label: "Team", short: "Team", icon: UsersRound, adminOnly: true, group: "People" },
-  { id: "permissions", label: "Permissions", short: "Permissions", icon: ShieldCheck, adminOnly: true, group: "People" },
-  { id: "locations", label: "Locations", short: "Locations", icon: Building2, adminOnly: true, group: "Setup" },
-  { id: "stations", label: "Stations", short: "Stations", icon: Blocks, adminOnly: true, group: "Setup" },
-  { id: "integrations", label: "Integrations", short: "Integrations", icon: Route, adminOnly: true, group: "Setup" },
-  // Not a sidebar item: `hidden` keeps it out of the rail/mobile tabs/hotkeys
-  // (see AppShell's `visibleNav`) while staying reachable via `onNavigate`
-  // from the account popover below, with the page header still resolving
-  // to "Settings" (AppShell's `active` lookup scans the full nav array).
-  { id: "settings", label: "Settings", short: "Settings", icon: Settings, adminOnly: true, hidden: true },
-];
+// NAV now lives in ./lib/nav.js, shared with the standalone Help page
+// that reuses this same rail — see that file's doc comment
+// for why Settings isn't in it anymore.
 
 
 /**
@@ -148,156 +69,11 @@ const NAV = [
 //   );
 // }
 
-/**
- * The console's "view as" — Dana signing in doesn't mean Dana is who cares
- * about today's task list or the smokehouse queue; a floor manager does.
- * Clicking the account block in the sidebar footer opens this instead of
- * making anyone remember a second password: pick a teammate, the session
- * (real, persisted — see useCompanySession) switches to them, same as if
- * they'd signed in themselves. A refresh keeps whoever you switched to,
- * exactly like actually signing in as them would.
- *
- * Pending invites (Jordan Reyes, "invited") aren't offered — there's no one
- * to "become" yet.
- */
-function AccountSwitcherMenu({ users, locations, currentUser, onSwitch }) {
-  const locationName = (id) => locations.find((l) => l.id === id)?.name;
-  const scopeFor = (u) =>
-    u.locationIds?.length === 1 ? locationName(u.locationIds[0]) : "All locations";
-
-  return (
-    <div className="w-64 bg-surface border border-line rounded-xl shadow-pop overflow-hidden animate-pop-in">
-      <div className="px-3 py-2 border-b border-line">
-        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-ink-4">Switch account</p>
-        <p className="mt-0.5 text-xs text-ink-3 truncate">See the console the way they do.</p>
-      </div>
-
-      <div className="p-1 max-h-72 overflow-y-auto">
-        {users.filter((u) => u.status === "active").map((u) => {
-          const active = u.id === currentUser.id;
-          return (
-            <button
-              key={u.id}
-              type="button"
-              onClick={() => onSwitch(u)}
-              className={cx(
-                "w-full flex items-center gap-2.5 text-left px-2.5 py-2 rounded-md transition-colors duration-100",
-                active ? "bg-primary-soft" : "hover:bg-sunken"
-              )}
-            >
-              <span className="flex items-center justify-center w-7 h-7 rounded-full bg-ink text-white text-[11px] font-semibold shrink-0">
-                {u.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className={cx("block text-sm font-medium truncate", active ? "text-primary-ink" : "text-ink")}>
-                  {u.name}
-                  {active && <span className="ml-1.5 text-[11px] font-normal">· current</span>}
-                </span>
-                <span className="block mt-0.5 text-[11px] leading-snug text-ink-3 truncate">
-                  {ROLE_LABEL[u.role]} · {scopeFor(u)}
-                </span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="p-1 border-t border-line">
-        <a
-          href="/"
-          className="w-full flex items-center gap-2.5 text-left px-2.5 py-2 rounded-md text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-100"
-        >
-          <span className="flex items-center justify-center w-7 h-7 rounded-full bg-sunken text-icon-2 shrink-0">
-            <ArrowLeft size={14} />
-          </span>
-          Switch to the shop floor terminal
-        </a>
-      </div>
-
-      <p className="px-3 py-2 border-t border-line text-[11px] leading-snug text-ink-4">
-        Demo mode — switches your signed-in account, no password needed.
-      </p>
-    </div>
-  );
-}
-
-/**
- * Hangs off the chevron next to the brand title in the sidebar header —
- * company-level places to go, as opposed to the account switcher above
- * (which is about WHO you are) or the nav rail (shop-floor-style working
- * screens). Settings lives here now, having moved out of the account
- * popover once this menu existed to hold it. Deliberately just a plain
- * panel, not modeled on AccountSwitcherMenu's scrollable list — there's
- * one entry today.
- */
-function BrandMenu({ onOpenSettings }) {
-  return (
-    <div className="w-56 bg-surface border border-line rounded-xl shadow-pop overflow-hidden animate-pop-in p-1">
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className="w-full flex items-center gap-2.5 text-left px-2.5 py-2 rounded-md text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-100"
-      >
-        <span className="flex items-center justify-center w-7 h-7 rounded-full bg-sunken text-icon-2 shrink-0">
-          <Settings size={14} />
-        </span>
-        Settings
-      </button>
-    </div>
-  );
-}
-
-function Shell({
-  company,
-  currentUser,
-  nav,
-  view,
-  onNavigate,
-  onSignOut,
-  bundle,
-  userMenuOpen,
-  onUserMenuOpenChange,
-  onSwitchUser,
-  brandMenuOpen,
-  onBrandMenuOpenChange,
-  children,
-}) {
-  return (
-    <AppShell
-      brand={company.name}
-      nav={nav}
-      view={view}
-      onNavigate={onNavigate}
-      onSignOut={onSignOut}
-      initials={currentUser.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
-      userName={currentUser.name}
-      userMeta={<p className="text-xs text-ink-3 truncate">{ROLE_LABEL[currentUser.role]}</p>}
-      // sidebarExtra={<AskBar bundle={bundle} />}
-      userMenuOpen={userMenuOpen}
-      onUserMenuOpenChange={onUserMenuOpenChange}
-      userMenu={
-        <AccountSwitcherMenu
-          users={bundle.users}
-          locations={bundle.locations}
-          currentUser={currentUser}
-          onSwitch={onSwitchUser}
-        />
-      }
-      brandMenuOpen={brandMenuOpen}
-      onBrandMenuOpenChange={onBrandMenuOpenChange}
-      brandMenu={
-        <BrandMenu
-          onOpenSettings={() => {
-            onNavigate("settings");
-            onBrandMenuOpenChange(false);
-          }}
-        />
-      }
-    >
-      {children}
-    </AppShell>
-  );
-}
+// AccountSwitcherMenu, BrandMenu, and the AppShell-wiring Shell component
+// all moved to ./components/ConsoleShell.jsx (Sept 2026) so the standalone
+// Settings and Feedback pages could reuse them too, instead of each
+// duplicating the same AppShell wiring — see that file for the full
+// doc comments preserved from here.
 
 function Application() {
   const toast = useToast();
@@ -320,12 +96,17 @@ function Application() {
   const [schedule, setSchedule] = useFloorPersistentState("schedule", SEED.schedule);
   const [tasks, setTasks] = useFloorPersistentState("tasks", SEED.tasks);
   const [taskCategories, setTaskCategories] = useFloorPersistentState("taskCategories", DEFAULT_TASK_CATEGORIES);
-  const [inventory] = useFloorPersistentState("inventory", SEED.inventory);
+  const [inventory, setInventory] = useFloorPersistentState("inventory", SEED.inventory);
+  /* Read-only here: the console tracks production, it doesn't run batches.
+   * Both come from the floor's own persisted state so the goal tracker is
+   * measuring the same batches the shop actually made. */
+  const [batches] = useFloorPersistentState("batches", SEED.batches);
   const today = todayKey();
 
   const [view, setView] = useState("insights");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [brandMenuOpen, setBrandMenuOpen] = useState(false);
+  const { open: brandModalsOpen, openModal: openBrandModal, closeModal: closeBrandModal } = useBrandModals(setBrandMenuOpen);
 
   const currentUser = session ? users.find((u) => u.id === session.userId) : null;
 
@@ -339,8 +120,13 @@ function Application() {
     return locations.filter((l) => currentUser.locationIds?.includes(l.id));
   }, [locations, currentUser]);
 
+  // A genuinely single-location business has nothing to be "company-wide
+  // across" — every role just sees the one location's name. Multi-location
+  // companies keep the role-based phrasing below.
   const insightsScopeLabel = !currentUser
     ? ""
+    : locations.length === 1
+    ? locations[0]?.name || ""
     : currentUser.role === "admin"
     ? `Company-wide across ${visibleLocations.length} location${visibleLocations.length === 1 ? "" : "s"}`
     : visibleLocations.length === 1
@@ -514,11 +300,16 @@ function Application() {
     toast("Custom permission removed", { tone: "info" });
   };
 
-  /* ---- Settings ---- */
+  /* ---- Settings, Feedback & Plan (all modals, opened from the brand-title dropdown) ---- */
 
   const handleUpdateCompany = (patch) => {
     setCompany((prev) => ({ ...prev, ...patch }));
     toast("Business details updated");
+  };
+
+  const handleChangePlan = (planName) => {
+    setCompany((prev) => ({ ...prev, plan: planName }));
+    toast(`Switched to the ${planName} plan`, { detail: "This is a demo — nothing was actually billed." });
   };
 
   /* ---- Integrations ---- */
@@ -554,6 +345,20 @@ function Application() {
   };
 
   /* ---- Production planning & tasks (shared with the floor terminal) ---- */
+
+  /* Editing the band writes to the real inventory record, not to a private
+   * overrides map — "the min for this product is 50" is a fact about the
+   * product, and the floor app reads the same field. */
+  const handleSetStockRange = (product, { threshold, max }) => {
+    setInventory((prev) =>
+      prev.map((i) =>
+        i.product === product
+          ? { ...i, threshold, max: Math.max(max, threshold) }
+          : i,
+      ),
+    );
+    toast(`${product} set to min ${Math.round(threshold)} · max ${Math.round(max)}`);
+  };
 
   const handleAddScheduleTask = (day, station, product, qty) => {
     setSchedule((prev) => ({
@@ -635,11 +440,12 @@ function Application() {
 
   const isAdmin = currentUser.role === "admin";
   const isManagerTier = isAdmin || currentUser.role === "manager";
-  const nav = NAV.filter((n) => (isAdmin || !n.adminOnly) && (isManagerTier || !n.managerOnly));
+  const nav = navFor({ isAdmin, isManagerTier });
   const current = nav.some((n) => n.id === view) ? view : "insights";
 
   return (
-    <Shell
+    <>
+    <ConsoleShell
       company={company}
       currentUser={currentUser}
       nav={nav}
@@ -652,12 +458,17 @@ function Application() {
       onSwitchUser={handleSwitchUser}
       brandMenuOpen={brandMenuOpen}
       onBrandMenuOpenChange={setBrandMenuOpen}
+      onOpenSettings={() => openBrandModal("settings")}
+      onOpenFeedback={() => openBrandModal("feedback")}
+      onOpenPricing={() => openBrandModal("pricing")}
     >
       {current === "insights" && (
         <InsightsScreen
           scopeLabel={insightsScopeLabel}
           insights={insights}
-          history={visibleLocations.flatMap((l) => production[l.id] || [])}
+          history={visibleLocations.flatMap((l) =>
+            (production[l.id] || []).map((h) => ({ ...h, locationId: l.id, locationName: l.name }))
+          )}
         />
       )}
 
@@ -682,9 +493,10 @@ function Application() {
         <ProductionScreen
           schedule={schedule}
           inventory={inventory}
+          batches={batches}
           today={today}
+          onSetRange={handleSetStockRange}
           onAddTask={handleAddScheduleTask}
-          onRemoveTask={handleRemoveScheduleTask}
         />
       )}
 
@@ -754,10 +566,17 @@ function Application() {
         />
       )}
 
-      {current === "settings" && isAdmin && (
-        <SettingsScreen company={company} canManage={isAdmin} onUpdate={handleUpdateCompany} />
-      )}
-    </Shell>
+    </ConsoleShell>
+
+    <BrandModals
+      open={brandModalsOpen}
+      onClose={closeBrandModal}
+      company={company}
+      canManage={isAdmin}
+      onUpdateCompany={handleUpdateCompany}
+      onChangePlan={handleChangePlan}
+    />
+    </>
   );
 }
 

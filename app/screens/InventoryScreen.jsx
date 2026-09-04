@@ -5,37 +5,48 @@ import {
   AlertTriangle,
   ArrowDownAZ,
   ArrowDownWideNarrow,
-  ArrowRight,
   ArrowRightCircle,
   ArrowUpAZ,
   ArrowUpWideNarrow,
+  Beef,
+  Bone,
   CloudOff,
+  CookingPot,
+  Drumstick,
+  Flame,
+  Ham,
+  Hamburger,
+  Layers,
   Package,
   PackageCheck,
   PackageX,
   Plus,
   RefreshCw,
+  Sandwich,
   Snowflake,
   Store,
   Timer,
-  X,
+  Utensils,
 } from "lucide-react";
 
 import {
   Badge,
   Button,
-  Card,
+  Dropdown,
   EmptyState,
   Field,
+  IconButton,
   Input,
   Modal,
-  Dropdown,
+  RowActions,
   SearchInput,
+  SectionHeading,
   Segmented,
   SkeletonRows,
   Slot,
   StatCard,
   StatGrid,
+  StickyFadeHeader,
   Tooltip,
   cx,
 } from "../components/ui";
@@ -64,6 +75,28 @@ const COVER_TONE = { danger: "text-danger", warn: "text-warn", ok: "text-ok", mu
 
 /** Traffic light on the floor count: nothing / below par / at or over par. */
 const FLOOR_TONE = { out: "text-danger", low: "text-warn", ok: "text-ok" };
+
+/* One icon per product family, so a section is identifiable from across the
+ * room on the wall terminal rather than only by reading its word. The
+ * whole-muscle cuts deliberately share one mark — they are the same kind of
+ * thing to whoever is stocking the case — and anything unrecognised falls
+ * through to a plain box. */
+const FAMILY_ICON = {
+  Bacon: Layers,
+  Brats: Utensils,
+  Sausage: CookingPot,
+  Sticks: Bone,
+  Jerky: Flame,
+  Ham: Ham,
+  Deli: Sandwich,
+  Roasts: Beef,
+  Steaks: Beef,
+  Chops: Beef,
+  Ribs: Beef,
+  Ground: Hamburger,
+  Poultry: Drumstick,
+  Other: Package,
+};
 
 /*
  * The floor count carries no operator at all.
@@ -460,6 +493,29 @@ export default function InventoryScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inventory, query, filters, velocity]);
 
+  /* The list sections by family rather than running flat, and the family
+   * filter above narrows which sections are on screen instead of being the
+   * only way to see one family at a time. PRODUCT_TYPES fixes the order, so
+   * the case reads the same way every visit; a family the catalogue has
+   * invented since then still gets a heading, appended alphabetically, so
+   * nothing can quietly fall out of the list. A single remaining family is
+   * still given its heading — a list that stops sectioning itself once it is
+   * short reads as broken rather than tidy. */
+  const groups = useMemo(() => {
+    const byFamily = new Map();
+    for (const item of visible) {
+      const family = item.type || productType(item.product);
+      const list = byFamily.get(family);
+      if (list) list.push(item);
+      else byFamily.set(family, [item]);
+    }
+    const known = PRODUCT_TYPES.filter((t) => byFamily.has(t));
+    const extra = [...byFamily.keys()]
+      .filter((t) => !PRODUCT_TYPES.includes(t))
+      .sort((a, b) => a.localeCompare(b));
+    return [...known, ...extra].map((type) => ({ type, items: byFamily.get(type) }));
+  }, [visible]);
+
   const activeCount =
     (filters.type !== "all" ? 1 : 0) +
     (filters.state !== "all" ? 1 : 0) +
@@ -472,7 +528,7 @@ export default function InventoryScreen({
   };
 
   return (
-    <div className="space-y-3">
+    <div>
       <StatGrid>
         {FOCUS.map((f) => (
           <StatCard
@@ -518,256 +574,321 @@ export default function InventoryScreen({
         )}
       </Slot>
 
-      {/* One row: the filters that narrow the list, on the left, then what
-          they did to it, then the page's remaining actions on the right —
-          everything that touches the list in the order it happens. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Dropdown
-            value={filters.type}
-            on={filters.type !== "all"}
-            onChange={(v) => set({ type: v })}
-            aria-label="Family"
-            pinned={
-              <Tooltip label={`Sorted ${FAMILY_SORTS[familySort].label.toLowerCase()} — tap to cycle`}>
-                <button
-                  type="button"
-                  aria-label={`Sort families: ${FAMILY_SORTS[familySort].label}`}
-                  onClick={() => setFamilySort((i) => (i + 1) % FAMILY_SORTS.length)}
-                  className="w-full flex items-center justify-center h-[var(--row-h)] rounded-md text-ink-3 hover:text-ink-2 hover:bg-faint transition-colors duration-100"
-                >
-                  {React.createElement(FAMILY_SORTS[familySort].icon, { size: 16 })}
-                </button>
-              </Tooltip>
-            }
-            options={[
-              { value: "all", label: "All families" },
-              ...families
-                .slice()
-                .sort(FAMILY_SORTS[familySort].compare)
-                .map((f) => ({
-                  value: f.type,
-                  label: f.need ? `${f.type} (${f.need})` : f.type,
-                })),
-            ]}
-          />
+      {/* One sticky toolbar, the same one Tasks and Team use: the filters that
+       *  narrow the list and what they did to it on the left, the page's own
+       *  actions on the right. It stays put while the case scrolls under it
+       *  and fades its own trailing edge, so a half-scrolled row doesn't cut
+       *  off on a hard line. StickyFadeHeader's defaults already match this
+       *  spot in the layout, so there is nothing to override here. */}
+      <StickyFadeHeader>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Dropdown
+                value={filters.type}
+                on={filters.type !== "all"}
+                onChange={(v) => set({ type: v })}
+                aria-label="Family"
+                pinned={
+                  <Tooltip label={`Sorted ${FAMILY_SORTS[familySort].label.toLowerCase()} — tap to cycle`}>
+                    <button
+                      type="button"
+                      aria-label={`Sort families: ${FAMILY_SORTS[familySort].label}`}
+                      onClick={() => setFamilySort((i) => (i + 1) % FAMILY_SORTS.length)}
+                      className="w-full flex items-center justify-center h-[var(--row-h)] rounded-md text-ink-3 hover:text-ink-2 hover:bg-faint transition-colors duration-100"
+                    >
+                      {React.createElement(FAMILY_SORTS[familySort].icon, { size: 16 })}
+                    </button>
+                  </Tooltip>
+                }
+                options={[
+                  { value: "all", label: "All families" },
+                  ...families
+                    .slice()
+                    .sort(FAMILY_SORTS[familySort].compare)
+                    .map((f) => ({
+                      value: f.type,
+                      label: f.need ? `${f.type} (${f.need})` : f.type,
+                    })),
+                ]}
+              />
 
-          <Dropdown
-            value={filters.state}
-            on={filters.state !== "all"}
-            onChange={(v) => set({ state: v })}
-            aria-label="Stock location"
-            options={[
-              { value: "all", label: "All locations" },
-              ...STOCK_STATES.map((st) => ({ value: st.id, label: st.short })),
-            ]}
-          />
+              <Dropdown
+                value={filters.state}
+                on={filters.state !== "all"}
+                onChange={(v) => set({ state: v })}
+                aria-label="Stock location"
+                options={[
+                  { value: "all", label: "All locations" },
+                  ...STOCK_STATES.map((st) => ({ value: st.id, label: st.short })),
+                ]}
+              />
 
-          {/* The hover explains WHEN this turns on, not what it computes —
-              that's the thing a greyed-out control actually leaves you
-              wondering. */}
-          <Tooltip
-            label={
-              hasVelocity
-                ? `Shows items with less than ${COVER_WARN_DAYS} days of cover — updates nightly from Clover sales`
-                : "Turns on once Clover has about 4 weeks of sales history"
-            }
-          >
-            <Dropdown
-              icon={Timer}
-              value={filters.tightCover ? "tight" : "any"}
-              on={filters.tightCover}
-              disabled={!hasVelocity}
-              onChange={(v) => set({ tightCover: v === "tight" })}
-              aria-label="Cover"
-              options={[
-                { value: "any", label: "Any cover" },
-                { value: "tight", label: `Under ${COVER_WARN_DAYS}d cover` },
-              ]}
-            />
-          </Tooltip>
-        </div>
-
-        <span className="text-xs text-ink-3 truncate">
-          {visible.length === inventory.length
-            ? `${inventory.length} products`
-            : `${visible.length} of ${inventory.length} products`}
-          {activeFocus && <> · {activeFocus.label.toLowerCase()}</>}
-          {(activeCount > 0 || query) && (
-            <>
-              {" · "}
-              <button
-                type="button" onClick={clearAll}
-                className="font-medium text-ink-2 hover:text-ink hover:underline"
+              {/* The hover explains WHEN this turns on, not what it computes —
+                  that's the thing a greyed-out control actually leaves you
+                  wondering. */}
+              <Tooltip
+                label={
+                  hasVelocity
+                    ? `Shows items with less than ${COVER_WARN_DAYS} days of cover — updates nightly from Clover sales`
+                    : "Turns on once Clover has about 4 weeks of sales history"
+                }
               >
-                Clear all
-              </button>
-            </>
-          )}
-        </span>
+                <Dropdown
+                  icon={Timer}
+                  value={filters.tightCover ? "tight" : "any"}
+                  on={filters.tightCover}
+                  disabled={!hasVelocity}
+                  onChange={(v) => set({ tightCover: v === "tight" })}
+                  aria-label="Cover"
+                  options={[
+                    { value: "any", label: "Any cover" },
+                    { value: "tight", label: `Under ${COVER_WARN_DAYS}d cover` },
+                  ]}
+                />
+              </Tooltip>
+            </div>
 
-
-        <div className="flex items-center gap-2 ml-auto shrink-0">
-          <SourceBadge status={status} syncedAt={syncedAt} onRefresh={onRefresh} />
-          {canManage && (
-            <Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>
-              Add product
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {status === "loading" ? (
-        <SkeletonRows rows={4} />
-      ) : visible.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={Package}
-            title={query || activeCount ? "No matching products" : "No products yet"}
-            description={
-              query || activeCount
-                ? "Try a wider weight range, another family, or clear the filters."
-                : "Products sync in from Clover, or add one by hand."
-            }
-            action={
-              query || activeCount ? <Button onClick={clearAll}>Clear filters</Button> : null
-            }
-          />
-        </Card>
-      ) : (
-        <div>
-          <ul className="divide-y divide-line border-y border-line">
-            {visible.map((item) => {
-              const status = stockStatus(item);
-              const low = status !== "ok";
-              const back = behindStock(item);
-              const floor = stockIn(item, "floor");
-              const made = stockIn(item, "made");
-              const movable = canPutOut(item);
-              const refill = refillQty(item);
-              const cover = daysOfCover(item, rate(item));
-              const hasStock = totalStock(item) > 0;
-              return (
-                <li
-                  key={item.product}
-                  className="flex items-center justify-between gap-4 py-2.5 px-1 -mx-1 rounded-md hover:bg-faint transition-colors"
-                >
-                  {/* The whole content area is the trigger, so the tap target
-                      matches what the row looks like; the Move button stays a
-                      sibling rather than a nested control. */}
+            <span className="text-xs text-ink-3 truncate">
+              {visible.length === inventory.length
+                ? `${inventory.length} products`
+                : `${visible.length} of ${inventory.length} products`}
+              {activeFocus && <> · {activeFocus.label.toLowerCase()}</>}
+              {(activeCount > 0 || query) && (
+                <>
+                  {" · "}
                   <button
-                    type="button"
-                    onClick={() => setDetail(item.product)}
-                    className="min-w-0 text-left flex-1 rounded-md"
+                    type="button" onClick={clearAll}
+                    className="font-medium text-ink-2 hover:text-ink hover:underline"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <p className="text-sm font-medium text-ink truncate">{item.product}</p>
-                      <span className="shrink-0 text-xs font-medium text-ink-4">
-                        {item.type || productType(item.product)}
-                      </span>
-                    </div>
-
-                    <div className="mt-1 flex items-center flex-wrap gap-x-3 gap-y-1 text-xs tnum">
-                      {/* The floor is the only count that is actually sellable,
-                          so it leads and everything else is "behind" it.
-
-                          Stock and par read as one fraction rather than as
-                          three chips: "0 lb on floor", "min 25" and "25 lb
-                          short" were three spellings of a single fact, and on a
-                          catalogue sitting at zero every row said all three. */}
-                      <span
-                        title={`${floor} ${item.unit} out front and sellable`}
-                        className="inline-flex items-center gap-1 text-ink-3"
-                      >
-                        <Store size={11} />
-                        {/* Only the stock figure carries the alarm — the range
-                            it is measured against is never the problem. */}
-                        <span className={cx("font-medium", FLOOR_TONE[status])}>{floor}</span>
-                        {item.unit} on floor
-                      </span>
-
-                      {/* One shape in every state, so there is nothing to
-                          decode: the same two bounds, in the same order,
-                          whether stock is fine or on the floor at zero. */}
-                      <span
-                        className="text-ink-4"
-                        title={`Flagged low under ${item.threshold} ${item.unit}; a full case is ${item.max} ${item.unit}`}
-                      >
-                        target {item.threshold}&ndash;{item.max}
-                      </span>
-
-                      {/* Not the shortfall against the minimum — the amount
-                          that actually fills the case. Topping up to the
-                          minimum would trip the same alert on the next sale. */}
-                      {low && refill > 0 && (
-                        <span className="text-warn font-medium">bring {refill}</span>
-                      )}
-                      {cover != null && (
-                        <span
-                          className={cx(
-                            "inline-flex items-center gap-1",
-                            {
-                              danger: "text-danger",
-                              warn: "text-warn",
-                              ok: "text-ink-3",
-                              muted: "text-ink-4",
-                            }[coverTone(cover)]
-                          )}
-                        >
-                          <Timer size={11} /> {cover}d cover
-                        </span>
-                      )}
-
-                      {/* Made and freezer differ only in whether someone has
-                          put the stock away — neither is sellable — so they
-                          read as one number, and only split when the made pile
-                          is non-empty and that put-away work actually exists. */}
-                      <span
-                        className={cx(
-                          "inline-flex items-center gap-1",
-                          back > 0 ? "text-ink-3" : "text-ink-4"
-                        )}
-                        title="Held back: made plus freezer. Neither is sellable until it is out front."
-                      >
-                        <Snowflake size={11} className={back > 0 ? "text-cold" : undefined} />
-                        {back} {item.unit} back
-                        {made > 0 && (
-                          <span className="text-ink-4">
-                            ({made} not put away)
-                          </span>
-                        )}
-                      </span>
-                    </div>
+                    Clear all
                   </button>
+                </>
+              )}
+            </span>
+          </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {status === "out" ? (
-                      <Badge tone="danger" icon={PackageX}>
-                        Out
-                      </Badge>
-                    ) : status === "low" ? (
-                      <Badge tone="warn" icon={AlertTriangle}>
-                        Low
-                      </Badge>
-                    ) : (
-                      <Badge tone="ok">In stock</Badge>
-                    )}
-                    {hasStock && (
-                      <Button
-                        size="sm" variant={movable ? "secondary" : "ghost"}
-                        iconRight={ArrowRightCircle}
-                        onClick={() => setMoving({ item, from: stockIn(item, "made") > 0 ? "made" : "freezer" })}
-                      >
-                        Move
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <SourceBadge status={status} syncedAt={syncedAt} onRefresh={onRefresh} />
+            {canManage && (
+              <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
+                Add product
+              </Button>
+            )}
+          </div>
         </div>
-      )}
+      </StickyFadeHeader>
+
+      <div className="space-y-5">
+        {status === "loading" ? (
+          <SkeletonRows rows={4} />
+        ) : visible.length === 0 ? (
+          <div className="border-b border-line">
+            <EmptyState
+              icon={Package}
+              title={query || activeCount ? "No matching products" : "No products yet"}
+              description={
+                query || activeCount
+                  ? "Try a wider weight range, another family, or clear the filters."
+                  : "Products sync in from Clover, or add one by hand."
+              }
+              action={
+                query || activeCount ? <Button onClick={clearAll}>Clear filters</Button> : null
+              }
+            />
+          </div>
+        ) : (
+          groups.map(({ type, items }) => {
+            const Icon = FAMILY_ICON[type] || Package;
+            return (
+              <div key={type}>
+                <SectionHeading icon={Icon} label={type} count={items.length} />
+
+                {/* Nested under its heading rather than flush with it — with
+                 *  no box or divider around the list, the indent is what
+                 *  reads as "these belong to that heading". */}
+                <ul className="pl-6">
+                  {items.map((item) => {
+                    const state = stockStatus(item);
+                    const low = state !== "ok";
+                    const back = behindStock(item);
+                    const floor = stockIn(item, "floor");
+                    const made = stockIn(item, "made");
+                    const refill = refillQty(item);
+                    const cover = daysOfCover(item, rate(item));
+                    const hasStock = totalStock(item) > 0;
+                    /* What this row can actually put out, in one figure: the
+                     * amount that fills the case, capped by what is really
+                     * standing behind it. Promising a refill the freezer
+                     * cannot cover is the same fetch-what-isn't-there
+                     * instruction as asking for it with nothing in back. */
+                    const putOut = low && back > 0 ? Math.min(refill, back) : 0;
+                    return (
+                      <li
+                        key={item.product}
+                        className="group flex items-center gap-3 py-3 px-1 rounded-md transition-colors hover:bg-faint"
+                      >
+                        {/* The whole content area is the trigger, so the tap
+                            target matches what the row looks like; Move stays
+                            a sibling rather than a nested control. */}
+                        <button
+                          type="button"
+                          onClick={() => setDetail(item.product)}
+                          className="min-w-0 text-left flex-1 rounded-md"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <p className="text-sm font-medium text-ink truncate">{item.product}</p>
+                            {/* Only the states that need doing carry a marker.
+                                The family chip that used to sit here is gone —
+                                the section heading above already said it, and
+                                "In stock" was a badge for the absence of a
+                                problem. */}
+                            {state === "out" ? (
+                              <Badge tone="danger" icon={PackageX}>
+                                Out
+                              </Badge>
+                            ) : state === "low" ? (
+                              <Badge tone="warn" icon={AlertTriangle}>
+                                Low
+                              </Badge>
+                            ) : null}
+                          </div>
+
+                          {/* One number leads the row.
+                              Four values at one size, in one run-on line, made
+                              the reader read all four to find the one that
+                              says whether to act. The floor count is that one
+                              — it is the only sellable weight and the only
+                              figure the row's button changes — so it sits a
+                              step up in size and weight, first on the line
+                              where it aligns down the column, and everything
+                              else drops to quiet reference beside it. */}
+                          <div className="mt-1 flex items-center flex-wrap gap-x-3 gap-y-1 tnum">
+                            <span
+                              title={`${floor} ${item.unit} out front and sellable`}
+                              className="inline-flex items-baseline gap-1"
+                            >
+                              <Store size={11} className="self-center text-icon-2" />
+                              {/* Only the stock figure carries the alarm — the
+                                  range it is measured against is never the
+                                  problem. */}
+                              <span className={cx("text-sm font-semibold", FLOOR_TONE[state])}>
+                                {floor}
+                              </span>
+                              <span className="text-xs text-ink-3">{item.unit} on floor</span>
+                            </span>
+
+                            {/* One shape in every state, so there is nothing to
+                                decode: the same two bounds, in the same order,
+                                whether stock is fine or on the floor at zero. */}
+                            <span
+                              className="text-xs text-ink-4"
+                              title={`Flagged low under ${item.threshold} ${item.unit}; a full case is ${item.max} ${item.unit}`}
+                            >
+                              target {item.threshold}&ndash;{item.max}
+                            </span>
+
+                            {cover != null && (
+                              <span
+                                className={cx(
+                                  "inline-flex items-center gap-1 text-xs",
+                                  {
+                                    danger: "text-danger",
+                                    warn: "text-warn",
+                                    ok: "text-ink-4",
+                                    muted: "text-ink-4",
+                                  }[coverTone(cover)]
+                                )}
+                              >
+                                <Timer size={11} /> {cover}d cover
+                              </span>
+                            )}
+
+                            {/* Made and freezer differ only in whether someone
+                                has put the stock away — neither is sellable —
+                                so they read as one number, and only split when
+                                the made pile is non-empty and that put-away
+                                work actually exists.
+
+                                With nothing behind the floor there is no
+                                quantity worth printing: a row at 0 back is not
+                                a fetch that hasn't been done, it is a batch
+                                that hasn't been made, and it should say so
+                                rather than leave "0 lb back" to be read as an
+                                amount someone could go and carry. */}
+                            {back > 0 ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-xs text-ink-4"
+                                title="Held back: made plus freezer. Neither is sellable until it is out front."
+                              >
+                                <Snowflake size={11} className="text-cold" />
+                                {back} {item.unit} back
+                                {made > 0 && <span>({made} not put away)</span>}
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 text-xs text-ink-4"
+                                title="Nothing made and nothing in the freezer — the case can only be filled by a batch."
+                              >
+                                <Snowflake size={11} />
+                                nothing in back{low && " \u2014 needs a batch"}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+
+                        {/* `always`: this is the floor terminal — a gloved
+                         *  hand on a wall tablet gets no hover, so a row's
+                         *  actions are part of the row, not a reveal.
+                         *
+                         *  Putting stock out is the whole job of this screen,
+                         *  so on a row that needs it the action is spelled
+                         *  out and carries its own quantity instead of being
+                         *  an icon plus a number parked in the meta line.
+                         *  It opens the same Move dialog from the same side —
+                         *  the amount is still confirmable there, because the
+                         *  case is not always worth filling to the top.
+                         *  It stays a plain control, not a second filled
+                         *  accent: on a list this long that colour would be
+                         *  the loudest thing on the screen. */}
+                        {putOut > 0 ? (
+                          <RowActions always>
+                            <Button
+                              aria-label={`Put out ${putOut} ${item.unit} of ${item.product}`}
+                              icon={ArrowRightCircle}
+                              onClick={() =>
+                                setMoving({
+                                  item,
+                                  from: stockIn(item, "made") > 0 ? "made" : "freezer",
+                                })
+                              }
+                            >
+                              Put out {putOut} {item.unit}
+                            </Button>
+                          </RowActions>
+                        ) : hasStock ? (
+                          <RowActions always>
+                            <IconButton
+                              label={`Move ${item.product}`}
+                              icon={ArrowRightCircle}
+                              onClick={() =>
+                                setMoving({
+                                  item,
+                                  from: stockIn(item, "made") > 0 ? "made" : "freezer",
+                                })
+                              }
+                            />
+                          </RowActions>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })
+        )}
+      </div>
 
       {detailItem && (
         <ItemModal

@@ -22,14 +22,22 @@ import { LOW_YIELD_PCT, STAGE_TARGET_MINUTES, isOverTarget, yieldPct } from "../
 const round1 = (n) => Math.round(n * 10) / 10;
 const fmtPct = (n) => (n == null ? "—" : `${n}%`);
 
+/**
+ * A closed batch worth flagging: low yield, or any station that ran over
+ * target. Exported so the Insights screen's yield-trend chart can colour a
+ * point by the exact same definition `locationStats` counts here as
+ * "flagged" — one predicate, not two drifting copies of it.
+ */
+export function isFlaggedBatch(h) {
+  const y = yieldPct(h.boxWeight, h.finalWeight);
+  const slow = Object.keys(h.minutes || {}).some((s) => isOverTarget(s, h.minutes[s]));
+  return (y != null && y < LOW_YIELD_PCT) || slow;
+}
+
 function locationStats(history) {
   const yields = history.map((h) => yieldPct(h.boxWeight, h.finalWeight)).filter((v) => v != null);
   const avgYield = yields.length ? round1(yields.reduce((a, b) => a + b, 0) / yields.length) : null;
-  const flagged = history.filter((h) => {
-    const y = yieldPct(h.boxWeight, h.finalWeight);
-    const slow = Object.keys(h.minutes || {}).some((s) => isOverTarget(s, h.minutes[s]));
-    return (y != null && y < LOW_YIELD_PCT) || slow;
-  });
+  const flagged = history.filter(isFlaggedBatch);
   return { batches: history.length, avgYield, flagged: flagged.length };
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowUp,
@@ -28,6 +28,7 @@ import {
   Label,
   Modal,
   Segmented,
+  StickyFadeHeader,
   Tooltip,
   cx,
 } from "../components/ui";
@@ -236,8 +237,10 @@ function TaskRow({
       {canManage && (
         // Hidden until the row is actually being looked at — hover or
         // keyboard focus — so a completed list doesn't read as a wall of
-        // controls when all you're doing is scanning it.
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity duration-100">
+        // controls when all you're doing is scanning it. On a touch screen
+        // (the floor terminal) there is no hover, so they stay visible —
+        // otherwise edit and remove are simply unreachable there.
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity duration-100">
           <IconButton
             label={`Edit "${task.title}"`}
             icon={Pencil}
@@ -562,18 +565,6 @@ export default function TasksScreen({
   // has already taken over, so it's only offered once there's somewhere to
   // go back to.
   const [scrolledPast, setScrolledPast] = useState(false);
-  // Whether the toolbar has actually engaged its stuck position. The fade
-  // strip below it exists to mask content sliding up underneath the BAR
-  // ITSELF — that only starts once the bar is actually pinned, not the
-  // instant any scrolling happens (a few px of scroll doesn't stick it;
-  // the header/subtitle above it on this page has to clear first). A flat
-  // scrollY threshold can't know that offset — it differs by breakpoint
-  // (mobile header height vs. the desktop -1.5rem trim) — so this reads
-  // the bar's own live position instead: still flowing down the page,
-  // rect.top is larger than its resolved `top` offset; once stuck, the
-  // browser clamps it there and the two match.
-  const [stuck, setStuck] = useState(false);
-  const stickyRef = useRef(null);
 
   const changeTab = (v) => {
     setStickyDone(new Set());
@@ -588,11 +579,6 @@ export default function TasksScreen({
     const check = () => {
       const y = Math.max(window.scrollY, container?.scrollTop || 0);
       setScrolledPast(y > 240);
-      const el = stickyRef.current;
-      if (el) {
-        const offset = parseFloat(getComputedStyle(el).top) || 0;
-        setStuck(el.getBoundingClientRect().top <= offset + 1);
-      }
     };
     check();
     window.addEventListener("scroll", check, { passive: true });
@@ -702,35 +688,16 @@ export default function TasksScreen({
 
   return (
     <div>
-      {/* Its own row: the view tabs on the left, categories admin and add
-       *  on the right — no separate category filter row, since every tab
-       *  below sections its list by category instead of hiding the rest
-       *  behind one. Sticky so it's still there once you've scrolled past
-       *  it. `--app-mobile-header-h` (set by AppShell from the mobile
-       *  header's own measured height) clears that sticky bar without a
-       *  guessed px value — it's already 0 once that header goes
-       *  `lg:hidden`, so mobile needs no separate handling here.
-       *
-       *  Desktop needs one more correction `lg:top-[-1.5rem]`. There, the
-       *  actual sticky containing block is [data-app-scroll] itself (its
-       *  `lg:overflow-y-auto`, not the page), and that card has its own
-       *  `lg:py-6` (24px) top padding — `top-0` sticks this bar *below*
-       *  that padding rather than into it, leaving the padding itself as
-       *  a band nothing paints into, so whatever's still mid-scroll shows
-       *  straight through above the bar. A matching negative-margin/
-       *  positive-padding trick on this element does NOT fix it — a
-       *  stuck sticky box ignores margin for repositioning — the offset
-       *  itself has to move: -1.5rem (== `lg:py-6`) pulls the stuck
-       *  position up flush with the card's actual top edge instead.
-       *
-       *  pb-3 isn't spacing, it's a safety margin: the fade below is only
-       *  fully opaque through its first 45%, so without a solid buffer
-       *  here a row mid-transition ghosts through faintly right under the
-       *  toolbar (seen when this got trimmed to just pt-3). */}
-      <div
-        ref={stickyRef}
-        className="relative sticky top-[var(--app-mobile-header-h,0px)] lg:top-[-1.5rem] z-10 bg-canvas lg:bg-surface pt-3 pb-3"
-      >
+      {/* Sticky sub-toolbar: view tabs on the left, categories admin and
+       *  add on the right — no separate category filter row, since every
+       *  tab below sections its list by category instead of hiding the
+       *  rest behind one. StickyFadeHeader (ui.jsx) handles the sticky
+       *  positioning and the scroll-fade on its trailing edge; its
+       *  defaults already match this spot in the layout (content-area
+       *  sticky bar, canvas/surface background), so there's nothing to
+       *  override here — see that component for why each default is what
+       *  it is. */}
+      <StickyFadeHeader>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           {/* fade only — scroll mode engages itself when the row actually
            *  overflows; forcing it on left the rail 14px scrollable (its
@@ -769,47 +736,9 @@ export default function TasksScreen({
             </div>
           )}
         </div>
+      </StickyFadeHeader>
 
-        {/* Where the opaque toolbar meets scrolling content underneath
-         *  it. Two zones, not a plain top-to-bottom fade: a solid held
-         *  band first, THEN a fade — not "solid → immediately fading",
-         *  because a pure linear fade starts revealing content the instant
-         *  it clears the toolbar, and a task row's meta line (which is
-         *  already light, low-contrast text) was legible again within a
-         *  few px of the seam — still read as an abrupt, headerless
-         *  fragment jammed against the toolbar ("too tight on top" /
-         *  "still too tight and cutoff") even with a taller pure-gradient
-         *  fade (h-4 → h-10 wasn't enough on its own). Held solid through
-         *  ~45% (roughly a row's title/checkbox line) fully hides whatever
-         *  is mid-transition instead of letting it show through faint,
-         *  then fades over the remainder so a row still eases in rather
-         *  than snapping to full opacity. Anchored to the toolbar's own
-         *  bottom edge (top-full), so it scrolls with the sticky bar
-         *  rather than sitting fixed against the viewport.
-         *
-         *  Gated on `stuck` (opacity only, so it never affects layout):
-         *  at rest, the toolbar sits in normal flow and nothing is
-         *  actually passing underneath it yet, so this band would just
-         *  permanently dim whatever the first section happens to be —
-         *  not tied to any real scrolling. It only earns its keep once
-         *  something is actually sliding under the bar. */}
-        <div
-          aria-hidden="true"
-          className={cx(
-            "pointer-events-none absolute inset-x-0 top-full h-14 transition-opacity duration-150",
-            stuck ? "opacity-100" : "opacity-0",
-            "bg-[linear-gradient(to_bottom,var(--color-canvas)_0%,var(--color-canvas)_45%,transparent_100%)]",
-            "lg:bg-[linear-gradient(to_bottom,var(--color-surface)_0%,var(--color-surface)_45%,transparent_100%)]",
-          )}
-        />
-      </div>
-
-      {/* pb-14 matches the fade band's own height (h-14) below the
-       *  toolbar — without it, a short list's last section can end up
-       *  pinned inside that band at max-scroll with nowhere left to
-       *  scroll to clear it, so the fade permanently dims its heading
-       *  instead of just easing it in mid-scroll. */}
-      <div className="space-y-5 pb-14">
+      <div className="space-y-5">
         {ordered.length === 0 ? (
           <div className="border-b border-line">
             <EmptyState

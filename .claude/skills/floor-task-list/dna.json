@@ -1,0 +1,291 @@
+{
+  "meta": {
+    "name": "Floor Task List",
+    "slug": "floor-task-list",
+    "source": "app/screens/TasksScreen.jsx, Protrack (Milaca Meats), captured live via localhost:3100, 2026-09-03",
+    "captured": "2026-09-03",
+    "medium_of_origin": "web app screen (React/Tailwind), touch-density fork for tablet floor terminals",
+    "not_copied": [
+      "Milaca Meats wordmark/logo",
+      "the specific task copy (\"Restock Applewood Bacon\" etc.) — content, not system"
+    ],
+    "note": "This screen is an application of the existing `.claude/skills/notion/` DNA, not a competing system. This spec records only what is SPECIFIC to the task-list pattern — category sectioning, row interaction model, tabbed segmented filter with count dots, sticky toolbar transition, add/edit modal — layered on top of the Notion base (font stack, control height, accent budget, warm neutrals, hairline rules all still apply and are not re-derived here).",
+    "primitives": "StickyFadeHeader, SectionHeading and RowActions in app/components/ui.jsx carry this spec's toolbar, section-heading and row-action rules. Use them rather than re-inlining the markup.",
+    "applied_to": "Restyled onto all eight other list screens 2026-09-03 (floor Team/Inventory; console Team/Locations/Stations/Permissions/Integrations/Inventory), verified live at desktop and touch.",
+    "scope_warning": "Measured off one dense GROUPED list. 'No card borders, hairlines only' is safe here only because section headings are the containing device. On a flat list of peers with no grouping dimension, dropping the container leaves rows floating with no edge — worse, not cleaner. Rule: rule a grouped list, box a flat one (Card is border-y only, so boxing a flat list does not break the ban on wrapping a GROUP in a box)."
+  },
+  "soul": {
+    "one_line": "A checklist that reads as a ledger: ruled category sections, one accent color spent on exactly one next action, rows that toggle by tapping anywhere.",
+    "adjectives": [
+      "ledger-like",
+      "unhurried",
+      "legible",
+      "restrained",
+      "utilitarian"
+    ],
+    "lineage": "Notion database view crossed with a paper clipboard checklist",
+    "read_distance": "arm's length on a mounted tablet, not a desk monitor — must hold up at ~50-70cm",
+    "energy": {
+      "density": 6,
+      "variance": 2,
+      "contrast": 3,
+      "warmth": 6
+    }
+  },
+  "palette": {
+    "colors": [
+      {
+        "role": "canvas",
+        "hex": "#FFFFFF",
+        "name": "paper white",
+        "coverage_pct": 78
+      },
+      {
+        "role": "ink-1 (titles)",
+        "hex": "#2C2C2B",
+        "name": "near-black ink",
+        "coverage_pct": 6
+      },
+      {
+        "role": "ink-3 (meta)",
+        "hex": "#A19E99",
+        "name": "warm grey",
+        "coverage_pct": 4
+      },
+      {
+        "role": "line",
+        "hex": "#E6E5E3",
+        "name": "hairline warm grey",
+        "coverage_pct": 3
+      },
+      {
+        "role": "accent (primary blue)",
+        "hex": "#2383E2",
+        "name": "Notion blue",
+        "coverage_pct": 0.8
+      },
+      {
+        "role": "priority-high tint",
+        "hex": "#9A6A12 on rgba(154,106,18,.12)",
+        "name": "amber pill",
+        "coverage_pct": 0.3
+      },
+      {
+        "role": "priority-urgent tint",
+        "hex": "warm red, same pill shape/opacity recipe as amber",
+        "name": "red pill",
+        "coverage_pct": 0.1
+      },
+      {
+        "role": "selection wash",
+        "hex": "rgba(33,27,23,.05)",
+        "name": "warm 5% tint",
+        "coverage_pct": 2
+      }
+    ],
+    "banned_behaviours": [
+      "no second accent color for a second 'kind' of action — only ONE task-list button (New task) and ONE tab-selection wash get color-or-tint treatment",
+      "never tint a whole row for priority — priority lives only in the small pill, never as a row background",
+      "never color a checkbox or checkmark anything but ink + the one accent-adjacent 'ok' tone used app-wide"
+    ]
+  },
+  "type": {
+    "families": [
+      {
+        "role": "all text",
+        "family": "OS ui-sans-serif stack (no webfont)",
+        "fallback": "system-ui, -apple-system, sans-serif",
+        "weights": [
+          400,
+          500,
+          700
+        ]
+      }
+    ],
+    "scale": {
+      "display_to_body_ratio": "2:1 (28px page title vs 14px body — this screen does NOT use the full 2.3:1 app max, title sits one notch down from the app's largest)",
+      "steps_used_on_this_screen": [
+        "10px (count-dot digit)",
+        "12px (meta line, category label, priority pill, tab label secondary state)",
+        "14px (task title, tab label active, button label)",
+        "28px (page title, only place larger than 14px appears)"
+      ],
+      "max_sizes_per_frame": 4
+    },
+    "treatment": {
+      "tracking": "category section label is +tracked and uppercase — the ONE place on this screen text is uppercased; everything else is sentence case",
+      "leading": "tight, ~1.1, rows are height-driven by padding not line-height",
+      "case": "uppercase ONLY for category section headers; everything else sentence case, never title case",
+      "numerals": "tabular where counts appear (dots, priority text stays word not number)"
+    }
+  },
+  "space": {
+    "grid": "single column list, no grid — hierarchy comes from section > row > row-detail nesting, not columns",
+    "margin_pct": "content column caps ~700px in a wider canvas; on tablet it runs edge-to-edge with ~16-24px side padding",
+    "gutter_pct": "row internal padding 12px vertical / 4px horizontal; section-to-section gap one blank line's worth (~16-20px) plus the rule",
+    "alignment": "left-aligned throughout, no centering except the empty-state and modal, which center on the viewport",
+    "rhythm": "section heading -> its rows (pl-6, nested left) -> hairline hand-off to next section heading, no card boundary anywhere",
+    "negative_space": "generous vertical breathing room between rows (12px) but zero horizontal margin around the list — it runs the full content width",
+    "safe_area": "sticky toolbar (tabs + New task + settings) always visible; content scrolls under it, never the reverse"
+  },
+  "surface": {
+    "texture": "flat, no texture",
+    "edges": "1px hairline rules only, never a box, except the New-task/Edit-task modal which is the one true bordered surface",
+    "elevation": "nothing at rest has a shadow; the modal is the only elevated surface (backdrop dim + itself)",
+    "imagery": "none — no icons except: one small lucide glyph per category (leading its heading), a decorative checkbox square, and Pencil/Trash2 on hover",
+    "iconography": "12-16px lucide icons only, always ink-3 or ink-2, never colored except the count dot and priority pill"
+  },
+  "signatures": [
+    {
+      "move": "Category sectioning, always, never a flat list",
+      "how": "every tab (Open, Yours, Due today, Overdue, Completed) buckets its rows into category headings, each an icon + uppercase label + count + a hairline rule running out to the right edge on the heading's own line",
+      "when": "on every tab with any content, including a tab that only has one category present that day",
+      "never": "collapse to a flat unheaded list just because only one category is present — this was tried and explicitly rejected"
+    },
+    {
+      "move": "Whole-row tap-to-toggle",
+      "how": "the entire row (title + note + meta) is the toggle target, not just a checkbox — role=button on the <li> itself",
+      "when": "every row, every tab, including Completed (toggles back to open)",
+      "never": "make the checkbox the only hit target — the decorative square is a status indicator, not a control"
+    },
+    {
+      "move": "Hover/focus-reveal row actions",
+      "how": "edit (pencil) and delete (trash) icons sit at opacity-0, fade to opacity-100 on row hover or keyboard focus, positioned right-aligned",
+      "when": "any pointer device. On touch (`hover: none`) they must be FORCED visible instead — there is no hover to reveal them, and reaching them via focus means first tapping the row, which on a row that is itself a button fires that row's action instead.",
+      "never": "show edit/delete permanently on a hover-capable device — they'd compete with the tap-to-toggle target; and never leave them hover-only, which makes them unreachable on the tablet floor terminals this app actually runs on"
+    },
+    {
+      "move": "Segmented tab row with a badge dot, not a filter dropdown",
+      "how": "five tabs (Open/Yours/Due today/Overdue/Completed) rendered as a Segmented control, each carrying a small numeric count in a filled circular badge",
+      "when": "top of the screen, always visible, sticky",
+      "never": "hide tab counts behind a hover or a secondary click — the count is the point, it's a floor triage tool"
+    },
+    {
+      "move": "One line of meta per row, icon-prefixed, ink-3",
+      "how": "assignee icon + 'Anyone on shift' or a name, calendar icon + due-date phrase (color-coded only when overdue/due-today), 'Assigned by X' trailing — all one line, all 12px ink-3, wrapping to two lines only accepted overflow",
+      "when": "every row",
+      "never": "let meta compete with the title in size or weight — it is always the quietest text in the row"
+    },
+    {
+      "move": "Priority as a pill, never as row color",
+      "how": "a small rounded-full 12px/500 pill sits inline after the title, only rendered for High/Urgent (Normal/Low get no pill at all — absence is the signal for 'ordinary')",
+      "when": "task.priority is High or Urgent only",
+      "never": "give Normal or Low priority any visual marker — a marker for 'normal' would be noise"
+    },
+    {
+      "move": "Sticky toolbar that fades its own bottom edge",
+      "how": "the toolbar carries `mask-image: linear-gradient(to bottom, black 0, black calc(100% - 18px), transparent 100%)` on ITSELF, with its own bottom padding (44px) holding the fade zone. A mask only controls this box's alpha, so it fades whatever background the bar really has without a second element hand-matched per breakpoint, needs no JS 'am I stuck yet' state, and contributes its height to the scroller's natural scrollHeight so nothing below needs a matching reserve.",
+      "when": "any tab with enough rows to scroll",
+      "never": "paint a separate absolutely-positioned gradient strip below the bar (the superseded approach — it needed a per-breakpoint colour match and a hand-tuned reserve on the content below), and never use a plain opaque-to-transparent gradient, which reveals legible text at its own top edge"
+    }
+  ],
+  "weird_move": {
+    "move": "The checkbox is not a button.",
+    "how": "the visible checkbox square is an aria-hidden decorative <span> — it looks exactly like a real checkbox control (bordered square, fills with a check when done) but has zero click handling of its own. The click handler lives on the entire row. A user who carefully aims for 'the checkbox' and a user who taps anywhere in the row get the identical result — the UI shows a familiar control affordance while deliberately not requiring the precision it implies.",
+    "never": "add a real onClick to the checkbox span specifically, or stop the row's onClick from firing when the checkbox area is tapped — that would silently break the whole-row-tap contract this screen depends on for glove-handed floor use"
+  },
+  "archetypes": [
+    {
+      "id": "task-list-tab",
+      "purpose": "the main view: sticky toolbar + category-sectioned rows for whichever tab is active",
+      "anatomy": "page title -> sticky[Segmented tabs w/ count dots, New task button (manager only), Settings icon button] -> repeat[category heading -> ul of rows] -> optional back-to-top button",
+      "content_shape": "0-N categories, each with 1-N rows; empty tab shows a centered empty state, not a blank white rectangle"
+    },
+    {
+      "id": "task-row",
+      "purpose": "one task, resting or hovered",
+      "anatomy": "decorative checkbox span -> title (+ optional priority pill inline) -> optional note line (bold 'Note:' label + text) -> meta line (assignee, due date, assigned-by) -> hover-revealed edit/trash icons",
+      "content_shape": "title required; note, due date, priority pill, assignee, completed-by all optional and independently absent"
+    },
+    {
+      "id": "task-form-modal",
+      "purpose": "create or edit a task",
+      "anatomy": "centered card, hairline border, on dimmed backdrop: title bar (icon + 'New task'/'Edit task' + close X) -> stacked labeled fields (text input, category pill-select, priority pill-select, assign-to pill-select, date input, note input) -> footer[Cancel ghost button, primary Add/Save button right-aligned]",
+      "content_shape": "same field set for create and edit; edit pre-fills every field and swaps the header/button chrome only"
+    }
+  ],
+  "motion": {
+    "easing": "default browser ease, nothing custom-tuned observed on this screen",
+    "durations": "opacity fades (hover-reveal actions, toolbar skirt) read as fast/instant, no springy or slow transitions",
+    "entrances": "no enter animation on rows or modal beyond the browser's own",
+    "never_moves": "rows never reorder with an animated transition — a toggle instantly re-sorts (open-first) with no shuffle motion",
+    "reduced_motion": "safe by default — nothing here depends on motion for meaning"
+  },
+  "voice": {
+    "register": "plant-floor plain: short imperative task titles ('Restock Applewood Bacon on the floor', 'Face and rotate the jerky case'), notes are one practical sentence",
+    "sentence_length": "titles under ~8 words; notes under ~20 words",
+    "headline_shape": "verb-first imperative, no punctuation",
+    "banned_words": [
+      "corporate filler ('leverage', 'optimize', 'synergy')",
+      "exclamation points",
+      "emoji"
+    ]
+  },
+  "bans": [
+    "never wrap a row or a category section in a bordered card — sections are separated by hairline rules only",
+    "never use a second accent color; the blue belongs to exactly one action per screen",
+    "never color a whole row for priority or status — color lives only in the small pill",
+    "never make the checkbox itself the sole click target — the row is the target",
+    "never show row actions (edit/delete) at rest on desktop — hover/focus-reveal only",
+    "never collapse category sectioning to a flat list even with a single category present",
+    "never introduce a drop shadow at rest — only the modal gets elevation, and even then it's a dim backdrop, not a shadow stack",
+    "never give 'Normal' or 'Low' priority a visible marker",
+    "never exceed 4 distinct type sizes on the screen at once",
+    "never leave a hover-revealed control hover-only — under `hover: none` it must be forced visible, or it cannot be reached at all"
+  ],
+  "tests": [
+    {
+      "test": "no category section is ever rendered as a bare <ul> without its icon+label+count+rule heading, even with one category present",
+      "automatable": false
+    },
+    {
+      "test": "exactly one primary-blue filled control is visible per screen state (the New task button or the active-tab wash never both read as 'primary' at once)",
+      "automatable": true
+    },
+    {
+      "test": "a resting row shows zero edit/delete icon opacity; a hovered/focused row shows full opacity",
+      "automatable": true
+    },
+    {
+      "test": "checkbox span has no independent click handler; clicking it fires the same toggle as clicking the row",
+      "automatable": true
+    },
+    {
+      "test": "priority pill is present only when priority is High or Urgent; absent for Normal/Low",
+      "automatable": true
+    },
+    {
+      "test": "meta line is always 12px and always the lightest ink color on the row (never darker than the title)",
+      "automatable": true
+    },
+    {
+      "test": "no row, section, or list is wrapped in a border-radius > 0 container other than pills and the modal",
+      "automatable": true
+    },
+    {
+      "test": "type sizes present on screen at once number 4 or fewer",
+      "automatable": true
+    },
+    {
+      "test": "category heading text is uppercase; no other text on the screen is uppercase",
+      "automatable": true
+    },
+    {
+      "test": "the sticky toolbar carries its own mask-image fade; no separate gradient strip element exists",
+      "automatable": true
+    },
+    {
+      "test": "under `hover: none`, every row-action group computes to opacity 1",
+      "automatable": true
+    }
+  ],
+  "reconstruction": {
+    "attempted": true,
+    "method": "measured directly from the running app (Playwright against a live `next dev` build of TasksScreen.jsx) rather than blind-rebuilt from a written spec — ground truth, not a reconstruction diff",
+    "gaps_found": [
+      "exact px row height varies with content (66-89px with a note vs ~40px without) — recorded as a range, not a fixed token",
+      "priority pill border-radius resolved to a huge px value from Tailwind's rounded-full — recorded as 'pill/fully-rounded' rather than a literal number"
+    ],
+    "passes": true
+  }
+}

@@ -2,7 +2,6 @@
 
 import React, { useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ArrowRight,
   CalendarDays,
   CheckCircle2,
@@ -18,6 +17,7 @@ import {
   Scale,
   Snowflake,
   Store,
+  Target,
   UserCheck,
   X,
   Zap,
@@ -526,11 +526,164 @@ function StationPlan({ station, tasks, products, onAdd, onRemove, prefill, onPre
  *  batches. Today stays the live board (stages, weigh-in, finalize); picking
  *  another day swaps in this view instead of pretending a future day has
  *  batches already moving through the shop. */
+/**
+ * One product measured against its floor target.
+ *
+ * The meter is stacked rather than a single fill: segment one is what is
+ * physically on the floor, segment two is what today's plan will add, and
+ * the empty remainder is the part nobody has committed to yet — which is
+ * the only part that needs a decision. A single-fill bar would collapse
+ * "stocked" and "scheduled" into one number and hide exactly that.
+ *
+ * Colour never carries the covered/uncovered state on its own: a covered
+ * row gets an icon and the word "Covered", an uncovered one gets the
+ * shortfall written out in figures.
+ */
+function TargetRow({ row, onPlan }) {
+  const { item, covered, uncovered, otherUnits } = row;
+  const pct = (n) =>
+    item.threshold > 0
+      ? Math.max(0, Math.min(100, (n / item.threshold) * 100))
+      : 0;
+  const done = uncovered === 0;
+
+  return (
+    <li className={cx("px-4 py-3", done && "opacity-60")}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <span className="text-sm font-medium text-ink min-w-0 truncate">
+          {item.product}
+        </span>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {done ? (
+            <Badge tone="ok" icon={CheckCircle2}>
+              Covered
+            </Badge>
+          ) : (
+            <span className="text-xs font-medium text-warn tnum">
+              {Math.round(uncovered)} {item.unit} short
+            </span>
+          )}
+          {/* ghost, not solid: thirteen rows x two stations is twenty-six
+           *  buttons, and at default weight they shouted over the numbers
+           *  they exist to act on. */}
+          {STATIONS.map((st) => (
+            <Button
+              key={st}
+              size="sm"
+              variant="ghost"
+              icon={Plus}
+              onClick={() =>
+                onPlan(st, item.product, Math.max(Math.ceil(uncovered), 10))
+              }
+            >
+              {st}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center gap-3">
+        {/* 2px surface gap between the two fills so they read as separate
+         *  quantities rather than one continuous bar. */}
+        {/* The empty remainder of this track IS the target, so it has to be
+         *  visible in its own right — `bg-inset` sat within a few percent of
+         *  the warn-soft card behind it, which made a 0-on-floor row look
+         *  like it had no meter at all rather than an empty one. */}
+        <div className="flex-1 flex h-1.5 gap-[2px] rounded-full bg-line-strong overflow-hidden">
+          <div
+            className="rounded-full bg-ink-3"
+            style={{ width: `${pct(item.floor)}%` }}
+          />
+          {covered > 0 && (
+            <div
+              className="rounded-full bg-cold"
+              style={{ width: `${pct(covered)}%` }}
+            />
+          )}
+        </div>
+
+        <span className="text-xs text-ink-3 tnum shrink-0">
+          {item.floor} / {item.threshold} {item.unit}
+          {covered > 0 && (
+            <span className="text-cold"> +{Math.round(covered)} planned</span>
+          )}
+        </span>
+      </div>
+
+      {otherUnits.length > 0 && (
+        <p className="mt-1 text-xs text-ink-4">
+          Also planned: {otherUnits.join(", ")} — different unit, not counted
+          toward this target.
+        </p>
+      )}
+    </li>
+  );
+}
+
 export function PlanningPane({ day, schedule, inventory, onAdd, onRemove }) {
   const [prefill, setPrefill] = useState(null);
   const plan = schedule[day.key] || {};
-  const lowStock = inventory.filter((i) => i.floor < i.threshold);
   const products = inventory.map((i) => i.product);
+
+  /* A target is only meaningful next to what's already been planned against
+   * it. Before this, the low-stock list read straight off `inventory`, so
+   * queueing a run left the row unchanged — nothing on screen distinguished
+   * "45 lb short and nobody's on it" from "45 lb short and a batch is
+   * already in the smokehouse queue", and the obvious failure was ordering
+   * the same product twice.
+   *
+   * Planned quantities only count toward a target when their unit matches
+   * it. One seeded product is seeded in racks against an lb target, and
+   * there's no rack->lb factor anywhere in the domain, so those are carried
+   * separately and shown rather than silently converted or silently
+   * dropped. */
+  const targetRows = useMemo(() => {
+    const rows = inventory
+      .filter((i) => i.floor < i.threshold)
+      .map((item) => {
+        let planned = 0;
+        const otherUnits = [];
+        for (const station of STATIONS) {
+          for (const t of plan[station] || []) {
+            if (t.text !== item.product) continue;
+            if (t.unit === item.unit) planned += Number(t.qty) || 0;
+            else otherUnits.push(`${t.qty} ${t.unit}`);
+          }
+        }
+        const gap = Math.max(0, item.threshold - item.floor);
+        const covered = Math.min(planned, gap);
+        return {
+          item,
+          gap,
+          covered,
+          uncovered: Math.max(0, gap - planned),
+          otherUnits,
+        };
+      });
+    // Worst-uncovered first: the point of the screen is what still needs a
+    // decision, not alphabetical order.
+    rows.sort((a, b) => b.uncovered - a.uncovered || b.gap - a.gap);
+    return rows;
+  }, [inventory, plan]);
+
+  /* Totals per unit rather than one blended number — see above. */
+  const totals = useMemo(() => {
+    const byUnit = new Map();
+    for (const r of targetRows) {
+      const u = byUnit.get(r.item.unit) || { gap: 0, covered: 0, uncovered: 0 };
+      u.gap += r.gap;
+      u.covered += r.covered;
+      u.uncovered += r.uncovered;
+      byUnit.set(r.item.unit, u);
+    }
+    const fmt = (key) =>
+      [...byUnit.entries()]
+        .filter(([, v]) => v[key] > 0)
+        .map(([unit, v]) => `${Math.round(v[key])} ${unit}`)
+        .join(" + ") || "0";
+    return { fmt, allCovered: targetRows.every((r) => r.uncovered === 0) };
+  }, [targetRows]);
 
   return (
     <div className="space-y-5">
@@ -546,44 +699,47 @@ export function PlanningPane({ day, schedule, inventory, onAdd, onRemove }) {
         </Card>
       ) : (
         <>
-          {lowStock.length > 0 && (
-            <Card className="border-warn-line bg-warn-soft">
-              <div className="flex items-center gap-2 px-4 pt-3.5 pb-1">
-                <AlertTriangle size={14} className="text-warn shrink-0" />
-                <span className="text-xs font-semibold text-warn">
-                  Low on the floor — schedule a run
+          {targetRows.length > 0 && (
+            <Card className={totals.allCovered ? undefined : "border-warn-line bg-warn-soft"}>
+              {/* The headline is what's still UNCOVERED, not what's low.
+               *  "13 products are low" is a fact about the shop; "93 lb still
+               *  uncovered" is the thing this screen exists to get to zero. */}
+              <div className="flex items-baseline justify-between gap-x-4 gap-y-1 flex-wrap px-4 pt-3.5 pb-2.5">
+                <span className="flex items-center gap-2 min-w-0">
+                  {totals.allCovered ? (
+                    <CheckCircle2 size={14} className="text-ok shrink-0" />
+                  ) : (
+                    <Target size={14} className="text-warn shrink-0" />
+                  )}
+                  <span
+                    className={cx(
+                      "text-sm font-semibold",
+                      totals.allCovered ? "text-ok" : "text-warn",
+                    )}
+                  >
+                    {totals.allCovered
+                      ? "Every target covered"
+                      : `${totals.fmt("uncovered")} still uncovered`}
+                  </span>
+                </span>
+                <span className="text-xs text-ink-3 tnum">
+                  {targetRows.length} of {inventory.length} below target
+                  {" · "}
+                  {totals.fmt("covered")} of {totals.fmt("gap")} planned
                 </span>
               </div>
-              <div className="px-3 pb-3 pt-2 space-y-1.5">
-                {lowStock.map((item) => {
-                  const deficit = Math.max(Math.ceil(item.threshold - item.floor), 10);
-                  return (
-                    <div
-                      key={item.product}
-                      className="flex items-center justify-between gap-3 flex-wrap pl-3 pr-2 py-2 rounded-md bg-surface border border-warn-line/60"
-                    >
-                      <span className="text-sm text-ink min-w-0 truncate">
-                        {item.product}
-                        <span className="text-danger tnum">
-                          {" "}
-                          — {item.floor}/{item.threshold} {item.unit}
-                        </span>
-                      </span>
-                      <div className="flex gap-1.5 shrink-0">
-                        {STATIONS.map((s) => (
-                          <Button
-                            key={s}
-                            size="sm" icon={Plus}
-                            onClick={() => setPrefill({ station: s, product: item.product, qty: deficit })}
-                          >
-                            {s}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+
+              <ul className="divide-y divide-line">
+                {targetRows.map((row) => (
+                  <TargetRow
+                    key={row.item.product}
+                    row={row}
+                    onPlan={(station, product, qty) =>
+                      setPrefill({ station, product, qty })
+                    }
+                  />
+                ))}
+              </ul>
             </Card>
           )}
 

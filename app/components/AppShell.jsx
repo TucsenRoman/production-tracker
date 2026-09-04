@@ -256,7 +256,36 @@ export default function AppShell({
                   only while the rail is open (collapsed, there's no room
                   for the brand text it sits beside either). */}
               <div ref={brandMenuRef} className="relative min-w-0">
-                <div className="flex items-center min-w-0">
+                {onBrandMenuOpenChange ? (
+                  // Text + chevron are one clickable target (not text next to
+                  // a separate small chevron button) so clicking anywhere on
+                  // the brand title opens the menu.
+                  <button
+                    type="button"
+                    onClick={() => onBrandMenuOpenChange(!brandMenuOpen)}
+                    aria-haspopup="true"
+                    aria-expanded={brandMenuOpen}
+                    aria-label={`${brand} menu`}
+                    className="flex items-center min-w-0 rounded hover:bg-hover transition-colors"
+                  >
+                    <p
+                      className={cx(
+                        "overflow-hidden whitespace-nowrap text-sm font-medium text-ink transition-all duration-300",
+                        sidebarOpen ? "ml-2 max-w-[160px] opacity-100" : "ml-0 max-w-0 opacity-0"
+                      )}
+                    >
+                      {brand}
+                    </p>
+                    <ChevronDown
+                      size={14}
+                      className={cx(
+                        "ml-0.5 mr-1 text-icon-3 shrink-0 transition-all duration-300",
+                        brandMenuOpen && "rotate-180",
+                        sidebarOpen ? "ml-2 max-w-[160px] opacity-100" : "ml-0 max-w-0 opacity-0"
+                      )}
+                    />
+                  </button>
+                ) : (
                   <p
                     className={cx(
                       "overflow-hidden whitespace-nowrap text-sm font-medium text-ink transition-all duration-300",
@@ -265,22 +294,7 @@ export default function AppShell({
                   >
                     {brand}
                   </p>
-                  {onBrandMenuOpenChange && sidebarOpen && (
-                    <button
-                      type="button"
-                      onClick={() => onBrandMenuOpenChange(!brandMenuOpen)}
-                      aria-haspopup="true"
-                      aria-expanded={brandMenuOpen}
-                      aria-label={`${brand} menu`}
-                      className="ml-0.5 w-5 h-5 flex items-center justify-center rounded text-icon-3 hover:text-ink hover:bg-hover transition-colors shrink-0"
-                    >
-                      <ChevronDown
-                        size={14}
-                        className={cx("transition-transform duration-150", brandMenuOpen && "rotate-180")}
-                      />
-                    </button>
-                  )}
-                </div>
+                )}
                 {brandMenuOpen && brandMenu && (
                   <div className="absolute left-0 top-full mt-1 z-40">{brandMenu}</div>
                 )}

@@ -1,19 +1,34 @@
 "use client";
 
 import React, { useState } from "react";
-import { Dices, List, Mail, MapPin, Network, Pencil, Plus, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
+import {
+  Dices,
+  List,
+  Mail,
+  MapPin,
+  Network,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  Trash2,
+  UserCog,
+  UserPlus,
+  Users,
+} from "lucide-react";
 
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   Field,
   IconButton,
   Input,
   Modal,
+  RowActions,
   SearchInput,
+  SectionHeading,
   Segmented,
+  StickyFadeHeader,
   cx,
 } from "../../components/ui";
 import {
@@ -28,7 +43,14 @@ import {
 
 const ROLE_TONE = { admin: "info", manager: "neutral" };
 const TIER_ORDER = ["admin", "manager"];
-const TIER_LABEL = { admin: "Admins", manager: "Floor managers" };
+
+/* One icon per role, so a section is identifiable before you read it. */
+const ROLE_ICON = { admin: ShieldCheck, manager: UserCog };
+
+/* Highest rank first — the roster reads as a hierarchy, same as the floor
+ * team screen. */
+const ROLE_RANK = { admin: 2, manager: 1 };
+const roleRank = (role) => ROLE_RANK[role] || 0;
 
 const initials = (name) => name.split(" ").map((p) => p[0]).slice(0, 2).join("");
 
@@ -169,7 +191,7 @@ function EditDialog({ user, locations, onCancel, onSave }) {
  * is about a person, momentarily, not a station long-term — so it talks
  * about "authorizing an action," never "signing in as."
  */
-function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave }) {
+function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave, onRemove }) {
   const [pin, setPin] = useState(existing?.pin || generatePin(allPins));
   const pinTaken = allPins.includes(pin) && pin !== existing?.pin;
   const valid = isValidPin(pin) && !pinTaken;
@@ -182,6 +204,14 @@ function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave }) 
       icon={ShieldCheck}
       footer={
         <>
+          {/* Revoking used to be a ~10px trash icon riding inside the roster
+           *  chip. It lives here now: full-size, on the far side of the
+           *  footer, behind the same deliberate open as the digits. */}
+          {existing && (
+            <Button variant="ghost" icon={Trash2} className="mr-auto hover:text-danger" onClick={onRemove}>
+              Revoke
+            </Button>
+          )}
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
@@ -195,6 +225,10 @@ function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave }) 
         <p className="text-xs text-ink-3 leading-relaxed">
           {user.name.split(" ")[0]} punches this in on the floor at {location.name} to authorize a gated action —
           it&rsquo;s personal to them, unlike a station&rsquo;s device code, and never shared.
+        </p>
+        <p className="text-xs text-ink-4 leading-relaxed">
+          The roster only shows that a PIN is set. The digits are here, behind an open you had to mean, rather than
+          printed down a list anyone passing the desk or watching a screenshare can read.
         </p>
         <Field label="Code" error={pinTaken ? "That code is already in use — try another." : null}>
           <div className="flex items-center gap-2">
@@ -220,6 +254,9 @@ function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemo
   const assigned = locations.filter((l) => user.locationIds.includes(l.id));
   const allPins = crewPins.map((p) => p.pin);
 
+  // Nothing to issue a PIN against. The row's own meta line already says
+  // "No locations assigned", so a second sentence saying it again here would
+  // be noise rather than an explanation.
   if (assigned.length === 0) return null;
 
   return (
@@ -227,36 +264,35 @@ function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemo
       {assigned.map((loc) => {
         const existing = leadPinFor(crewPins, user.id, loc.id);
         const shortName = loc.name.includes("—") ? loc.name.split("—").pop().trim() : loc.name;
+        // Each chip is ONE control at --ctl-h, the height every other button
+        // on the screen uses. It used to be a label plus two ~10px icon
+        // buttons, the smallest targets in the app by a wide margin; edit and
+        // revoke both moved into the dialog the chip opens.
         return existing ? (
-          <span
+          <button
             key={loc.id}
-            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-sunken text-xs text-ink-3"
+            type="button" title={`Manage lead PIN for ${loc.name}`}
+            onClick={() => setEditing({ location: loc, existing })}
+            className="inline-flex items-center gap-1.5 h-[var(--ctl-h)] px-2.5 rounded-full bg-sunken text-xs text-ink-3 hover:bg-hover hover:text-ink transition-colors"
           >
-            <ShieldCheck size={10} className="text-icon-2 shrink-0" />
-            {shortName}: <span className="font-mono font-semibold text-ink-2">{existing.pin}</span>
-            <button
-              type="button" title={`Edit lead PIN for ${loc.name}`}
-              onClick={() => setEditing({ location: loc, existing })}
-              className="ml-0.5 text-ink-4 hover:text-ink transition-colors"
-            >
-              <Pencil size={10} />
-            </button>
-            <button
-              type="button" title={`Revoke lead PIN for ${loc.name}`}
-              onClick={() => onRemovePin(existing.id)}
-              className="text-ink-4 hover:text-danger transition-colors"
-            >
-              <Trash2 size={10} />
-            </button>
-          </span>
+            <ShieldCheck size={12} className="text-icon-2 shrink-0" />
+            {/* Masked, always. A floor door code printed on the roster is
+             *  legible to anyone walking past the desk or watching the
+             *  screenshare; the chip says a PIN exists, and the dialog
+             *  behind it is where the digits are. */}
+            <span>{shortName}:</span>
+            <span aria-label="PIN set, hidden" className="font-mono font-semibold tracking-[0.2em] text-ink-2">
+              ••••
+            </span>
+          </button>
         ) : (
           <button
             key={loc.id}
             type="button" title={`Issue a lead PIN for ${loc.name}`}
             onClick={() => setEditing({ location: loc, existing: null })}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-line-strong text-xs text-ink-3 hover:text-ink hover:border-ink-4 transition-colors"
+            className="inline-flex items-center gap-1.5 h-[var(--ctl-h)] px-2.5 rounded-full border border-dashed border-line-strong text-xs text-ink-3 hover:text-ink hover:border-ink-4 transition-colors"
           >
-            <Plus size={10} /> {shortName} PIN
+            <Plus size={12} /> {shortName} PIN
           </button>
         );
       })}
@@ -268,6 +304,10 @@ function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemo
           existing={editing.existing}
           allPins={editing.existing ? allPins.filter((p) => p !== editing.existing.pin) : allPins}
           onCancel={() => setEditing(null)}
+          onRemove={() => {
+            if (editing.existing) onRemovePin(editing.existing.id);
+            setEditing(null);
+          }}
           onSave={(pin) => {
             if (editing.existing) {
               onUpdatePin(editing.existing.id, { pin });
@@ -287,64 +327,105 @@ function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemo
 function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, onAddPin, onUpdatePin, onRemovePin }) {
   if (users.length === 0) {
     return (
-      <Card>
+      <div className="border-b border-line">
         <EmptyState icon={Users} title="No teammates match" description="Try a different search or filter." />
-      </Card>
+      </div>
     );
   }
+
+  /* One section per role rather than one flat roster. Role is what you
+   * actually scan this screen for, and hoisting it into a heading lets every
+   * row below drop its own role chip — the section already said it. A role
+   * nobody holds gets no heading; a role held by one person still gets one,
+   * because a list that quietly stops sectioning itself once a group is
+   * small reads as broken rather than tidy. Sort by rank first, then a
+   * single pass is enough to group. */
+  const ordered = [...users].sort(
+    (a, b) => roleRank(b.role) - roleRank(a.role) || a.name.localeCompare(b.name)
+  );
+  const groups = [];
+  for (const person of ordered) {
+    const last = groups[groups.length - 1];
+    if (last && last.role === person.role) last.people.push(person);
+    else groups.push({ role: person.role, people: [person] });
+  }
+
   return (
-    <Card className="overflow-hidden">
-      <div className="divide-y divide-line">
-        {users.map((u) => {
-          const assigned = locations.filter((l) => u.locationIds.includes(l.id));
-          // No more a single locked "owner" role — the guard now is just
-          // "you can't edit or remove yourself from here" (same idea as the
-          // floor roster's own self-exclusion).
-          const locked = u.id === currentUser.id;
-          return (
-            <div key={u.id} className="flex items-center gap-3 px-4 py-3">
-              <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-2 text-xs font-semibold shrink-0">
-                {initials(u.name)}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-medium text-ink truncate">{u.name}</p>
-                  <Badge tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role]}</Badge>
-                  {u.status === "invited" && <Badge tone="warn">Invited</Badge>}
-                  {u.id === currentUser.id && <Badge tone="info">You</Badge>}
-                </div>
-                <p className="text-xs text-ink-3 truncate">{u.email}</p>
-                <p className="mt-0.5 text-xs text-ink-4 truncate">
-                  {assigned.length === 0 ? "No locations assigned" : assigned.map((l) => l.name).join(", ")}
-                </p>
-                {u.status === "active" && (
-                  <LeadPinChips
-                    user={u}
-                    locations={locations}
-                    crewPins={crewPins}
-                    onAddPin={onAddPin}
-                    onUpdatePin={onUpdatePin}
-                    onRemovePin={onRemovePin}
-                  />
-                )}
-              </div>
-              {!locked && (
-                <div className="flex items-center gap-1 shrink-0">
-                  <IconButton label={`Edit ${u.name}`} icon={Pencil} size={14} onClick={() => onEdit(u)} />
-                  <IconButton
-                    label={`Remove ${u.name}`}
-                    icon={Trash2}
-                    size={14}
-                    onClick={() => onRemove(u.id)}
-                    className="hover:text-danger"
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </Card>
+    <div className="space-y-5">
+      {groups.map(({ role, people }) => {
+        const Icon = ROLE_ICON[role] || Users;
+        return (
+          <div key={role}>
+            <SectionHeading icon={Icon} label={ROLE_LABEL[role]} count={people.length} />
+
+            {/* Nested under its heading rather than flush with it — with no
+             *  box or divider around the list, the indent is what reads as
+             *  "these belong to that heading". */}
+            <ul className="pl-6">
+              {people.map((u) => {
+                const assigned = locations.filter((l) => u.locationIds.includes(l.id));
+                // No more a single locked "owner" role — the guard now is just
+                // "you can't edit or remove yourself from here" (same idea as the
+                // floor roster's own self-exclusion).
+                const locked = u.id === currentUser.id;
+                return (
+                  <li
+                    key={u.id}
+                    className="group flex items-center gap-3 py-3 px-1 rounded-md transition-colors hover:bg-faint"
+                  >
+                    <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-2 text-xs font-semibold shrink-0">
+                      {initials(u.name)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-ink truncate">{u.name}</p>
+                        {u.status === "invited" && <Badge tone="warn">Invited</Badge>}
+                        {u.id === currentUser.id && <Badge tone="info">You</Badge>}
+                      </div>
+                      <p className="text-xs text-ink-3 truncate">{u.email}</p>
+                      <p className="mt-0.5 text-xs text-ink-4 truncate">
+                        {assigned.length === 0 ? "No locations assigned" : assigned.map((l) => l.name).join(", ")}
+                      </p>
+                      {/* An invited teammate has no account to attach a
+                       *  personal PIN to yet. Saying so where the chips would
+                       *  be beats rendering nothing: two rows listing the same
+                       *  locations, one with chips and one blank, otherwise
+                       *  reads as a bug. */}
+                      {u.status === "active" ? (
+                        <LeadPinChips
+                          user={u}
+                          locations={locations}
+                          crewPins={crewPins}
+                          onAddPin={onAddPin}
+                          onUpdatePin={onUpdatePin}
+                          onRemovePin={onRemovePin}
+                        />
+                      ) : (
+                        <p className="mt-1.5 text-xs text-ink-4">
+                          Lead PINs open up once {u.name.split(" ")[0]} accepts the invite.
+                        </p>
+                      )}
+                    </div>
+                    {!locked && (
+                      <RowActions>
+                        <IconButton label={`Edit ${u.name}`} icon={Pencil} size={14} onClick={() => onEdit(u)} />
+                        <IconButton
+                          label={`Remove ${u.name}`}
+                          icon={Trash2}
+                          size={14}
+                          onClick={() => onRemove(u.id)}
+                          className="hover:text-danger"
+                        />
+                      </RowActions>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -389,18 +470,6 @@ function PersonCard({ user, currentUser, locations, onEdit, onRemove }) {
   );
 }
 
-function TierLabel({ tier, count }) {
-  return (
-    <div className="flex items-center gap-2 mb-3">
-      <span className="text-xs font-medium text-ink-3">{TIER_LABEL[tier]}</span>
-      <span className="text-xs text-ink-4">
-        {count} {count === 1 ? "person" : "people"}
-      </span>
-      <span className="flex-1 h-px bg-line" />
-    </div>
-  );
-}
-
 function Connector() {
   return (
     <div className="flex justify-center">
@@ -430,9 +499,9 @@ function TeamHierarchy({ users, locations, currentUser, onEdit, onRemove }) {
 
   if (active.length === 0) {
     return (
-      <Card>
+      <div className="border-b border-line">
         <EmptyState icon={Network} title="Nothing to chart yet" description="Invite a teammate to see your org take shape." />
-      </Card>
+      </div>
     );
   }
 
@@ -440,7 +509,12 @@ function TeamHierarchy({ users, locations, currentUser, onEdit, onRemove }) {
     <div className="space-y-6">
       {byTier.admin.length > 0 && (
         <section>
-          <TierLabel tier="admin" count={byTier.admin.length} />
+          <SectionHeading
+            icon={ROLE_ICON.admin}
+            label={ROLE_LABEL.admin}
+            count={byTier.admin.length}
+            className="mb-3"
+          />
           <div className="flex flex-wrap justify-center gap-3">
             {byTier.admin.map((u) => (
               <PersonCard key={u.id} user={u} currentUser={currentUser} locations={locations} onEdit={onEdit} onRemove={onRemove} />
@@ -453,7 +527,12 @@ function TeamHierarchy({ users, locations, currentUser, onEdit, onRemove }) {
         <>
           <Connector />
           <section>
-            <TierLabel tier="manager" count={byTier.manager.length} />
+            <SectionHeading
+              icon={ROLE_ICON.manager}
+              label={ROLE_LABEL.manager}
+              count={byTier.manager.length}
+              className="mb-3"
+            />
             <div className="flex flex-wrap justify-center gap-4">
               {managerGroups.map((group) => (
                 <div key={group.key} className="rounded-md border border-line bg-sunken/60 p-3">
@@ -524,50 +603,69 @@ export default function TeamScreen({
   });
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Segmented
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "list", label: "List", icon: List },
-            { value: "hierarchy", label: "Hierarchy", icon: Network },
-          ]}
-        />
-        {view === "list" && (
-          <SearchInput value={query} onChange={setQuery} placeholder="Search teammates…" className="flex-1 min-w-52" />
-        )}
-        {view === "list" && (
-          <Segmented
-            value={status}
-            onChange={setStatus}
-            options={[
-              { value: "all", label: "All" },
-              { value: "active", label: "Active" },
-              { value: "invited", label: "Invited" },
-            ]}
-          />
-        )}
-        <Button variant="primary" icon={UserPlus} className={view === "hierarchy" ? "ml-auto" : ""} onClick={() => setInviting(true)}>
-          Invite
-        </Button>
-      </div>
+    <div>
+      {/* One page-level toolbar, same as the Tasks screen: the view switch,
+       *  the filters that belong to it and the one primary action, all in a
+       *  single row that stays put while the roster scrolls under it and
+       *  fades its own bottom edge. The two Segmented controls in the
+       *  dialogs below are form fields, not view state, so they stay put. */}
+      <StickyFadeHeader>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+            <Segmented
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "list", label: "List", icon: List },
+                { value: "hierarchy", label: "Hierarchy", icon: Network },
+              ]}
+            />
+            {view === "list" && (
+              <Segmented
+                value={status}
+                onChange={setStatus}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "active", label: "Active" },
+                  { value: "invited", label: "Invited" },
+                ]}
+              />
+            )}
+            {view === "list" && (
+              <SearchInput
+                value={query}
+                onChange={setQuery}
+                placeholder="Search teammates…"
+                className="flex-1 min-w-52"
+              />
+            )}
+          </div>
 
-      {view === "list" ? (
-        <TeamList
-          users={visible}
-          locations={locations}
-          currentUser={currentUser}
-          crewPins={crewPins}
-          onEdit={setEditing}
-          onRemove={onRemove}
-          onAddPin={onAddPin}
-          onUpdatePin={onUpdatePin}
-          onRemovePin={onRemovePin}
-        />
-      ) : (
-        <TeamHierarchy users={users} locations={locations} currentUser={currentUser} onEdit={setEditing} onRemove={onRemove} />
-      )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button variant="primary" icon={UserPlus} onClick={() => setInviting(true)}>
+              Invite
+            </Button>
+          </div>
+        </div>
+      </StickyFadeHeader>
+
+      <div className="space-y-5">
+        {view === "list" ? (
+          <TeamList
+            users={visible}
+            locations={locations}
+            currentUser={currentUser}
+            crewPins={crewPins}
+            onEdit={setEditing}
+            onRemove={onRemove}
+            onAddPin={onAddPin}
+            onUpdatePin={onUpdatePin}
+            onRemovePin={onRemovePin}
+          />
+        ) : (
+          <TeamHierarchy users={users} locations={locations} currentUser={currentUser} onEdit={setEditing} onRemove={onRemove} />
+        )}
+      </div>
 
       {inviting && (
         <InviteDialog

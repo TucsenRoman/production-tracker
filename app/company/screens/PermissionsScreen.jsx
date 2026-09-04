@@ -1,124 +1,112 @@
 "use client";
 
 import React from "react";
-import { Lock, Pencil, ShieldCheck, ShieldPlus, Trash2, Unlock, UsersRound } from "lucide-react";
+import { Pencil, ShieldCheck, ShieldPlus, Trash2, Wrench } from "lucide-react";
 
-import { Badge, Card, IconButton, Switch, cx } from "../../components/ui";
+import {
+  Button,
+  Card,
+  IconButton,
+  RowActions,
+  SectionHeading,
+  Segmented,
+  StickyFadeHeader,
+  cx,
+} from "../../components/ui";
 import { GATED_ACTIONS } from "../lib/companyDomain";
 
-const firstInitial = (name) => (name || "").trim().charAt(0).toUpperCase();
-
-/**
- * Solid avatar fills, cycled deterministically per person — the `identity`
- * tokens in globals.css, a palette kept separate from status color (ok/
- * warn/danger/cold) and from primary/brand (both reserved elsewhere: the
- * accent's budget is "under 1% of any screen", the brand rust is "the
- * wordmark and nothing else") so this doesn't borrow meaning that belongs
- * to another part of the UI. Solid, not soft — this control is meant to
- * pop against a screen that's otherwise all neutrals and a hairline
- * accent, since it's the one row on this list that isn't a plain switch.
- */
-const AVATAR_FILLS = [
-  "bg-identity-1",
-  "bg-identity-2",
-  "bg-identity-3",
-  "bg-identity-4",
+/* The two PIN modes as one labelled control. They were a Badge plus a
+ * Switch: the badge said the state and the switch said it again, and the
+ * switch's polarity ran backwards from convention — blue/on meant *more*
+ * restricted, while the looser "any station PIN" state rendered grey/off,
+ * which reads as inactive rather than as permissive. You had to go back up
+ * to the intro paragraph to decode it. As two named options the label is
+ * the state: nothing to decode, nothing said twice. */
+const PIN_MODES = [
+  { value: "lead", label: "Lead PIN" },
+  { value: "any", label: "Any station PIN" },
 ];
 
-function avatarFillFor(id) {
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return AVATAR_FILLS[hash % AVATAR_FILLS.length];
+/** How the named people on a targeted action read in the value slot. */
+function accessSummary(people) {
+  if (!people.length) return "No one yet";
+  if (people.length <= 2) return people.map((p) => p.name).join(", ");
+  return `${people.length} people`;
 }
 
-/**
- * The overlapping-avatars-plus-pencil control for a `targeted` action —
- * a mock of a per-person permissions microinteraction, standing in for
- * what the rest of this list does with a single company-wide Switch.
- * Nothing wired behind the click yet (see onManage), same as every other
- * control on this screen.
- */
-function TargetedAccessControl({ people, onManage, label }) {
-  return (
-    <button
-      type="button"
-      onClick={onManage}
-      aria-label={label}
-      className="group flex items-center -space-x-2.5 shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-    >
-      {people.map((p) => (
-        <span
-          key={p.id}
-          className={cx(
-            "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold text-white",
-            "ring-2 ring-surface shadow-xs",
-            avatarFillFor(p.id)
-          )}
-        >
-          {firstInitial(p.name)}
-        </span>
-      ))}
-      <span
-        className={cx(
-          "flex items-center justify-center w-8 h-8 rounded-full shrink-0",
-          "border-2 border-solid border-line-strong bg-surface text-ink-3 ring-2 ring-surface shadow-xs",
-          "transition-colors group-hover:border-primary group-hover:text-primary"
-        )}
-      >
-        <Pencil size={13} />
-      </span>
-    </button>
-  );
-}
-
+/* Rows are list items in a flat, un-boxed list now. `group` on the row is
+ * what RowActions below hangs its hover/focus reveal off; the Custom chip
+ * that used to ride along on each row is gone, since the section heading
+ * above already says which half of the list you're in — when there are two
+ * halves to be in.
+ *
+ * No left-gutter icon on either row shape any more. The lock/unlock glyph
+ * was a third encoding of the very binary the control below now spells out
+ * in words, and once it went the targeted row's people glyph was the only
+ * icon left on the list — which is exactly the odd-one-out shape that row
+ * was already being read as. Both rows are now: name, detail, value. */
 function PermissionRow({ action, requiresLead, people, onToggle, onManageAccess, onRemove }) {
   if (action.targeted) {
     return (
-      <div className="flex items-center gap-3 px-4 py-3">
-        <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-3 shrink-0">
-          <UsersRound size={15} />
+      <li className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-faint">
+        <span
+          aria-hidden="true"
+          className="flex items-center justify-center w-7 h-7 rounded-md bg-sunken text-icon-2 shrink-0"
+        >
+          <ShieldCheck size={14} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-medium text-ink truncate">{action.label}</p>
-            {action.custom && <Badge tone="neutral">Custom</Badge>}
-          </div>
+          <p className="text-sm font-medium text-ink truncate">{action.label}</p>
           {action.detail && <p className="text-xs text-ink-3 leading-relaxed">{action.detail}</p>}
         </div>
-        <TargetedAccessControl
-          people={people}
-          onManage={() => onManageAccess(action)}
-          label={`${people.map((p) => p.name).join(", ")} — click to change who can ${action.label.toLowerCase()}`}
-        />
-      </div>
+        {/* Same grammar as every other row: a readable value in the value
+         *  slot, then a labelled way to change it. It used to be overlapping
+         *  avatars and a bare pencil with no words on it, which next to its
+         *  neighbours read as a row still loading. */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <p className="text-sm text-ink-2 truncate max-w-[16rem]" title={people.map((p) => p.name).join(", ")}>
+            {accessSummary(people)}
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={Pencil}
+            onClick={() => onManageAccess(action)}
+          >
+            Change people
+          </Button>
+        </div>
+      </li>
     );
   }
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
+    <li className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-faint">
       <span
-        className={cx(
-          "flex items-center justify-center w-7 h-7 rounded-full shrink-0",
-          requiresLead ? "bg-hover text-ink" : "bg-inset text-ink-3"
-        )}
+        aria-hidden="true"
+        className="flex items-center justify-center w-7 h-7 rounded-md bg-sunken text-icon-2 shrink-0"
       >
-        {requiresLead ? <Lock size={15} /> : <Unlock size={15} />}
+        <ShieldCheck size={14} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-medium text-ink truncate">{action.label}</p>
-          {action.custom && <Badge tone="neutral">Custom</Badge>}
-        </div>
+        <p className="text-sm font-medium text-ink truncate">{action.label}</p>
         {action.detail && <p className="text-xs text-ink-3 leading-relaxed">{action.detail}</p>}
       </div>
-      <div className="flex items-center gap-2.5 shrink-0">
-        <Badge tone={requiresLead ? "info" : "neutral"}>{requiresLead ? "Lead PIN" : "Any station PIN"}</Badge>
-        <Switch
-          checked={requiresLead}
-          onChange={() => onToggle(action.id)}
-          label={`Require a Lead PIN for ${action.label}`}
-        />
-        {action.custom && (
+      {/* The mode is the row's content, not one of its actions — it stays
+       *  visible. Only the destructive control hides. Same `onToggle(id)`
+       *  behind it as before: the handler flips the boolean, so we only
+       *  call it when the picked option differs from the current one. */}
+      <Segmented
+        size="sm"
+        className="shrink-0"
+        value={requiresLead ? "lead" : "any"}
+        options={PIN_MODES}
+        onChange={(next) => {
+          if ((next === "lead") !== requiresLead) onToggle(action.id);
+        }}
+      />
+      {action.custom && (
+        <RowActions>
           <IconButton
             label={`Remove ${action.label}`}
             icon={Trash2}
@@ -126,51 +114,115 @@ function PermissionRow({ action, requiresLead, people, onToggle, onManageAccess,
             onClick={onRemove}
             className="hover:text-danger"
           />
-        )}
-      </div>
-    </div>
+        </RowActions>
+      )}
+    </li>
   );
 }
 
 export default function PermissionsScreen({ permissions, onToggle, customActions, onRemoveCustom, onRequest, users = [], onManageAccess }) {
   const actions = [...GATED_ACTIONS, ...customActions];
 
+  /* Two sections: what ships with the product, and what this company added
+   * itself. */
+  const groups = [
+    { id: "built-in", label: "Built in", icon: ShieldCheck, actions: GATED_ACTIONS },
+    ...(customActions.length
+      ? [{ id: "custom", label: "Custom", icon: Wrench, actions: customActions }]
+      : []),
+  ];
+
+  /* Headings only once there are genuinely two groups — don't add an
+   * always-on heading back.
+   *
+   * The style spec's "always render a section heading, even for one group"
+   * rule is about a list whose grouping is real but happens to narrow to one
+   * category: there the heading still names *which* group you're in, so
+   * dropping it would read as broken. Here, with no custom actions, there is
+   * no second group to be told apart from — a lone "BUILT IN 6" only restates
+   * the toolbar's "6 gated actions" a row above it. So one group renders as a
+   * plain list, and the headings appear the moment a custom action creates a
+   * real distinction to draw. */
+  const sectioned = groups.length > 1;
+
+  const renderRow = (action) => (
+    <PermissionRow
+      key={action.id}
+      action={action}
+      requiresLead={Boolean(permissions[action.id])}
+      people={
+        action.targeted
+          ? (action.accessUserIds || []).map((id) => users.find((u) => u.id === id)).filter(Boolean)
+          : undefined
+      }
+      onToggle={onToggle}
+      onManageAccess={onManageAccess}
+      onRemove={() => onRemoveCustom(action.id)}
+    />
+  );
+
   return (
-    <div className="space-y-4">
+    <div>
+      {/* Read once, then scrolls away — so it sits above the sticky
+       *  toolbar rather than riding along inside it. */}
       <p className={cx("flex items-start gap-1.5 text-xs text-ink-3 leading-relaxed", "px-3 py-2.5 rounded-md bg-sunken")}>
         <ShieldCheck size={13} className="shrink-0 mt-0.5 text-icon-2" />
-        Switch an action on to require a Lead's personal PIN — off, any station PIN on the floor can do it. A few
-        are scoped to specific people instead — click their avatars to change who. These rules apply company-wide,
-        across every location.
+        Each action either needs a Lead&rsquo;s personal PIN or can be done with any station PIN on the floor — pick
+        one per row. A few are scoped to specific people instead. These rules apply company-wide, across every
+        location.
       </p>
 
-      <Card className="overflow-hidden">
-        <div className="divide-y divide-line">
-          {actions.map((action) => (
-            <PermissionRow
-              key={action.id}
-              action={action}
-              requiresLead={Boolean(permissions[action.id])}
-              people={
-                action.targeted
-                  ? (action.accessUserIds || []).map((id) => users.find((u) => u.id === id)).filter(Boolean)
-                  : undefined
-              }
-              onToggle={onToggle}
-              onManageAccess={onManageAccess}
-              onRemove={() => onRemoveCustom(action.id)}
-            />
-          ))}
-        </div>
-      </Card>
+      {/* Request-a-permission was a bare text link stranded under the list;
+       *  it's this screen's one real action, so it takes the toolbar slot
+       *  every other screen's primary action sits in. */}
+      <StickyFadeHeader pad={28}>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-sm text-ink-3">
+            {actions.length} gated action{actions.length === 1 ? "" : "s"}
+          </p>
 
-      <button
-        type="button" onClick={onRequest}
-        className="flex items-center gap-1.5 px-1 text-sm font-medium text-ink-2 hover:text-ink hover:underline transition-colors"
-      >
-        <ShieldPlus size={15} />
-        Request a permission
-      </button>
+          {/* secondary, not primary: the accent budget on this screen is
+           *  already spent by the mode column, which is the actual
+           *  interaction here. Requesting a new gated action is a utility,
+           *  not the one next thing a person came to this screen to do. */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button variant="secondary" icon={ShieldPlus} onClick={onRequest}>
+              Request a permission
+            </Button>
+          </div>
+        </div>
+      </StickyFadeHeader>
+
+      {/* Rule a grouped list; box a flat one.
+       *
+       *  Tasks can drop the container because its section headings ARE the
+       *  containing device — each ruled heading opens a group and the indent
+       *  closes it. This screen has no real grouping dimension, so dropping
+       *  the container AND the heading left six rows floating on an open
+       *  white field with no edge anywhere: unmoored, not clean. `Card` here
+       *  is still not a box — it's `border-y` only, a rule above and a rule
+       *  below with the page showing through — so the group gets edges
+       *  without breaking the ban on wrapping a group in a box. */}
+      <div className="space-y-5">
+        {sectioned ? (
+          groups.map(({ id, label, icon: Icon, actions: groupActions }) => (
+            <div key={id}>
+              <SectionHeading icon={Icon} label={label} count={groupActions.length} />
+              <Card>
+                <ul className="divide-y divide-line">
+                  {groupActions.map(renderRow)}
+                </ul>
+              </Card>
+            </div>
+          ))
+        ) : (
+          <Card>
+            <ul className="divide-y divide-line">
+              {groups[0].actions.map(renderRow)}
+            </ul>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
