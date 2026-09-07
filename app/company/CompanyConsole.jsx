@@ -7,7 +7,7 @@ import ConsoleShell from "./components/ConsoleShell";
 import BrandModals from "./components/BrandModals";
 import { newId } from "../lib/domain";
 import { StaffProvider } from "../lib/staff";
-import { StationsProvider } from "../lib/stations";
+import { StationsProvider, migrateStage } from "../lib/stations";
 import CompanyAuthScreen from "./screens/CompanyAuthScreen";
 import InsightsScreen from "./screens/InsightsScreen";
 import LocationsScreen from "./screens/LocationsScreen";
@@ -20,7 +20,7 @@ import FloorTasksScreen from "../screens/TasksScreen";
 import { usePersistentState, useCompanySession } from "./lib/companyStore";
 import { usePersistentState as useFloorPersistentState } from "../lib/store";
 import { useBrandModals } from "./lib/useBrandModals";
-import { COMPANY_SEED, DEFAULT_STATIONS, PROVIDERS, defaultPermissions, isValidStationName, simulateSync } from "./lib/companyDomain";
+import { COMPANY_SEED, DEMO_SECOND_LOCATION, DEFAULT_STATIONS, PROVIDERS, defaultPermissions, isValidStationName, simulateSync } from "./lib/companyDomain";
 import { PRODUCTION_SEED } from "./lib/companyProduction";
 import { SEED, DEFAULT_TASK_CATEGORIES, todayKey, categoryInUse } from "../lib/domain";
 import { answerCompanyQuestion, buildCompanyInsights } from "./lib/insights";
@@ -84,9 +84,15 @@ function Application() {
   const [users, setUsers] = usePersistentState("users", COMPANY_SEED.users);
   const [integrations, setIntegrations] = usePersistentState("integrations", COMPANY_SEED.integrations);
   const [stations, setStations] = usePersistentState("stations", COMPANY_SEED.stations);
-  // Per-station extras (custom icon today, target cycle time below) — kept
-  // separate from the plain name list so nothing that matches stations by
-  // name (crewPins, batches, permissions) has to change shape.
+  /* Per-station extras — just the custom icon — kept separate from the plain
+   * name list so nothing that matches stations by name (crewPins, batches,
+   * permissions) has to change shape.
+   *
+   * Target cycle times briefly lived here and were edited on the Stations
+   * screen. They are gone because they are not a property of a post: bacon
+   * and bratwurst share one smokehouse and want very different times, so the
+   * number belongs to the product. Insights still flags slow runs against
+   * STAGE_TARGET_MINUTES until that lands. */
   const [stationConfig, setStationConfig] = usePersistentState("stationConfig", {});
   const [crewPins, setCrewPins] = usePersistentState("crewPins", COMPANY_SEED.crewPins);
   const [production, setProduction] = usePersistentState("production", PRODUCTION_SEED);
@@ -104,8 +110,59 @@ function Application() {
   /* Read-only here: the console tracks production, it doesn't run batches.
    * Both come from the floor's own persisted state so the goal tracker is
    * measuring the same batches the shop actually made. */
-  const [batches] = useFloorPersistentState("batches", SEED.batches);
+  /* The console tracks production; it does not run batches, so this is read
+   * only — with ONE exception, taken deliberately below: renaming a station
+   * has to follow the live batches standing at it, because a batch's stage is
+   * that station's name. Nothing else here writes to it. */
+  const [storedBatches, setBatches] = useFloorPersistentState("batches", SEED.batches);
+  /* Same index→name migration the floor does on read. Uses the exported
+   * helper rather than the context method because this component RENDERS the
+   * provider and so sits above the hook. */
+  const batches = useMemo(
+    () => storedBatches.map((b) => migrateStage(b, [...stations, "Shelf-Ready"])),
+    [storedBatches, stations]
+  );
   const today = todayKey();
+
+  /* Dev-only: fold the second location (and its two managers) in and out at
+   * runtime. The demo ships single-location because that is the honest shape
+   * of the business it is modelled on, but half the console only reveals
+   * itself with two — Team's location scope and per-location lead PINs, the
+   * Locations grid, a location with no Clover connection, and the floor
+   * tablet's own "which shop is this" setting. Persisted so a refresh keeps
+   * whichever shape you were testing. */
+  const [twoLocations, setTwoLocations] = usePersistentState("demoTwoLocations", false);
+
+  const handleToggleLocations = (on) => {
+    const { location: extraLoc, users: extraUsers, crewPins: extraPins } = DEMO_SECOND_LOCATION;
+    setTwoLocations(on);
+    if (on) {
+      /* Additive and id-guarded, so flipping it twice is not two Princetons
+       * and toggling does not clobber edits made while it was on. */
+      setLocations((prev) => (prev.some((l) => l.id === extraLoc.id) ? prev : [...prev, extraLoc]));
+      setUsers((prev) => [...prev, ...extraUsers.filter((e) => !prev.some((u) => u.id === e.id))]);
+      setCrewPins((prev) => [...prev, ...extraPins.filter((e) => !prev.some((p) => p.id === e.id))]);
+      return;
+    }
+    /* If you are currently VIEWING AS one of the people about to disappear,
+     * step back to the seed admin first — otherwise `currentUser` resolves to
+     * nothing and the console drops to its sign-in screen mid-toggle. */
+    if (extraUsers.some((e) => e.id === session?.userId)) signIn(COMPANY_SEED.users[0]);
+    setLocations((prev) => prev.filter((l) => l.id !== extraLoc.id));
+    setCrewPins((prev) => prev.filter((p) => p.locationId !== extraLoc.id));
+    setUsers((prev) =>
+      prev
+        .filter((u) => !extraUsers.some((e) => e.id === u.id))
+        /* Anyone assigned to Princeton in the meantime keeps their other
+         * locations; somebody left with none falls back to the first, since
+         * a teammate belonging nowhere is a worse state than a wrong guess. */
+        .map((u) => {
+          if (!u.locationIds.includes(extraLoc.id)) return u;
+          const rest = u.locationIds.filter((id) => id !== extraLoc.id);
+          return { ...u, locationIds: rest.length ? rest : [COMPANY_SEED.locations[0].id] };
+        })
+    );
+  };
 
   const [view, setView] = useState("insights");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -238,18 +295,36 @@ function Application() {
     toast("Team member removed", { tone: "info" });
   };
 
+  /* Chasing a stale invite is the one thing a pending row is FOR, and the
+   * roster had no way to do it. Re-stamping invitedAt is what makes the
+   * row's own "sent 12d ago" line honest again. */
+  const handleResendInvite = (user) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === user.id ? { ...u, invitedAt: new Date().toISOString() } : u))
+    );
+    toast(`Invite resent to ${user.email}`, { detail: "Simulated here — no mail actually leaves." });
+  };
+
   /* ---- Stations ---- */
 
   const handleAddStation = (name) => {
     if (!isValidStationName(name)) return;
     setStations((prev) => [...prev, name]);
-    toast(`${name} added`, { detail: "It's ready to wire up from a location's detail view." });
+    toast(`${name} added`, { detail: "Set a target cycle time to start flagging slow runs." });
   };
 
   const handleRenameStation = (oldName, newName) => {
     if (!isValidStationName(newName)) return;
     setStations((prev) => prev.map((s) => (s === oldName ? newName : s)));
     setCrewPins((prev) => prev.map((p) => (p.station === oldName ? { ...p, station: newName } : p)));
+    /* A batch's stage IS the station's name, so a rename has to carry the
+     * batches standing there with it or they are left pointing at a post that
+     * no longer exists. This is the console's only write to floor state, and
+     * it exists because renaming is the one station edit the name-keyed model
+     * does not make free — reordering and inserting now cost nothing. */
+    if (oldName !== newName) {
+      setBatches((prev) => prev.map((b) => (b.stage === oldName ? { ...b, stage: newName } : b)));
+    }
     setStationConfig((prev) => {
       if (!prev[oldName] || oldName === newName) return prev;
       const { [oldName]: moved, ...rest } = prev;
@@ -272,6 +347,19 @@ function Application() {
       });
       return;
     }
+    /* And the live half of the same question. A batch's stage is this
+     * station's name, so deleting it out from under one leaves that batch
+     * pointing at a post that no longer exists — stuck on the board with
+     * nowhere to advance to. Cheap to check, and the only way a name-keyed
+     * stage can be orphaned. */
+    const standing = batches.filter((b) => b.stage === name && !b.destination).length;
+    if (standing > 0) {
+      toast("Can't remove this station", {
+        tone: "error",
+        detail: `${standing} batch${standing === 1 ? " is" : "es are"} standing here right now.`,
+      });
+      return;
+    }
     setStations((prev) => prev.filter((s) => s !== name));
     setStationConfig((prev) => {
       if (!(name in prev)) return prev;
@@ -289,6 +377,21 @@ function Application() {
    * as the floor's stage sequence, so the last station here is where a
    * batch gets its final weight (see app/lib/stations.jsx). A silent swap,
    * not a toast — the reordered list is its own feedback. */
+  /* Drag-and-drop hands us an insertion point, not a direction. `to` is the
+   * gap the row was dropped into, 0..length, which is why it is corrected by
+   * one when moving down: removing the row first shifts every later index. */
+  const handleReorderStations = (from, to) => {
+    setStations((prev) => {
+      if (from < 0 || from >= prev.length) return prev;
+      const target = to > from ? to - 1 : to;
+      if (target === from) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(target, 0, moved);
+      return next;
+    });
+  };
+
   const handleMoveStation = (name, direction) => {
     setStations((prev) => {
       const idx = prev.indexOf(name);
@@ -698,6 +801,8 @@ function Application() {
       userMenuOpen={userMenuOpen}
       onUserMenuOpenChange={setUserMenuOpen}
       onSwitchUser={handleSwitchUser}
+      twoLocations={twoLocations}
+      onToggleLocations={handleToggleLocations}
       brandMenuOpen={brandMenuOpen}
       onBrandMenuOpenChange={setBrandMenuOpen}
       onOpenSettings={() => openBrandModal("settings")}
@@ -777,6 +882,7 @@ function Application() {
           onInvite={handleInviteUser}
           onUpdate={handleUpdateUser}
           onRemove={handleRemoveUser}
+          onResend={handleResendInvite}
           onAddPin={handleAddPin}
           onUpdatePin={handleUpdatePin}
           onRemovePin={handleRemovePin}
@@ -786,12 +892,14 @@ function Application() {
       {current === "stations" && isAdmin && (
         <StationsScreen
           stations={stations}
+          batches={batches}
           production={production}
           stationConfig={stationConfig}
           onAdd={handleAddStation}
           onUpdate={handleRenameStation}
           onRemove={handleRemoveStation}
           onMove={handleMoveStation}
+          onReorder={handleReorderStations}
           onUpdateConfig={handleUpdateStationConfig}
         />
       )}

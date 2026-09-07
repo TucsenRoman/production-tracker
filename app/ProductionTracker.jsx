@@ -4,6 +4,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useState } from "re
 import { createPortal } from "react-dom";
 import {
   ListTodo,
+  MapPin,
   Package,
   SquareArrowRightExit,
   UsersRound,
@@ -14,6 +15,8 @@ import AppShell from "./components/AppShell";
 import RoleSwitcher from "./components/RoleSwitcher";
 import { TabletFrameContext } from "./components/TabletFrame";
 import SignInScreen from "./screens/SignInScreen";
+import { LocationPicker, LocationSwitchDialog } from "./components/LocationSetting";
+import { useDeviceLocation } from "./lib/deviceLocation";
 import BoardScreen from "./screens/BoardScreen";
 import TasksScreen from "./screens/TasksScreen";
 import InventoryScreen from "./screens/InventoryScreen";
@@ -48,7 +51,7 @@ const NAV = [
 
 /* --------------------------------------------------------------- App shell */
 
-function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, children }) {
+function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, place, onChangePlace, children }) {
   // Inside a TabletFrame, RoleSwitcher portals straight to document.body
   // instead of going through AppShell's overlay slot — the bezel's own
   // `transform: scale()` becomes a new containing block for anything
@@ -56,13 +59,41 @@ function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, children 
   // drag-and-clamp positioning against the mock device instead of the real
   // viewport. Outside a TabletFrame (framed === false) nothing changes.
   const framed = useContext(TabletFrameContext);
+  const [brandOpen, setBrandOpen] = useState(false);
   const roleSwitcher = <RoleSwitcher user={user} onChange={onViewAsRole} />;
 
   return (
     <>
       {framed && typeof document !== "undefined" ? createPortal(roleSwitcher, document.body) : null}
       <AppShell
-        brand="Protrack - Milaca Meats"
+        /* The SHOP, not the company. With one location the two were
+         *  interchangeable and the company name read fine; with two, a
+         *  terminal that only ever says "Milaca Meats" is a tablet you cannot
+         *  tell apart from the one in the other building — and everything it
+         *  records stamps a location. The name being permanently on screen is
+         *  the whole defence against a mis-set tablet quietly mis-filing a
+         *  week of work. */
+        brand={place ? `Protrack — ${place.name}` : "Protrack"}
+        /* Reuses the console's own brand-menu machinery rather than inventing
+         *  a control: the shop name is already the most prominent text in the
+         *  rail, so the way to change it is to click it. */
+        brandMenuOpen={brandOpen}
+        onBrandMenuOpenChange={onChangePlace ? setBrandOpen : undefined}
+        brandMenu={
+          <div className="w-56 bg-surface border border-line rounded-xl shadow-pop overflow-hidden animate-pop-in p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setBrandOpen(false);
+                onChangePlace();
+              }}
+              className="w-full flex items-center gap-2.5 text-left px-2.5 py-2 rounded-md text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-100"
+            >
+              <MapPin size={14} className="text-icon-2 shrink-0" />
+              Change shop
+            </button>
+          </div>
+        }
         nav={nav}
         view={view}
         onNavigate={onNavigate}
@@ -99,11 +130,19 @@ function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, children 
 function Application() {
   const toast = useToast();
   const { user, signIn, signOut } = useSession();
+  const { locations, location, setLocation, needsChoice } = useDeviceLocation();
+  const [switching, setSwitching] = useState(false);
   const today = todayKey();
-  const { stages, stations, nextStageIndex } = useStations();
+  const { stages, stations, nextStage, finalStage, normalizeStage } = useStations();
 
   const [view, setView] = useState("board");
-  const [batches, setBatches] = usePersistentState("batches", SEED.batches);
+  const [storedBatches, setBatches] = usePersistentState("batches", SEED.batches);
+  /* A build before this one stored `stage` as an index into the station list.
+   * Anything still carrying a number gets read as the name that index points
+   * at now — best effort, since the list may have changed since it was
+   * written, but a wrong name is at least visible where a stale index quietly
+   * pointed at whatever moved into that slot. */
+  const batches = React.useMemo(() => storedBatches.map(normalizeStage), [storedBatches, normalizeStage]);
   const [history, setHistory] = usePersistentState("history", SEED.history);
   const [inventory, setInventory] = usePersistentState("inventory", SEED.inventory);
   const [schedule, setSchedule] = usePersistentState("schedule", SEED.schedule);
@@ -278,7 +317,7 @@ function Application() {
 
   const handleAdvance = (id, staff) => {
     setBatches((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, stage: nextStageIndex(b), lastActionBy: staff.name } : b))
+      prev.map((b) => (b.id === id ? { ...b, stage: nextStage(b), lastActionBy: staff.name } : b))
     );
     toast("Batch moved forward");
   };
@@ -286,7 +325,7 @@ function Application() {
   const handleWeighIn = (id, boxWeight, staff) => {
     setBatches((prev) =>
       prev.map((b) =>
-        b.id === id ? { ...b, boxWeight, stage: nextStageIndex(b), lastActionBy: staff.name } : b
+        b.id === id ? { ...b, boxWeight, stage: nextStage(b), lastActionBy: staff.name } : b
       )
     );
     toast(`Box weight recorded — ${boxWeight} lb`, { detail: `Confirmed by ${staff.name}` });
@@ -302,7 +341,7 @@ function Application() {
           ? {
               ...b,
               finalWeight,
-              stage: stages.length - 1,
+              stage: finalStage,
               destination,
               lastActionBy: staff.name,
             }
@@ -417,7 +456,7 @@ function Application() {
           product,
           estWeight: qty,
           boxWeight: null,
-          stage: stations.indexOf(station),
+          stage: station,
           needsSmoke: station === "Smokehouse",
           destination: null,
           startedAt: today,
@@ -441,6 +480,11 @@ function Application() {
 
   /* ---- Render ---- */
 
+  /* Before anything else: a tablet that does not know which shop it is in
+   * cannot record anything honestly, so this is the one question that comes
+   * ahead of signing in. With a single location it never appears. */
+  if (needsChoice) return <LocationPicker locations={locations} onPick={setLocation} />;
+
   if (!user) return <SignInScreen onSignIn={signIn} />;
 
   const nav = NAV.filter((n) => isManager(user) || !n.managerOnly).map((n) =>
@@ -455,6 +499,8 @@ function Application() {
       view={current}
       onNavigate={setView}
       onSignOut={signOut}
+      place={location}
+      onChangePlace={locations.length > 1 ? () => setSwitching(true) : undefined}
       onViewAsRole={(role) => {
         // Re-signs the same person at a different role: session only, so the
         // stored roster keeps whatever they actually hold.
@@ -517,6 +563,21 @@ function Application() {
         <TeamScreen
           user={user}
           onNotify={(message, tone = "success") => toast(message, { tone })}
+        />
+      )}
+      {switching && (
+        <LocationSwitchDialog
+          current={location}
+          locations={locations}
+          onCancel={() => setSwitching(false)}
+          onSwitch={(id, person) => {
+            setLocation(id);
+            setSwitching(false);
+            const name = locations.find((l) => l.id === id)?.name;
+            /* Names who approved it, because with no shift sign-in the
+             * approval is the only record that this happened at all. */
+            toast(`Tablet set to ${name}`, { detail: `Approved by ${person.name}.` });
+          }}
         />
       )}
     </Shell>

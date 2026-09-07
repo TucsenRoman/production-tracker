@@ -229,7 +229,7 @@ function QuickAddToStation({ station, products, onAdd }) {
 
 function BatchCard({ batch, onStart }) {
   const { stages, isFinalStage } = useStations();
-  const stage = stages[batch.stage];
+  const stage = batch.stage;
   const willWeighIn = weighsInAt(batch) === stage;
   const willFinalize = isFinalStage(stage);
   return (
@@ -258,8 +258,8 @@ function BatchCard({ batch, onStart }) {
 
 function MoveDialog({ batch, onCancel, onCommit }) {
   const { findByPin } = useStaff();
-  const { stages, iconFor, isFinalStage, nextStageIndex } = useStations();
-  const stage = batch ? stages[batch.stage] : null;
+  const { stages, iconFor, isFinalStage, nextStage } = useStations();
+  const stage = batch ? batch.stage : null;
   const willWeighIn = batch ? weighsInAt(batch) === stage : false;
   const willFinalize = isFinalStage(stage);
   const needsWeight = willWeighIn || willFinalize;
@@ -279,7 +279,7 @@ function MoveDialog({ batch, onCancel, onCommit }) {
 
   const reference = batch.boxWeight || batch.estWeight;
   const preview = willFinalize ? yieldPct(reference, weight) : null;
-  const nextLabel = willFinalize ? "Shelf-Ready" : stages[nextStageIndex(batch)];
+  const nextLabel = willFinalize ? "Shelf-Ready" : nextStage(batch);
 
   const commit = () => {
     if (!staff) return;
@@ -805,8 +805,8 @@ export default function BoardScreen({
   const dayInfo = days.find((d) => d.key === selectedDay) || days[0];
 
   const stats = useMemo(() => {
-    const at = (s) => batches.filter((b) => stages[b.stage] === s).length;
-    const done = batches.filter((b) => stages[b.stage] === "Shelf-Ready");
+    const at = (s) => batches.filter((b) => b.stage === s).length;
+    const done = batches.filter((b) => b.stage === "Shelf-Ready");
     const yields = done
       .map((b) => yieldPct(b.boxWeight || b.estWeight, b.finalWeight))
       .filter((v) => v != null);
@@ -830,7 +830,7 @@ export default function BoardScreen({
     setMoving(null);
   };
 
-  const stationBatches = batches.filter((b) => stages[b.stage] === view);
+  const stationBatches = batches.filter((b) => b.stage === view);
   const queue = (schedule[today] && schedule[today][view]) || [];
   const products = inventory.map((i) => i.product);
   const onCompleteTask = (station, id) => onRemoveTask(today, station, id);
@@ -864,7 +864,7 @@ export default function BoardScreen({
                 <StageColumn
                   key={stage}
                   stage={stage}
-                  batches={batches.filter((b) => stages[b.stage] === stage)}
+                  batches={batches.filter((b) => b.stage === stage)}
                 />
               ))}
             </div>

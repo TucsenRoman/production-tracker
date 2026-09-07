@@ -133,6 +133,20 @@ export const GATED_ACTIONS = [
     defaultRequiresLead: true,
   },
   {
+    id: "switch-location",
+    label: "Change which shop a tablet is set to",
+    detail:
+      "Re-points a floor tablet at a different location. Everything logged after it — batches, stock moves, tasks — files against the new shop.",
+    defaultRequiresLead: true,
+    /* Assignment rather than a company-wide toggle, for the same reason the
+     * row below is: this is not "does it need a lead", it is "which named
+     * people are trusted to move a terminal between buildings". Getting it
+     * wrong is silent — the tablet keeps working, it just files everything
+     * against the wrong shop until somebody notices. */
+    targeted: true,
+    accessUserIds: ["U-1", "U-2"],
+  },
+  {
     id: "manage-task-categories",
     label: "Manage assignment categories",
     detail: "Adds, renames, or removes the task categories in Assignments — the Settings button beside New task.",
@@ -284,6 +298,83 @@ export function openStateAt(hours, timezone, now = new Date()) {
 
 /* ------------------------------------------------------------ Seed state -- */
 
+/**
+ * A SECOND location, deliberately kept out of `COMPANY_SEED`.
+ *
+ * The demo is single-location on purpose (see the Insights notes in project
+ * memory — Foreston/LOC-2 was removed once already), but almost every screen
+ * has a shape that only appears with more than one place: Team's location
+ * scope, its per-location lead PINs, the Locations grid, a location with no
+ * Clover connection. Rather than seed two and make the everyday demo lie, the
+ * console's account-switcher menu carries a dev toggle that folds this in and
+ * out at runtime — `handleToggleLocations` in CompanyConsole.jsx.
+ *
+ * Everything here is removable by id, which is what lets the toggle be a
+ * toggle rather than a one-way door. Deliberately NO integration record: an
+ * unconnected location is a state the Locations screen otherwise never shows.
+ */
+export const DEMO_SECOND_LOCATION = {
+  location: {
+    id: "LOC-2",
+    name: "Princeton",
+    address: "118 Rum River Dr, Princeton, MN 55371",
+    timezone: "America/Chicago",
+    /* Hotlinked from Unsplash's CDN rather than committed to `public/`.
+     * The imgix params do the cropping server-side, so the card gets exactly
+     * the 900x394 it wants without a file in the repo — and it is the same
+     * shape the "Add location" form already accepts, where `photoUrl` is a
+     * URL field with an `https://…` placeholder. Photo by Fitri Ariningrum.
+     * DEMO DATA: swap for the real shop before anyone could mistake it for
+     * one, same caveat the seeded avatars carry. */
+    photoUrl:
+      "https://images.unsplash.com/photo-1722581248341-de9b34c116bb?w=900&h=394&fit=crop&q=70&auto=format",
+    hours: [
+      null,
+      { open: "08:00", close: "17:00" },
+      { open: "08:00", close: "17:00" },
+      { open: "08:00", close: "17:00" },
+      { open: "08:00", close: "17:00" },
+      { open: "08:00", close: "17:00" },
+      { open: "08:00", close: "12:00" },
+    ],
+  },
+  /* One manager who works only there, one who covers both — the second is
+   * the case that makes a multi-location roster interesting, and the reason
+   * a person's locations had to stop being a comma-joined grey line. */
+  users: [
+    {
+      id: "U-6",
+      name: "Tomás Delgado",
+      email: "tomas.delgado@milacameats.com",
+      /* `crop=faces` lets the CDN centre the square on the face, so a 128px
+       * avatar never lands on somebody's forehead. Photo by Vitaly Gariev. */
+      avatarUrl:
+        "https://images.unsplash.com/photo-1758874573822-d6c79fd1b216?w=128&h=128&fit=crop&crop=faces&q=75&auto=format",
+      role: "manager",
+      locationIds: ["LOC-2"],
+      status: "active",
+      invitedAt: "2025-09-15T00:00:00.000Z",
+    },
+    {
+      id: "U-7",
+      name: "Priya Raghavan",
+      email: "priya.raghavan@milacameats.com",
+      /* Photo by Vitaly Gariev. */
+      avatarUrl:
+        "https://images.unsplash.com/photo-1758876019338-c190822f6ca0?w=128&h=128&fit=crop&crop=faces&q=75&auto=format",
+      role: "manager",
+      locationIds: ["LOC-1", "LOC-2"],
+      status: "active",
+      invitedAt: "2026-01-08T00:00:00.000Z",
+    },
+  ],
+  /* Tomás holds a lead PIN at Princeton; Priya deliberately holds none, so
+   * Team's "No lead PIN" view has something to find the moment you switch. */
+  crewPins: [
+    { id: "PIN-5", pin: "5555", role: "lead", userId: "U-6", locationId: "LOC-2" },
+  ],
+};
+
 export const COMPANY_SEED = {
   company: {
     name: "Milaca Meats",
@@ -328,6 +419,11 @@ export const COMPANY_SEED = {
       locationIds: ["LOC-1"],
       status: "active",
       invitedAt: "2024-03-12T00:00:00.000Z",
+      /* An admin holds a floor PIN too — not to sign in anywhere, but because
+       * approving a gated action on a tablet is exactly the thing a PIN is
+       * for, and the person re-pointing a terminal between shops is usually
+       * the one who owns both of them. */
+      pin: "1357",
     },
     {
       id: "U-2",
@@ -338,6 +434,7 @@ export const COMPANY_SEED = {
       locationIds: ["LOC-1"],
       status: "active",
       invitedAt: "2024-04-02T00:00:00.000Z",
+      pin: "2468",
     },
     {
       id: "U-3",

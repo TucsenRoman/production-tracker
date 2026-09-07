@@ -488,12 +488,11 @@ export function putOnFloor(item) {
 
 /* ---------------------------------------------------------------- Batches -- */
 
-/** Batches that skip the smokehouse start their life in Packaging. */
-export function nextStageIndex(batch) {
-  let i = batch.stage + 1;
-  if (STAGES[i] === "Smokehouse" && !batch.needsSmoke) i += 1;
-  return Math.min(i, STAGES.length - 1);
-}
+/* `nextStageIndex` lived here and moved to app/lib/stations.jsx as
+ * `nextStage`, which returns a stage NAME. A batch's stage is a name now: the
+ * index was an alias for a position in the admin's station list, so
+ * reordering that list moved every batch on the floor. See the doc comment on
+ * `nextStage` for the whole of it. */
 
 /** Only the Smokehouse captures a formal box weight. */
 export const weighsInAt = (batch) => (batch.needsSmoke ? "Smokehouse" : null);
@@ -510,13 +509,96 @@ export function yieldTone(pct) {
   return "danger";
 }
 
-/** `targets` lets a caller override the default per-station minutes (e.g.
- *  a company's own configured target from the Stations screen) without
- *  this function needing to know where that override came from. */
-export const isOverTarget = (station, minutes, targets = {}) => {
-  const target = targets[station] ?? STAGE_TARGET_MINUTES[station];
-  return minutes != null && target != null ? minutes > target * 1.15 : false;
+/**
+ * What kind of thing a station's clock is measuring.
+ *
+ * The app used to have exactly one rule — faster is better — and applied it
+ * everywhere. That is right when the minutes are the CREW'S WORK: packing a
+ * box quicker is a better day. It is wrong when the minutes belong to the
+ * PRODUCT: a batch that leaves the smokehouse early has not beaten its
+ * schedule, it is undercooked, and a green "under" badge on that row is the
+ * screen congratulating the floor for a food-safety miss.
+ *
+ * An admin picking between these two is answering a question they already
+ * know the answer to — "what is this station?" — rather than translating it
+ * into a rule about badge colours. One answer then sets the tolerance on
+ * each side, what the column is called, and how loudly a miss is reported.
+ *
+ * The two sides are deliberately NOT symmetric. Running long is a
+ * scheduling problem and gets the usual 15%. Running short is the dangerous
+ * direction, so it is held to 5% — a cook 5% under schedule is already worth
+ * looking at, where a cook 5% over is just a slow afternoon.
+ */
+export const STATION_KIND = {
+  workstation: {
+    label: "Workstation",
+    blurb: "The time is the crew's work — cutting, packing, loading. Faster is a better day.",
+    /** What this station's number is called, in the table and the dialog. */
+    noun: "Target",
+    over: 0.15,
+    /** null means a short run is never a miss — it is just a good day. */
+    under: null,
+  },
+  process: {
+    label: "Process",
+    blurb: "The time belongs to the product — a cook, chill, cure or brine. The schedule is the requirement.",
+    noun: "Schedule",
+    over: 0.15,
+    under: 0.05,
+  },
 };
+
+export const DEFAULT_STATION_KIND = "workstation";
+
+export const kindOf = (config) => {
+  if (STATION_KIND[config?.kind]) return config.kind;
+  /* A build between these two shipped a `flagUnder` checkbox, which meant
+   * exactly "this station is a process stop" — anyone who ticked it has that
+   * in localStorage. Reading it as the kind it stood for means their setting
+   * survives rather than silently switching off. */
+  if (config?.flagUnder) return "process";
+  return DEFAULT_STATION_KIND;
+};
+
+/** The kind supplies the defaults; a station may override either side. A
+ *  `null` on a side means that side is never a miss. */
+export const toleranceFor = (config) => {
+  const kind = STATION_KIND[kindOf(config)];
+  return {
+    over: config?.overPct !== undefined ? config.overPct : kind.over,
+    under: config?.underPct !== undefined ? config.underPct : kind.under,
+  };
+};
+
+/**
+ * How a run missed, or null if it did not: "slow" (over) or "short" (under).
+ *
+ * Two names rather than a boolean because they are not the same event. Slow
+ * is a note about the schedule. Short, on a process station, is a batch that
+ * may not be shippable — and summing them into one "off target" count, as
+ * this used to, threw away the only distinction that matters.
+ *
+ * `targets` and `configs` are passed in rather than read from a store, so
+ * this stays a pure function both consoles can call.
+ */
+export const targetMiss = (station, minutes, targets = {}, configs = {}) => {
+  const target = targets[station] ?? STAGE_TARGET_MINUTES[station];
+  if (minutes == null || target == null) return null;
+  const { over, under } = toleranceFor(configs[station]);
+  if (over != null && minutes > target * (1 + over)) return "slow";
+  if (under != null && minutes < target * (1 - under)) return "short";
+  return null;
+};
+
+/** `targets` lets a caller override the default per-station minutes (e.g.
+ *  a company's own configured target from the Stations screen) without this
+ *  function needing to know where that override came from.
+ *
+ *  Kept as the narrow "is it slow" question, which is all the Insights
+ *  screens ask. With no config it is exactly the old behaviour: default kind
+ *  is workstation, whose `under` is null, so a short run is never a miss. */
+export const isOverTarget = (station, minutes, targets = {}) =>
+  targetMiss(station, minutes, targets) === "slow";
 
 let idCounter = 0;
 /** Sequential, readable, and stable across a render pass. */
@@ -612,12 +694,12 @@ const T = todayKey();
 
 export const SEED = {
   batches: [
-    { id: "B-1047", product: "Applewood Bacon", estWeight: 52, boxWeight: 52, stage: 1, needsSmoke: true, destination: null, startedAt: shiftDate(T, 0) },
-    { id: "B-1048", product: "Bratwurst - Jalapeño Cheddar", estWeight: 38, boxWeight: null, stage: 1, needsSmoke: false, destination: null, startedAt: shiftDate(T, 0) },
-    { id: "B-1049", product: "Snack Sticks - Hot", estWeight: 22, boxWeight: null, stage: 0, needsSmoke: true, destination: null, startedAt: shiftDate(T, 0) },
-    { id: "B-1050", product: "Bratwurst - Maple", estWeight: 24, boxWeight: null, stage: 1, needsSmoke: false, destination: null, startedAt: shiftDate(T, 0) },
-    { id: "B-1051", product: "Peppered Bacon", estWeight: 44, boxWeight: null, stage: 0, needsSmoke: true, destination: null, startedAt: shiftDate(T, 0) },
-    { id: "B-1044", product: "Summer Sausage", estWeight: 34, boxWeight: 40, stage: 2, needsSmoke: true, destination: "floor", finalWeight: 34, startedAt: shiftDate(T, -1) },
+    { id: "B-1047", product: "Applewood Bacon", estWeight: 52, boxWeight: 52, stage: "Packaging", needsSmoke: true, destination: null, startedAt: shiftDate(T, 0) },
+    { id: "B-1048", product: "Bratwurst - Jalapeño Cheddar", estWeight: 38, boxWeight: null, stage: "Packaging", needsSmoke: false, destination: null, startedAt: shiftDate(T, 0) },
+    { id: "B-1049", product: "Snack Sticks - Hot", estWeight: 22, boxWeight: null, stage: "Smokehouse", needsSmoke: true, destination: null, startedAt: shiftDate(T, 0) },
+    { id: "B-1050", product: "Bratwurst - Maple", estWeight: 24, boxWeight: null, stage: "Packaging", needsSmoke: false, destination: null, startedAt: shiftDate(T, 0) },
+    { id: "B-1051", product: "Peppered Bacon", estWeight: 44, boxWeight: null, stage: "Smokehouse", needsSmoke: true, destination: null, startedAt: shiftDate(T, 0) },
+    { id: "B-1044", product: "Summer Sausage", estWeight: 34, boxWeight: 40, stage: "Shelf-Ready", needsSmoke: true, destination: "floor", finalWeight: 34, startedAt: shiftDate(T, -1) },
   ],
 
   /** Closed batches, newest last. Feeds the yield and time comparisons. */

@@ -492,14 +492,20 @@ function CardSection({ icon: Icon, label, count }) {
  * one that has to keep working, because it is what a real account gets.
  */
 function Avatar({ user, size = 32, className }) {
+  /* `avatarUrl` may point off-site (the demo's second location hotlinks its
+   * two headshots), and an image that never arrives used to leave a blank
+   * grey disc — strictly worse than the initials it replaced. One failed
+   * load and this falls back to the path a real account gets anyway. */
+  const [failed, setFailed] = useState(false);
   const dim = { width: size, height: size };
-  if (user.avatarUrl) {
+  if (user.avatarUrl && !failed) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={user.avatarUrl}
         alt=""
         style={dim}
+        onError={() => setFailed(true)}
         className={cx("rounded-full object-cover bg-hover shrink-0", className)}
       />
     );

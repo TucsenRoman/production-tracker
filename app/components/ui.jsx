@@ -20,6 +20,7 @@ import React, {
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   ChevronDown,
   Info,
@@ -143,13 +144,19 @@ export function IconButton({
   icon: Icon,
   size = 16,
   className,
+  /* A bare icon needs a hoverable name, so `label` becomes a native `title`
+   * by default. Pass `title={null}` to suppress it — which is what `Tooltip`
+   * does to its child, so a tooltipped IconButton shows ONE label instead of
+   * this bubble plus the browser's own a second later. `aria-label` is
+   * unaffected either way. */
+  title,
   ...rest
 }) {
   return (
     <button
       {...rest}
       aria-label={label}
-      title={label}
+      title={title === null ? undefined : (title ?? label)}
       className={cx(
         "inline-flex items-center justify-center rounded-md shrink-0",
         "w-[var(--ctl-h)] h-[var(--ctl-h)]",
@@ -687,6 +694,19 @@ export function Tooltip({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, side, label]);
 
+  /* Strip a native `title` off the child. `IconButton` sets one on every
+   * instance — correct on its own, since a bare icon with no accessible or
+   * hoverable name is useless — but wrapping one in a Tooltip then produced
+   * TWO labels on hover: this bubble, and the browser's own box a second
+   * later, usually with different words in it. Replacing the native tooltip
+   * is the entire point of this component, so it takes the title away rather
+   * than asking every call site to remember to. `aria-label` is untouched;
+   * the accessible name never depended on `title`. */
+  const child =
+    React.isValidElement(children) && children.props?.title !== null
+      ? React.cloneElement(children, { title: null })
+      : children;
+
   return (
     <span
       ref={wrapRef}
@@ -697,7 +717,7 @@ export function Tooltip({
       onFocus={show}
       onBlur={hide}
     >
-      {children}
+      {child}
       {!disabled &&
         open &&
         typeof document !== "undefined" &&
@@ -738,6 +758,11 @@ const PANEL = "rounded-md border border-line-strong bg-surface shadow-md";
  *
  * `on` marks the trigger as active (non-default) the same way FilterChip did.
  */
+/* Trigger-to-menu gap. Popover's own constants are declared further down
+ * with the primitive that introduced them; this one sits here so Dropdown
+ * reads on its own. */
+const DROPDOWN_GAP = 4;
+
 export function Dropdown({
   value,
   onChange,
@@ -755,16 +780,30 @@ export function Dropdown({
   // which end of the stack it sits at.
   pinned,
   pinnedSide = "top",
+  /* Multi-select. `value` becomes an ARRAY of option values and `onChange`
+   * is handed the next array; the menu stays open while you tick things,
+   * because picking three locations should not be three trips through the
+   * same control. An empty array means "no narrowing applied" — the caller
+   * decides what that means for its list, and the trigger says so with
+   * `placeholder`. */
+  multiple = false,
+  /** Trigger text when a multi-select has nothing picked (e.g. "All locations"). */
+  placeholder,
+  /** Trigger text for 2+ picks. Defaults to "N selected". */
+  summary,
   "aria-label": ariaLabel,
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
+  const [pos, setPos] = useState(null);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => {
-      if (rootRef.current && !rootRef.current.contains(e.target))
-        setOpen(false);
+      if (rootRef.current?.contains(e.target)) return;
+      if (menuRef.current?.contains(e.target)) return;
+      setOpen(false);
     };
     const onKey = (e) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
@@ -775,7 +814,80 @@ export function Dropdown({
     };
   }, [open]);
 
-  const current = options.find((o) => o.value === value);
+  /* The menu is PORTALED and `position: fixed`, for exactly the reason
+   * Popover is (read its comment). It used to position itself `absolute`
+   * inside the trigger's own box, which works right up until the trigger
+   * lives in a sticky toolbar — and in this app that toolbar is
+   * `StickyFadeHeader`, whose whole job is to carry a `mask-image`. A mask
+   * clips its subtree, so the menu was cut off at the header's padding edge
+   * and faded out by the gradient: on the floor Inventory screen its three
+   * filter menus showed one option and swallowed every click on the rest.
+   * Same measure-flip-clamp as Popover, re-run on scroll and resize so a
+   * menu hung off a sticky control stays attached while the page moves. */
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const place = () => {
+      const trigger = rootRef.current?.getBoundingClientRect();
+      const menu = menuRef.current?.getBoundingClientRect();
+      if (!trigger || !menu) return;
+      const room = {
+        bottom: trigger.bottom + menu.height + DROPDOWN_GAP <= window.innerHeight - POPOVER_MARGIN,
+        top: trigger.top - menu.height - DROPDOWN_GAP >= POPOVER_MARGIN,
+      };
+      const other = menuSide === "top" ? "bottom" : "top";
+      const placed = room[menuSide] ? menuSide : room[other] ? other : menuSide;
+      const top =
+        placed === "top"
+          ? trigger.top - menu.height - DROPDOWN_GAP
+          : trigger.bottom + DROPDOWN_GAP;
+      /* Hang from the trigger's left edge by default, but flip to its RIGHT
+       * edge when the menu would otherwise run off the side — a control
+       * parked at the right of a toolbar (a scope picker, say) opened a menu
+       * that slid out past the content card and looked broken. Clamped to
+       * the viewport either way. */
+      const wantsRight = trigger.left + menu.width > window.innerWidth - POPOVER_MARGIN;
+      const left = Math.min(
+        Math.max(wantsRight ? trigger.right - menu.width : trigger.left, POPOVER_MARGIN),
+        Math.max(POPOVER_MARGIN, window.innerWidth - menu.width - POPOVER_MARGIN),
+      );
+      setPos({ top, left, minWidth: trigger.width });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, menuSide, options, pinned]);
+
+  useEffect(() => {
+    if (!open) setPos(null);
+  }, [open]);
+
+  const selected = multiple ? (Array.isArray(value) ? value : []) : null;
+  const current = multiple ? null : options.find((o) => o.value === value);
+
+  /* One picked reads better as its own name than as "1 selected" — the
+   * whole point of the trigger is to say what the list is showing. */
+  const triggerLabel = multiple
+    ? selected.length === 0
+      ? (placeholder ?? "Any")
+      : selected.length === 1
+        ? (options.find((o) => o.value === selected[0])?.label ?? placeholder ?? "1 selected")
+        : (summary?.(selected.length) ?? `${selected.length} selected`)
+    : (current?.label ?? "");
+
+  const isOn = on || (multiple && selected.length > 0);
+
+  const pick = (v) => {
+    if (!multiple) {
+      onChange(v);
+      setOpen(false);
+      return;
+    }
+    onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+  };
 
   return (
     <div
@@ -793,13 +905,13 @@ export function Dropdown({
           "inline-flex items-center gap-1.5 px-2.5 h-[var(--ctl-h)] rounded-full border",
           "text-xs font-medium transition-colors duration-100 max-w-[11rem]",
           "disabled:opacity-45 disabled:cursor-not-allowed",
-          on
+          isOn
             ? "border-line-strong bg-hover text-ink"
             : "border-line bg-surface text-ink-2 hover:bg-hover",
         )}
       >
         {Icon && <Icon size={12} className="shrink-0" />}
-        <span className="truncate">{current?.label ?? ""}</span>
+        <span className="truncate">{triggerLabel}</span>
         <ChevronDown
           size={12}
           className={cx(
@@ -809,17 +921,24 @@ export function Dropdown({
         />
       </button>
 
-      {open && (
-        // `menuSide` flips the stack to open upward — a dropdown near the
+      {open && typeof document !== "undefined" &&
+        createPortal(
+        // `menuSide` is a preference, not a promise — a dropdown near the
         // bottom of the viewport (a sort control under a long list, say)
-        // shouldn't have to render off-screen to stay below its trigger.
-        // Everything the menu is made of stacks in here, each part its own
-        // surface, so the gap between them carries the separation.
+        // flips upward rather than rendering off-screen. Everything the menu
+        // is made of stacks in here, each part its own surface, so the gap
+        // between them carries the separation.
         <div
-          className={cx(
-            "absolute z-30 left-0 w-max max-w-[16rem] min-w-full flex flex-col gap-1",
-            menuSide === "top" ? "bottom-full mb-1" : "top-full mt-1",
-          )}
+          ref={menuRef}
+          style={{
+            position: "fixed",
+            top: pos?.top ?? 0,
+            left: pos?.left ?? 0,
+            minWidth: pos?.minWidth,
+            // In the DOM to be measured, but never painted at (0,0) first.
+            visibility: pos ? "visible" : "hidden",
+          }}
+          className="z-40 w-max max-w-[16rem] flex flex-col gap-1"
         >
           {pinned && pinnedSide === "top" && (
             <div className={cx(PANEL, "p-1")}>{pinned}</div>
@@ -828,21 +947,22 @@ export function Dropdown({
           {/* `role="listbox"` is on the options alone. The pinned control is a
               button, not a choice, and it used to sit inside this element —
               announced to a screen reader as an option it could never be. */}
-          <div role="listbox" className={cx(PANEL, "py-1")}>
+          <div
+            role="listbox"
+            aria-multiselectable={multiple || undefined}
+            className={cx(PANEL, "py-1")}
+          >
             {options.map((o) => {
-              const active = o.value === value;
+              const active = multiple ? selected.includes(o.value) : o.value === value;
               return (
                 <button
                   key={o.value}
                   type="button"
                   role="option"
                   aria-selected={active}
-                  onClick={() => {
-                    onChange(o.value);
-                    setOpen(false);
-                  }}
+                  onClick={() => pick(o.value)}
                   className={cx(
-                    "w-full flex items-center gap-2 text-left px-3 h-[var(--row-h)] text-sm truncate",
+                    "w-full flex items-center gap-2 text-left px-3 h-[var(--row-h)] text-sm",
                     active
                       ? "bg-hover text-ink font-medium"
                       : "text-ink-2 hover:bg-faint hover:text-ink",
@@ -851,7 +971,16 @@ export function Dropdown({
                   {o.icon && (
                     <o.icon size={13} className="shrink-0 text-ink-4" />
                   )}
-                  {o.label}
+                  <span className="truncate">{o.label}</span>
+                  {/* A tick, not a checkbox. In a single-select menu the tint
+                   *  alone says which one is live; with several on at once you
+                   *  need a mark you can count down the column. */}
+                  {multiple && (
+                    <Check
+                      size={14}
+                      className={cx("ml-auto shrink-0", active ? "text-ink-2" : "opacity-0")}
+                    />
+                  )}
                 </button>
               );
             })}
@@ -860,7 +989,8 @@ export function Dropdown({
           {pinned && pinnedSide === "bottom" && (
             <div className={cx(PANEL, "p-1")}>{pinned}</div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -1094,6 +1224,13 @@ export function ScrollRail({
     // The rail is clamped by its container, so its own box stops growing the
     // moment the content overflows. Watching the children too is what
     // catches a relabelled chip or a late-loading font.
+    /* One more reading after the first paint has actually landed. The
+     * observers below catch every LATER change, but the very first measure
+     * runs against a layout that is still settling — web fonts, a sidebar
+     * finishing its transition — and a rail that armed on that reading can
+     * sit armed with nothing left to fire an observer, fading a trailing
+     * badge that fits perfectly well. Cheap, once, and self-cancelling. */
+    const raf = requestAnimationFrame(measure);
     const ro = new ResizeObserver(measure);
     const watch = () => {
       ro.disconnect();
@@ -1108,6 +1245,7 @@ export function ScrollRail({
     mo.observe(el, { childList: true });
     window.addEventListener("resize", measure);
     return () => {
+      cancelAnimationFrame(raf);
       ro.disconnect();
       mo.disconnect();
       window.removeEventListener("resize", measure);

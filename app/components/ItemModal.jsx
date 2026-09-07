@@ -256,7 +256,7 @@ export default function ItemModal({
                     {activeBatches.length} batch{activeBatches.length > 1 ? "es" : ""}
                   </span>{" "}
                   in production — {activeBatches
-                    .map((b) => `${b.boxWeight || b.estWeight} lb in ${stages[b.stage]}`)
+                    .map((b) => `${b.boxWeight || b.estWeight} lb in ${b.stage}`)
                     .join(", ")}
                 </p>
               )}

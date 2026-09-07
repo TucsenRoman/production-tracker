@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { ArrowLeft, CircleHelp, MessageSquareText, Settings, Sparkles } from "lucide-react";
 
-import { cx } from "../../components/ui";
+import { SlotTarget, cx } from "../../components/ui";
 import AppShell from "../../components/AppShell";
 import { ROLE_LABEL } from "../lib/companyDomain";
 
@@ -20,7 +20,7 @@ import { ROLE_LABEL } from "../lib/companyDomain";
  * Pending invites (Jordan Reyes, "invited") aren't offered — there's no one
  * to "become" yet.
  */
-function AccountSwitcherMenu({ users, locations, currentUser, onSwitch }) {
+function AccountSwitcherMenu({ users, locations, currentUser, onSwitch, twoLocations, onToggleLocations }) {
   const locationName = (id) => locations.find((l) => l.id === id)?.name;
   const scopeFor = (u) =>
     u.locationIds?.length === 1 ? locationName(u.locationIds[0]) : "All locations";
@@ -61,6 +61,39 @@ function AccountSwitcherMenu({ users, locations, currentUser, onSwitch }) {
           );
         })}
       </div>
+
+      {/* Dev affordance, in the menu that already exists to make the console
+       *  lie in useful ways. Most of this app only shows its real shape with
+       *  more than one location — Team's scope control and per-location lead
+       *  PINs, the Locations grid, a location with nothing connected — but
+       *  the everyday demo is one shop, so the second one is a switch rather
+       *  than seed data. Folds Princeton and its two managers in and out. */}
+      {onToggleLocations && (
+        <div className="px-3 py-2.5 border-t border-line">
+          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-ink-4">Demo data</p>
+          <div className="mt-1.5 flex items-center gap-1">
+            {[
+              { value: false, label: "One location" },
+              { value: true, label: "Two" },
+            ].map((o) => (
+              <button
+                key={String(o.value)}
+                type="button"
+                aria-pressed={twoLocations === o.value}
+                onClick={() => onToggleLocations(o.value)}
+                className={cx(
+                  "px-2 h-7 rounded-md text-xs font-medium transition-colors duration-100",
+                  twoLocations === o.value
+                    ? "bg-hover text-ink"
+                    : "text-ink-2 hover:bg-faint hover:text-ink"
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="p-1 border-t border-line">
         <a
@@ -157,6 +190,8 @@ export default function ConsoleShell({
   userMenuOpen,
   onUserMenuOpenChange,
   onSwitchUser,
+  twoLocations,
+  onToggleLocations,
   brandMenuOpen,
   onBrandMenuOpenChange,
   onOpenSettings,
@@ -182,11 +217,23 @@ export default function ConsoleShell({
           locations={bundle.locations}
           currentUser={currentUser}
           onSwitch={onSwitchUser}
+          twoLocations={twoLocations}
+          onToggleLocations={onToggleLocations}
         />
       }
       brandMenuOpen={brandMenuOpen}
       onBrandMenuOpenChange={onBrandMenuOpenChange}
       brandMenu={<BrandMenu onOpenSettings={onOpenSettings} onOpenFeedback={onOpenFeedback} onOpenPricing={onOpenPricing} />}
+      /* The floor shell (ProductionTracker.jsx) has always wired this; the
+       * console never did, so a console screen posting to `page-subtitle`
+       * rendered nothing. Same target, same classes — `empty:hidden` so a
+       * screen with nothing to say costs no space. */
+      pageSubtitle={
+        <SlotTarget
+          name="page-subtitle"
+          className="empty:hidden mt-1 text-sm text-ink-2 leading-normal"
+        />
+      }
     >
       {children}
     </AppShell>

@@ -1,19 +1,21 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Pencil, ShieldCheck, ShieldPlus, Trash2, Wrench } from "lucide-react";
 
 import {
   Button,
   Card,
   IconButton,
+  Modal,
   RowActions,
   SectionHeading,
   Segmented,
   StickyFadeHeader,
   cx,
 } from "../../components/ui";
-import { GATED_ACTIONS } from "../lib/companyDomain";
+import { GATED_ACTIONS, ROLE_LABEL } from "../lib/companyDomain";
+import { useActionAccess } from "../lib/actionAccess";
 
 /* The two PIN modes as one labelled control. They were a Badge plus a
  * Switch: the badge said the state and the switch said it again, and the
@@ -26,6 +28,70 @@ const PIN_MODES = [
   { value: "lead", label: "Lead PIN" },
   { value: "any", label: "Any station PIN" },
 ];
+
+/**
+ * Who may do one targeted action.
+ *
+ * The row's "Change people" button used to open a toast explaining it was a
+ * mock. It is a real picker now, because the first targeted permission that
+ * actually matters — moving a tablet between shops — is not something you can
+ * express as a company-wide lead/any toggle.
+ *
+ * Everyone on the roster is listed, admins included: seniority is not the
+ * question here. "Who is trusted to re-point a terminal" is a different
+ * question from "who is senior", and a rule that answers the second while
+ * pretending to answer the first is how a permission screen ends up lying.
+ */
+function AccessDialog({ action, users, selected, onCancel, onSave }) {
+  const [ids, setIds] = useState(selected);
+  const toggle = (id) =>
+    setIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  return (
+    <Modal
+      open
+      onClose={onCancel}
+      title={action.label}
+      icon={ShieldCheck}
+      footer={
+        <>
+          {/* Named plainly rather than left to be inferred from an empty list.
+            * Nobody selected is a real, and sometimes correct, answer — but it
+            * should never be one you arrived at by accident. */}
+          {ids.length === 0 && (
+            <p className="mr-auto text-xs text-danger">No one will be able to do this.</p>
+          )}
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => onSave(ids)}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <p className="text-xs text-ink-3 leading-relaxed mb-3">{action.detail}</p>
+      <div className="space-y-1.5">
+        {users.map((u) => {
+          const on = ids.includes(u.id);
+          return (
+            <label
+              key={u.id}
+              className={cx(
+                "flex items-center gap-2.5 px-3 py-2 rounded-md border cursor-pointer text-sm",
+                on ? "border-line-strong bg-hover text-ink" : "border-line text-ink-2 hover:bg-hover"
+              )}
+            >
+              <input type="checkbox" checked={on} onChange={() => toggle(u.id)} className="accent-current" />
+              <span className="min-w-0 flex-1 truncate">{u.name}</span>
+              <span className="text-xs text-ink-4 shrink-0">{ROLE_LABEL[u.role]}</span>
+            </label>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
 
 /** How the named people on a targeted action read in the value slot. */
 function accessSummary(people) {
@@ -120,8 +186,15 @@ function PermissionRow({ action, requiresLead, people, onToggle, onManageAccess,
   );
 }
 
-export default function PermissionsScreen({ permissions, onToggle, customActions, onRemoveCustom, onRequest, users = [], onManageAccess }) {
+export default function PermissionsScreen({ permissions, onToggle, customActions, onRemoveCustom, onRequest, users = [] }) {
   const actions = [...GATED_ACTIONS, ...customActions];
+
+  /* Read straight from the shared store rather than through props: the shop
+   * floor needs the same answer, and it lives in a different React tree, so
+   * threading this one down through the console would only ever supply half
+   * the readers. */
+  const { idsFor, setIdsFor } = useActionAccess();
+  const [managing, setManaging] = useState(null);
 
   /* Two sections: what ships with the product, and what this company added
    * itself. */
@@ -152,11 +225,11 @@ export default function PermissionsScreen({ permissions, onToggle, customActions
       requiresLead={Boolean(permissions[action.id])}
       people={
         action.targeted
-          ? (action.accessUserIds || []).map((id) => users.find((u) => u.id === id)).filter(Boolean)
+          ? idsFor(action.id).map((id) => users.find((u) => u.id === id)).filter(Boolean)
           : undefined
       }
       onToggle={onToggle}
-      onManageAccess={onManageAccess}
+      onManageAccess={setManaging}
       onRemove={() => onRemoveCustom(action.id)}
     />
   );
@@ -223,6 +296,19 @@ export default function PermissionsScreen({ permissions, onToggle, customActions
           </Card>
         )}
       </div>
+
+      {managing && (
+        <AccessDialog
+          action={managing}
+          users={users}
+          selected={idsFor(managing.id)}
+          onCancel={() => setManaging(null)}
+          onSave={(ids) => {
+            setIdsFor(managing.id, ids);
+            setManaging(null);
+          }}
+        />
+      )}
     </div>
   );
 }

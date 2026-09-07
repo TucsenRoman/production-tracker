@@ -2,13 +2,14 @@
 
 import React, { useState } from "react";
 import {
+  ArrowDownAZ,
+  ArrowUpAZ,
   Dices,
-  List,
   Mail,
   MapPin,
-  Network,
   Pencil,
   Plus,
+  Send,
   ShieldCheck,
   Trash2,
   UserCog,
@@ -19,6 +20,7 @@ import {
 import {
   Badge,
   Button,
+  Dropdown,
   EmptyState,
   Field,
   IconButton,
@@ -28,9 +30,12 @@ import {
   SearchInput,
   SectionHeading,
   Segmented,
+  Slot,
   StickyFadeHeader,
+  Tooltip,
   cx,
 } from "../../components/ui";
+import { relativeTime } from "../../lib/domain";
 import {
   ROLES,
   ROLE_LABEL,
@@ -41,8 +46,13 @@ import {
   newCompanyId,
 } from "../lib/companyDomain";
 
-const ROLE_TONE = { admin: "info", manager: "neutral" };
-const TIER_ORDER = ["admin", "manager"];
+/* The two orders the toolbar's sort button flips between. Role sections are
+ * fixed — rank is not a preference — so this only ever reorders names inside
+ * a section. Same icons the floor Inventory screen's own sort cycles use. */
+const NAME_SORTS = [
+  { label: "A–Z", icon: ArrowDownAZ, compare: (a, b) => a.name.localeCompare(b.name) },
+  { label: "Z–A", icon: ArrowUpAZ, compare: (a, b) => b.name.localeCompare(a.name) },
+];
 
 /* One icon per role, so a section is identifiable before you read it. */
 const ROLE_ICON = { admin: ShieldCheck, manager: UserCog };
@@ -53,6 +63,56 @@ const ROLE_RANK = { admin: 2, manager: 1 };
 const roleRank = (role) => ROLE_RANK[role] || 0;
 
 const initials = (name) => name.split(" ").map((p) => p[0]).slice(0, 2).join("");
+
+/**
+ * A person, as a face if we have one and as their initials if we don't —
+ * same component the Locations detail page uses, so a teammate looks like
+ * the same teammate on both screens. The photo is demo seed data
+ * (COMPANY_SEED.users); the initials path is what a real account gets.
+ */
+function Avatar({ user, size = 30, className }) {
+  /* `avatarUrl` may point off-site (the demo's second location hotlinks its
+   * two headshots), and an image that never arrives used to leave a blank
+   * grey disc — strictly worse than the initials it replaced. One failed
+   * load and this falls back to the path a real account gets anyway. */
+  const [failed, setFailed] = useState(false);
+  const dim = { width: size, height: size };
+  if (user.avatarUrl && !failed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={user.avatarUrl} alt="" style={dim} onError={() => setFailed(true)}
+        className={cx("rounded-full object-cover bg-hover shrink-0", className)} />
+    );
+  }
+  return (
+    <span style={dim}
+      className={cx(
+        "flex items-center justify-center rounded-full bg-hover text-ink-2 font-semibold shrink-0",
+        size >= 30 ? "text-xs" : "text-[11px]",
+        className
+      )}
+    >
+      {initials(user.name)}
+    </span>
+  );
+}
+
+/* What granting each role actually hands over, in the words of the rail the
+ * person will see. Derived from nav.js's EXCLUSIVE adminOnly/managerOnly
+ * split: these are two different jobs, not two rungs, and the invite dialog
+ * is the one moment where getting that wrong is expensive. */
+const ROLE_BLURB = {
+  admin: "Runs the company account — team, permissions, locations, stations, and Insights across every location. Does not see the day-to-day floor screens.",
+  manager: "Runs the floor at their locations — Targets, Assignments, Inventory and Insights. No access to company settings.",
+};
+
+/* A location a person is assigned to, plus whether they hold a lead PIN
+ * there. One object, because on the roster those two facts were being
+ * printed as two separate lines that both named the same place. */
+const assignmentsFor = (user, locations, crewPins) =>
+  locations
+    .filter((l) => user.locationIds.includes(l.id))
+    .map((l) => ({ location: l, pin: leadPinFor(crewPins, user.id, l.id) }));
 
 function LocationChecklist({ locations, selected, onToggle }) {
   if (locations.length === 0) {
@@ -80,7 +140,13 @@ function LocationChecklist({ locations, selected, onToggle }) {
 }
 
 function InviteDialog({ locations, onCancel, onInvite }) {
-  const [form, setForm] = useState({ name: "", email: "", role: "manager", locationIds: [] });
+  /* One location means there is no choice to make — preselect it. Leaving
+   * the only checkbox empty and the primary button greyed is a puzzle, not
+   * a decision. */
+  const [form, setForm] = useState({
+    name: "", email: "", role: "manager",
+    locationIds: locations.length === 1 ? [locations[0].id] : [],
+  });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const toggleLoc = (id) =>
     setForm((f) => ({
@@ -88,7 +154,17 @@ function InviteDialog({ locations, onCancel, onInvite }) {
       locationIds: f.locationIds.includes(id) ? f.locationIds.filter((x) => x !== id) : [...f.locationIds, id],
     }));
 
-  const valid = form.name.trim() && isValidEmail(form.email) && form.locationIds.length > 0;
+  /* Say WHICH field is holding the button, rather than greying it out and
+   * leaving the person to guess. First unmet requirement wins — a list of
+   * three complaints on an empty form is nagging. */
+  const blocker = !form.name.trim()
+    ? "Add a name."
+    : !isValidEmail(form.email)
+      ? "Add a valid email address."
+      : form.locationIds.length === 0
+        ? "Pick at least one location."
+        : null;
+  const valid = !blocker;
 
   return (
     <Modal
@@ -97,6 +173,7 @@ function InviteDialog({ locations, onCancel, onInvite }) {
       title="Invite a teammate" icon={UserPlus}
       footer={
         <>
+          {blocker && <p className="mr-auto text-xs text-ink-4">{blocker}</p>}
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
@@ -136,6 +213,11 @@ function InviteDialog({ locations, onCancel, onInvite }) {
             onChange={(v) => set("role", v)}
             options={ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
           />
+          {/* The highest-consequence field on the form used to be a bare
+           *  two-word toggle. What the two roles actually reach is defined a
+           *  screen away, in the rail itself — say it here, at the moment
+           *  it is being handed over. */}
+          <p className="mt-2 text-xs text-ink-4 leading-relaxed">{ROLE_BLURB[form.role]}</p>
         </Field>
         <Field label="Locations">
           <LocationChecklist locations={locations} selected={form.locationIds} onToggle={toggleLoc} />
@@ -175,6 +257,7 @@ function EditDialog({ user, locations, onCancel, onSave }) {
             onChange={setRole}
             options={ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
           />
+          <p className="mt-2 text-xs text-ink-4 leading-relaxed">{ROLE_BLURB[role]}</p>
         </Field>
         <Field label="Locations">
           <LocationChecklist locations={locations} selected={locationIds} onToggle={toggleLoc} />
@@ -249,53 +332,68 @@ function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave, on
   );
 }
 
-function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemovePin }) {
+/**
+ * Where a person works, and whether they can authorise a gated action there.
+ *
+ * These used to be two things: a grey line listing every location by name,
+ * and below it a row of pills that each named the SAME location again next
+ * to four dots. At one location that's a word printed twice; at four it's
+ * eight place names stacked in one row of a roster. So they are one thing
+ * now — the location is said once, and the PIN is a state ON it.
+ *
+ * Each unit is still one control at --ctl-h opening the dialog that holds
+ * the digits; the capsule is gone because a masked PIN was carrying more
+ * chrome than the person's own name.
+ */
+function PersonAssignments({ user, locations, crewPins, onAddPin, onUpdatePin, onRemovePin }) {
   const [editing, setEditing] = useState(null); // { location, existing }
-  const assigned = locations.filter((l) => user.locationIds.includes(l.id));
+  const assignments = assignmentsFor(user, locations, crewPins);
   const allPins = crewPins.map((p) => p.pin);
 
-  // Nothing to issue a PIN against. The row's own meta line already says
-  // "No locations assigned", so a second sentence saying it again here would
-  // be noise rather than an explanation.
-  if (assigned.length === 0) return null;
+  if (assignments.length === 0) {
+    return <p className="text-xs text-ink-4">No locations assigned</p>;
+  }
+
+  /* An invited teammate has no account for a personal PIN to hang off yet.
+   * Say it once at the end of the row rather than once per location — with
+   * four locations the old per-row sentence was four sentences. */
+  if (user.status !== "active") {
+    return (
+      <p className="text-xs text-ink-3">
+        {assignments.map((a) => a.location.name).join(", ")}
+        <span className="text-ink-4"> · lead PINs open up once they accept</span>
+      </p>
+    );
+  }
 
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      {assigned.map((loc) => {
-        const existing = leadPinFor(crewPins, user.id, loc.id);
-        const shortName = loc.name.includes("—") ? loc.name.split("—").pop().trim() : loc.name;
-        // Each chip is ONE control at --ctl-h, the height every other button
-        // on the screen uses. It used to be a label plus two ~10px icon
-        // buttons, the smallest targets in the app by a wide margin; edit and
-        // revoke both moved into the dialog the chip opens.
-        return existing ? (
+    <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 -ml-2">
+      {assignments.map(({ location, pin }) => (
+        <Tooltip
+          key={location.id}
+          label={pin ? `Manage ${user.name.split(" ")[0]}'s lead PIN at ${location.name}` : `Issue a lead PIN for ${location.name}`}
+        >
           <button
-            key={loc.id}
-            type="button" title={`Manage lead PIN for ${loc.name}`}
-            onClick={() => setEditing({ location: loc, existing })}
-            className="inline-flex items-center gap-1.5 h-[var(--ctl-h)] px-2.5 rounded-full bg-sunken text-xs text-ink-3 hover:bg-hover hover:text-ink transition-colors"
+            type="button"
+            onClick={() => setEditing({ location, existing: pin })}
+            className="inline-flex items-center gap-1.5 h-[var(--ctl-h)] px-2 rounded-md text-xs text-ink-2 hover:bg-hover hover:text-ink transition-colors"
           >
-            <ShieldCheck size={12} className="text-icon-2 shrink-0" />
-            {/* Masked, always. A floor door code printed on the roster is
-             *  legible to anyone walking past the desk or watching the
-             *  screenshare; the chip says a PIN exists, and the dialog
-             *  behind it is where the digits are. */}
-            <span>{shortName}:</span>
-            <span aria-label="PIN set, hidden" className="font-mono font-semibold tracking-[0.2em] text-ink-2">
-              ••••
-            </span>
+            <span className="truncate max-w-40">{location.name}</span>
+            {pin ? (
+              <>
+                <ShieldCheck size={11} className="text-icon-2 shrink-0" />
+                {/* Masked, always. A code printed down a roster is legible to
+                 *  anyone passing the desk or watching the screenshare. */}
+                <span aria-label="lead PIN set, hidden" className="font-mono font-semibold tracking-[0.2em] text-ink-3">
+                  ••••
+                </span>
+              </>
+            ) : (
+              <span className="text-ink-4">no PIN</span>
+            )}
           </button>
-        ) : (
-          <button
-            key={loc.id}
-            type="button" title={`Issue a lead PIN for ${loc.name}`}
-            onClick={() => setEditing({ location: loc, existing: null })}
-            className="inline-flex items-center gap-1.5 h-[var(--ctl-h)] px-2.5 rounded-full border border-dashed border-line-strong text-xs text-ink-3 hover:text-ink hover:border-ink-4 transition-colors"
-          >
-            <Plus size={12} /> {shortName} PIN
-          </button>
-        );
-      })}
+        </Tooltip>
+      ))}
 
       {editing && (
         <LeadPinDialog
@@ -322,9 +420,24 @@ function LeadPinChips({ user, locations, crewPins, onAddPin, onUpdatePin, onRemo
   );
 }
 
+/* When someone arrived, in the only two forms that are worth a column:
+ * a pending invite is measured in days because the answer decides whether
+ * to resend it; an accepted one is measured in months because nothing on
+ * this screen turns on the exact day. */
+function sinceLabel(user) {
+  if (!user.invitedAt) return null;
+  if (user.status !== "active") return `sent ${relativeTime(user.invitedAt)}`;
+  const d = new Date(user.invitedAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return `added ${d.toLocaleDateString(undefined, { month: "short", year: "numeric" })}`;
+}
+
 /* -------------------------------------------------------------- List view -- */
 
-function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, onAddPin, onUpdatePin, onRemovePin }) {
+function TeamList({
+  users, locations, currentUser, crewPins, compareNames,
+  onEdit, onRemove, onResend, onAddPin, onUpdatePin, onRemovePin,
+}) {
   if (users.length === 0) {
     return (
       <div className="border-b border-line">
@@ -341,7 +454,7 @@ function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, o
    * small reads as broken rather than tidy. Sort by rank first, then a
    * single pass is enough to group. */
   const ordered = [...users].sort(
-    (a, b) => roleRank(b.role) - roleRank(a.role) || a.name.localeCompare(b.name)
+    (a, b) => roleRank(b.role) - roleRank(a.role) || compareNames(a, b)
   );
   const groups = [];
   for (const person of ordered) {
@@ -363,51 +476,62 @@ function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, o
              *  "these belong to that heading". */}
             <ul className="pl-6">
               {people.map((u) => {
-                const assigned = locations.filter((l) => u.locationIds.includes(l.id));
                 // No more a single locked "owner" role — the guard now is just
                 // "you can't edit or remove yourself from here" (same idea as the
                 // floor roster's own self-exclusion).
                 const locked = u.id === currentUser.id;
+                const since = sinceLabel(u);
                 return (
+                  /* A row, not a stack. This used to be four lines in a
+                   *  ~110px band occupying the left third of a 1440px window,
+                   *  with the section rule above it drawing a table edge over
+                   *  nothing. Identity holds a fixed column so every name and
+                   *  email lines up down the group; where they work runs in
+                   *  the middle; when they arrived sits right, against the
+                   *  actions. Fifteen people now fit on one screen. */
                   <li
                     key={u.id}
-                    className="group flex items-center gap-3 py-3 px-1 rounded-md transition-colors hover:bg-faint"
+                    className="group flex items-center gap-4 py-2 px-1 rounded-md transition-colors hover:bg-faint"
                   >
-                    <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-2 text-xs font-semibold shrink-0">
-                      {initials(u.name)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
+                    <Avatar user={u} size={30} />
+
+                    <div className="w-56 shrink-0 min-w-0">
+                      <div className="flex items-center gap-1.5">
                         <p className="text-sm font-medium text-ink truncate">{u.name}</p>
-                        {u.status === "invited" && <Badge tone="warn">Invited</Badge>}
+                        {u.status !== "active" && <Badge tone="warn">Pending</Badge>}
                         {u.id === currentUser.id && <Badge tone="info">You</Badge>}
                       </div>
                       <p className="text-xs text-ink-3 truncate">{u.email}</p>
-                      <p className="mt-0.5 text-xs text-ink-4 truncate">
-                        {assigned.length === 0 ? "No locations assigned" : assigned.map((l) => l.name).join(", ")}
-                      </p>
-                      {/* An invited teammate has no account to attach a
-                       *  personal PIN to yet. Saying so where the chips would
-                       *  be beats rendering nothing: two rows listing the same
-                       *  locations, one with chips and one blank, otherwise
-                       *  reads as a bug. */}
-                      {u.status === "active" ? (
-                        <LeadPinChips
-                          user={u}
-                          locations={locations}
-                          crewPins={crewPins}
-                          onAddPin={onAddPin}
-                          onUpdatePin={onUpdatePin}
-                          onRemovePin={onRemovePin}
-                        />
-                      ) : (
-                        <p className="mt-1.5 text-xs text-ink-4">
-                          Lead PINs open up once {u.name.split(" ")[0]} accepts the invite.
-                        </p>
-                      )}
                     </div>
-                    {!locked && (
+
+                    <div className="flex-1 min-w-0">
+                      <PersonAssignments
+                        user={u}
+                        locations={locations}
+                        crewPins={crewPins}
+                        onAddPin={onAddPin}
+                        onUpdatePin={onUpdatePin}
+                        onRemovePin={onRemovePin}
+                      />
+                    </div>
+
+                    {/* Fixed width so the column holds its edge whether or not
+                     *  a given person has a date, and so the actions below
+                     *  never move left and right between rows. */}
+                    <span className="w-28 shrink-0 text-right text-xs text-ink-4 truncate">{since}</span>
+
+                    {!locked ? (
                       <RowActions>
+                        {/* An invite you cannot chase is a dead row. The old
+                         *  one offered a sentence about what you could not do
+                         *  yet, where the one action that matters belongs. */}
+                        {u.status === "invited" && (
+                          <IconButton
+                            label={`Resend invite to ${u.name}`}
+                            icon={Send} size={14}
+                            onClick={() => onResend(u)}
+                          />
+                        )}
                         <IconButton label={`Edit ${u.name}`} icon={Pencil} size={14} onClick={() => onEdit(u)} />
                         <IconButton
                           label={`Remove ${u.name}`}
@@ -417,6 +541,10 @@ function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, o
                           className="hover:text-danger"
                         />
                       </RowActions>
+                    ) : (
+                      /* Your own row has no controls, on purpose. Hold the
+                       * space anyway so the column above it stays straight. */
+                      <span className="w-[62px] shrink-0" aria-hidden="true" />
                     )}
                   </li>
                 );
@@ -425,153 +553,6 @@ function TeamList({ users, locations, currentUser, crewPins, onEdit, onRemove, o
           </div>
         );
       })}
-    </div>
-  );
-}
-
-/* --------------------------------------------------------- Hierarchy view -- */
-
-function PersonCard({ user, currentUser, locations, onEdit, onRemove }) {
-  const assigned = locations.filter((l) => user.locationIds.includes(l.id));
-  const locked = user.id === currentUser.id;
-
-  return (
-    <div className="w-56 shrink-0 rounded-md border border-line bg-surface p-3 shadow-xs">
-      <div className="flex items-start gap-2.5">
-        <span className="flex items-center justify-center w-7 h-7 rounded-full bg-hover text-ink-2 text-xs font-semibold shrink-0">
-          {initials(user.name)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <p className="text-sm font-medium text-ink truncate">{user.name}</p>
-            {user.id === currentUser.id && <Badge tone="info">You</Badge>}
-          </div>
-          <p className="text-xs text-ink-3 truncate">{user.email}</p>
-        </div>
-      </div>
-      <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-line">
-        <span className="min-w-0 flex-1 text-xs text-ink-4 truncate">
-          {assigned.length === 0 ? "No locations" : assigned.map((l) => l.name).join(", ")}
-        </span>
-        {!locked && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            <IconButton label={`Edit ${user.name}`} icon={Pencil} size={12} onClick={() => onEdit(user)} />
-            <IconButton
-              label={`Remove ${user.name}`}
-              icon={Trash2}
-              size={12}
-              onClick={() => onRemove(user.id)}
-              className="hover:text-danger"
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Connector() {
-  return (
-    <div className="flex justify-center">
-      <span className="w-px h-5 bg-line-strong" />
-    </div>
-  );
-}
-
-function TeamHierarchy({ users, locations, currentUser, onEdit, onRemove }) {
-  const active = users.filter((u) => u.status === "active");
-  const pending = users.filter((u) => u.status !== "active");
-
-  const byTier = Object.fromEntries(TIER_ORDER.map((t) => [t, active.filter((u) => u.role === t)]));
-
-  const managerGroups = [];
-  const managers = byTier.manager;
-  const grouped = new Set();
-  locations.forEach((loc) => {
-    const here = managers.filter((m) => m.locationIds.includes(loc.id));
-    if (here.length) {
-      here.forEach((m) => grouped.add(m.id));
-      managerGroups.push({ key: loc.id, label: loc.name, people: here });
-    }
-  });
-  const unassigned = managers.filter((m) => !grouped.has(m.id));
-  if (unassigned.length) managerGroups.push({ key: "unassigned", label: "No location assigned", people: unassigned });
-
-  if (active.length === 0) {
-    return (
-      <div className="border-b border-line">
-        <EmptyState icon={Network} title="Nothing to chart yet" description="Invite a teammate to see your org take shape." />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      {byTier.admin.length > 0 && (
-        <section>
-          <SectionHeading
-            icon={ROLE_ICON.admin}
-            label={ROLE_LABEL.admin}
-            count={byTier.admin.length}
-            className="mb-3"
-          />
-          <div className="flex flex-wrap justify-center gap-3">
-            {byTier.admin.map((u) => (
-              <PersonCard key={u.id} user={u} currentUser={currentUser} locations={locations} onEdit={onEdit} onRemove={onRemove} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {byTier.manager.length > 0 && (
-        <>
-          <Connector />
-          <section>
-            <SectionHeading
-              icon={ROLE_ICON.manager}
-              label={ROLE_LABEL.manager}
-              count={byTier.manager.length}
-              className="mb-3"
-            />
-            <div className="flex flex-wrap justify-center gap-4">
-              {managerGroups.map((group) => (
-                <div key={group.key} className="rounded-md border border-line bg-sunken/60 p-3">
-                  <p className="flex items-center gap-1.5 text-xs font-medium text-ink-3 mb-2.5">
-                    <MapPin size={11} /> {group.label}
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    {group.people.map((u) => (
-                      <PersonCard key={u.id} user={u} currentUser={currentUser} locations={locations} onEdit={onEdit} onRemove={onRemove} />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </>
-      )}
-
-      {pending.length > 0 && (
-        <section className="pt-2 border-t border-line">
-          <p className="flex items-center gap-1.5 text-xs font-medium text-ink-3 mt-4 mb-2.5">
-            <Mail size={12} /> Pending invites ({pending.length}) — not yet part of the chart
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {pending.map((u) => (
-              <div
-                key={u.id}
-                className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border border-dashed border-line-strong text-xs text-ink-3"
-              >
-                <span className="flex items-center justify-center w-7 h-7 rounded-full bg-sunken text-ink-4 text-xs font-semibold">
-                  {initials(u.name)}
-                </span>
-                <span>{u.name}</span>
-                <Badge tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role]}</Badge>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
@@ -586,62 +567,149 @@ export default function TeamScreen({
   onInvite,
   onUpdate,
   onRemove,
+  onResend,
   onAddPin,
   onUpdatePin,
   onRemovePin,
 }) {
-  const [view, setView] = useState("list");
+  const [tab, setTab] = useState("all");
+  const [locIds, setLocIds] = useState([]);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
+  const [sortIdx, setSortIdx] = useState(0);
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState(null);
 
-  const visible = users.filter((u) => {
-    if (status !== "all" && u.status !== status) return false;
-    const q = query.toLowerCase();
-    return !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
-  });
+  const multiLocation = locations.length > 1;
+  const gapFor = (u) =>
+    u.status === "active" && assignmentsFor(u, locations, crewPins).some((a) => !a.pin);
+
+  /* Location is a SCOPE, not a view. The two are different questions — "which
+   * of these people am I looking at" versus "at which of my plants" — and
+   * they compose: Princeton AND Foley, with no lead PIN. It sits in the page
+   * header rather than the toolbar because it frames the whole screen,
+   * subtitle included, the way the title does. Nothing ticked means every
+   * location, so the menu needs no "All" row — only a way back, which is the
+   * pinned panel under the list. */
+  const inScope = (u) => locIds.length === 0 || locIds.some((id) => u.locationIds.includes(id));
+  const scoped = users.filter(inScope);
+
+  /* Named views, each carrying its own count — the shape TasksScreen
+   * established, badges and all. Counts are of the SCOPED roster, so picking
+   * Princeton and reading "No lead PIN 3" means three at Princeton, not three
+   * company-wide of whom some are elsewhere. */
+  const TABS = [
+    { id: "all", label: "Everyone", icon: Users, match: () => true },
+    { id: "pin", label: "No lead PIN", icon: ShieldCheck, match: gapFor },
+    { id: "pending", label: "Pending", icon: Mail, match: (u) => u.status !== "active" },
+  ].map((t) => ({ ...t, count: scoped.filter(t.match).length }));
+
+  const activeTab = TABS.find((t) => t.id === tab) || TABS[0];
+  const q = query.trim().toLowerCase();
+  const visible = scoped
+    .filter(activeTab.match)
+    .filter((u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+
+  /* What needs you, in one sentence. The oldest outstanding invite wins — it
+   * is the only thing here that goes stale on its own. Failing that, the
+   * people who cannot authorise anything on the floor yet. Failing both,
+   * nothing: a subtitle that always speaks stops being read. */
+  const stalest = scoped
+    .filter((u) => u.status !== "active" && u.invitedAt)
+    .sort((a, b) => new Date(a.invitedAt) - new Date(b.invitedAt))[0];
+  const gapCount = scoped.filter(gapFor).length;
+  const subtitle = stalest ? (
+    <span>
+      <span className="font-medium text-ink">{stalest.name}</span>&rsquo;s invite has been out{" "}
+      <span className="font-medium">{relativeTime(stalest.invitedAt).replace(" ago", "")}</span> without
+      an answer.
+    </span>
+  ) : gapCount > 0 ? (
+    <span>
+      <span className="font-medium text-ink">{gapCount}</span>{" "}
+      {gapCount === 1 ? "person has" : "people have"} no lead PIN yet, so nothing gated can be
+      authorised in their name.
+    </span>
+  ) : null;
 
   return (
     <div>
-      {/* One page-level toolbar, same as the Tasks screen: the view switch,
-       *  the filters that belong to it and the one primary action, all in a
-       *  single row that stays put while the roster scrolls under it and
-       *  fades its own bottom edge. The two Segmented controls in the
-       *  dialogs below are form fields, not view state, so they stay put. */}
+      {/* The scope lives in the page header the shell already draws, beside
+       *  the title: it frames everything under it, subtitle included, so it
+       *  belongs with the thing that names the page rather than in the row of
+       *  controls that only narrows the list. */}
+      {multiLocation && (
+        <Slot name="page-actions">
+          <Dropdown
+            multiple
+            aria-label="Limit to locations"
+            icon={MapPin}
+            placeholder="All locations"
+            summary={(n) => `${n} locations`}
+            value={locIds}
+            onChange={setLocIds}
+            options={locations.map((l) => ({ value: l.id, label: l.name }))}
+            /* The panel that clears the scope is not one of the places you
+             * can scope to, so it gets its own surface under the list —
+             * what `pinned` is for. Absent until there is something to
+             * clear. */
+            pinned={
+              locIds.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setLocIds([])}
+                  className="w-full flex items-center justify-center h-[var(--row-h)] rounded-md text-sm text-ink-3 hover:text-ink hover:bg-faint transition-colors duration-100"
+                >
+                  All locations
+                </button>
+              ) : null
+            }
+            pinnedSide="bottom"
+          />
+        </Slot>
+      )}
+
+      <Slot name="page-subtitle">{subtitle}</Slot>
+
+      {/* One toolbar, same shape as the Tasks screen: named views with their
+       *  own counted badges on the left, and on the right the controls that
+       *  act on what those views produced — find one person, flip the order,
+       *  add somebody. */}
       <StickyFadeHeader>
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
-            <Segmented
-              value={view}
-              onChange={setView}
-              options={[
-                { value: "list", label: "List", icon: List },
-                { value: "hierarchy", label: "Hierarchy", icon: Network },
-              ]}
-            />
-            {view === "list" && (
-              <Segmented
-                value={status}
-                onChange={setStatus}
-                options={[
-                  { value: "all", label: "All" },
-                  { value: "active", label: "Active" },
-                  { value: "invited", label: "Invited" },
-                ]}
-              />
-            )}
-            {view === "list" && (
-              <SearchInput
-                value={query}
-                onChange={setQuery}
-                placeholder="Search teammates…"
-                className="flex-1 min-w-52"
-              />
-            )}
-          </div>
+          {/* No `fade` here, unlike Tasks: three chips never outgrow the row,
+           *  and the fade band is what was eating the trailing badge — an
+           *  armed rail masks its own right edge, and "Pending" is the last
+           *  chip. Tasks gets away with it because its last tab is the one
+           *  deliberately left uncounted. */}
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            className="min-w-0"
+            options={TABS.map((t) => ({
+              value: t.id,
+              label: t.label,
+              icon: t.icon,
+              /* Everyone is the resting state, not a queue with a number
+               * that wants something from you — same reason Tasks leaves
+               * Completed unbadged. */
+              count: t.id === "all" ? undefined : t.count,
+            }))}
+          />
 
           <div className="flex items-center gap-1.5 shrink-0">
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Search teammates…"
+              className="w-52"
+            />
+            <Tooltip label={`Sorted ${NAME_SORTS[sortIdx].label} — tap to flip`}>
+              <IconButton
+                label={`Sort by name: ${NAME_SORTS[sortIdx].label}`}
+                icon={NAME_SORTS[sortIdx].icon}
+                onClick={() => setSortIdx((i) => (i + 1) % NAME_SORTS.length)}
+              />
+            </Tooltip>
             <Button variant="primary" icon={UserPlus} onClick={() => setInviting(true)}>
               Invite
             </Button>
@@ -650,21 +718,19 @@ export default function TeamScreen({
       </StickyFadeHeader>
 
       <div className="space-y-5">
-        {view === "list" ? (
-          <TeamList
-            users={visible}
-            locations={locations}
-            currentUser={currentUser}
-            crewPins={crewPins}
-            onEdit={setEditing}
-            onRemove={onRemove}
-            onAddPin={onAddPin}
-            onUpdatePin={onUpdatePin}
-            onRemovePin={onRemovePin}
-          />
-        ) : (
-          <TeamHierarchy users={users} locations={locations} currentUser={currentUser} onEdit={setEditing} onRemove={onRemove} />
-        )}
+        <TeamList
+          users={visible}
+          locations={locations}
+          currentUser={currentUser}
+          crewPins={crewPins}
+          compareNames={NAME_SORTS[sortIdx].compare}
+          onEdit={setEditing}
+          onRemove={onRemove}
+          onResend={onResend}
+          onAddPin={onAddPin}
+          onUpdatePin={onUpdatePin}
+          onRemovePin={onRemovePin}
+        />
       </div>
 
       {inviting && (
