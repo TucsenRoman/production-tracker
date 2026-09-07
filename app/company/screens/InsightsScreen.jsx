@@ -27,6 +27,10 @@ const SERIES_DOT = ["bg-identity-1", "bg-identity-2", "bg-identity-3", "bg-ident
  * longer the only way in. No "trend" chip: the responder's trend branch
  * always returns the same "not enough data yet" line today, so a button
  * that always disappoints isn't worth offering.
+ *
+ * `day` covers a single calendar cell — every day with batches on it gets
+ * the same guaranteed-answer chips as a rolled-up insight card, not just
+ * the raw batch list.
  */
 const QUICK_QUESTIONS = {
   location: [
@@ -38,6 +42,10 @@ const QUICK_QUESTIONS = {
     { label: "How does it compare?", text: "How does it compare across locations?" },
   ],
   overall: [{ label: "Why?", text: "Why is this happening?" }],
+  day: [
+    { label: "Why?", text: "Why is this happening?" },
+    { label: "How does it compare?", text: "How does it compare to the average?" },
+  ],
 };
 
 /**
@@ -57,12 +65,15 @@ function yieldStyle(y) {
 }
 
 /**
- * The detail panel's content when an insight (rather than a day) is
- * selected — same deterministic per-card "Ask about this" Q&A the old
- * card list had (see ../lib/insights), just with one insight in view at a
- * time instead of several boxes stacked on the page at once.
+ * The detail panel's content for anything with a deterministic `context`
+ * bundle behind it — a rolled-up insight card, or a single calendar day.
+ * Same "Ask about this" Q&A either way (see ../lib/insights): a narrative
+ * header, then guaranteed-answer chips, freeform as a fallback, and a
+ * running thread. `children`, when given, renders between the narrative
+ * and the chips — used to slot in a day's batch list without it needing
+ * its own separate Q&A wiring.
  */
-function InsightDetail({ card }) {
+function InsightDetail({ card, children }) {
   const Icon = TONE_ICON[card.tone];
   const [question, setQuestion] = useState("");
   const [thread, setThread] = useState([]);
@@ -92,11 +103,13 @@ function InsightDetail({ card }) {
         </div>
       </div>
 
-      {/* Chips first, always visible -- no click just to find out this is
-       *  interactive. Each one is a guaranteed real answer (see
-       *  QUICK_QUESTIONS above); freeform is opt-in via the last pill,
-       *  since it's the one path that can dead-end in a generic fallback. */}
       <div className="pl-[26px] mt-3">
+        {children && <div className="mb-3">{children}</div>}
+
+        {/* Chips first, always visible -- no click just to find out this is
+         *  interactive. Each one is a guaranteed real answer (see
+         *  QUICK_QUESTIONS above); freeform is opt-in via the last pill,
+         *  since it's the one path that can dead-end in a generic fallback. */}
         <div className="flex items-center flex-wrap gap-1.5">
           {quick.map((qq) => (
             <button
@@ -163,6 +176,12 @@ function InsightDetail({ card }) {
  * card list had — `insights.cards`, already sorted by tone — just one at a
  * time, paged with the small dots rather than stacked as boxes).
  *
+ * Every clickable day gets the same treatment as a rolled-up insight card —
+ * a one-line narrative (tone, average yield, anything flagged) plus the
+ * same guaranteed-answer "Ask about this" chips, not just a bare batch
+ * list — via a synthesized `context.type: "day"` card fed through the same
+ * `InsightDetail`/`answerInsightQuestion` machinery the rolled-up cards use.
+ *
  * Scoped by role rather than one fixed view: `insights` and `history` are
  * already pre-filtered by the caller (CompanyConsole) down to whatever
  * locations the signed-in user can see, and each `history` item now
@@ -170,7 +189,7 @@ function InsightDetail({ card }) {
  * with batches from more than one location can show which via small
  * identity-coloured dots instead of needing a separate per-location view.
  */
-export default function InsightsScreen({ scopeLabel, insights, history }) {
+export default function InsightsScreen({ scopeLabel, insights, history, targets = {} }) {
   const [selectedDay, setSelectedDay] = useState(null);
   const [insightIndex, setInsightIndex] = useState(0);
 
@@ -199,7 +218,7 @@ export default function InsightsScreen({ scopeLabel, insights, history }) {
     for (const h of history) {
       const y = yieldPct(h.boxWeight, h.finalWeight);
       if (y == null || !h.closedOn) continue;
-      const point = { ...h, y, flagged: isFlaggedBatch(h) };
+      const point = { ...h, y, flagged: isFlaggedBatch(h, targets) };
       const list = byDate.get(h.closedOn);
       if (list) list.push(point);
       else byDate.set(h.closedOn, [point]);
@@ -220,12 +239,14 @@ export default function InsightsScreen({ scopeLabel, insights, history }) {
       const avgY = batches.length
         ? Math.round((batches.reduce((a, b) => a + b.y, 0) / batches.length) * 10) / 10
         : null;
+      const flaggedCount = batches.filter((b) => b.flagged).length;
       const locationIds = [...new Set(batches.map((b) => b.locationId).filter(Boolean))];
       return {
         key,
         batches,
         avgY,
-        flagged: batches.some((b) => b.flagged),
+        flaggedCount,
+        flagged: flaggedCount > 0,
         // Only worth marking whose location a batch belongs to when there's
         // more than one in view -- on a single-location scope every dot
         // would just repeat the same colour on every day, telling the
@@ -241,6 +262,27 @@ export default function InsightsScreen({ scopeLabel, insights, history }) {
   for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
 
   const selectedCell = selectedDay ? days.find((d) => d.key === selectedDay) : null;
+
+  // Synthesize the same shape of card the rolled-up insights use, so a
+  // selected day gets a real narrative + the guaranteed-answer chips
+  // instead of a bare list. Tone follows the same signal the calendar cell
+  // itself already shows: flagged beats everything, then a clear beat of
+  // the company average reads as good news, otherwise it's just the facts.
+  const companyAvg = insights.company.avgYield;
+  const dayCard = useMemo(() => {
+    if (!selectedCell || selectedCell.batches.length === 0) return null;
+    const { key, batches, avgY, flaggedCount } = selectedCell;
+    const tone =
+      flaggedCount > 0 ? "warn" : avgY != null && companyAvg != null && avgY - companyAvg >= 3 ? "ok" : "neutral";
+    return {
+      id: `day-${key}`,
+      tone,
+      title: `${batches.length} batch${batches.length === 1 ? "" : "es"} closed`,
+      detail: `${avgY}% average yield${flaggedCount ? `, ${flaggedCount} flagged` : ""}.`,
+      context: { type: "day", key, batches, avgY, flaggedCount, companyAvg },
+    };
+  }, [selectedCell, companyAvg]);
+
   const activeCard = insights.cards[insightIndex] || insights.cards[0] || null;
 
   return (
@@ -351,21 +393,24 @@ export default function InsightsScreen({ scopeLabel, insights, history }) {
                   Clear
                 </button>
               </div>
-              {selectedCell.batches.length === 0 ? (
-                <p className="text-xs text-ink-4">No batches closed this day.</p>
+              {dayCard ? (
+                <InsightDetail key={dayCard.id} card={dayCard}>
+                  <ul className="space-y-2">
+                    {selectedCell.batches.map((b) => (
+                      <li key={b.id} className="flex items-baseline justify-between gap-2">
+                        <span className="text-xs text-ink-2 truncate">
+                          {b.product}
+                          {b.locationName && <span className="text-ink-4"> · {b.locationName}</span>}
+                        </span>
+                        <span className={cx("text-xs font-medium tnum shrink-0", b.flagged ? "text-warn" : "text-ink-3")}>
+                          {b.y}%
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </InsightDetail>
               ) : (
-                <ul className="space-y-3">
-                  {selectedCell.batches.map((b) => (
-                    <li key={b.id}>
-                      <p className="text-sm text-ink font-medium">{b.product}</p>
-                      <p className="mt-0.5 text-xs text-ink-3">
-                        {b.locationName ? `${b.locationName} · ` : ""}
-                        <span className={b.flagged ? "text-warn font-medium" : "text-ink-2 font-medium"}>{b.y}% yield</span>
-                        {b.flagged ? " · flagged" : ""}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
+                <p className="text-xs text-ink-4">No batches closed this day.</p>
               )}
             </div>
           ) : activeCard ? (

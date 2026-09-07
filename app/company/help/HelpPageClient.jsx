@@ -62,8 +62,8 @@ function Application() {
   }
 
   const isAdmin = currentUser.role === "admin";
-  const isManagerTier = isAdmin || currentUser.role === "manager";
-  const nav = [...navFor({ isAdmin, isManagerTier }), { id: "help", label: "Help", icon: CircleHelp, hidden: true }];
+  const isManager = currentUser.role === "manager";
+  const nav = [...navFor({ isAdmin, isManager }), { id: "help", label: "Help", icon: CircleHelp, hidden: true }];
 
   const handleSwitchUser = (user) => {
     signIn(user);

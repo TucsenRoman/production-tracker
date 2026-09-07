@@ -34,6 +34,13 @@
 
   /* ---- Ink. Never #000. ---- */
   --color-ink: #2c2c2b;
+  /* The step this ramp was missing. Re-measuring Notion (2026-09-07,
+   * .claude/skills/notion/CARDS.md) found #5f5e59 is the single most frequent
+   * text colour in the whole app — sidebar labels, page links, every secondary
+   * line — and this system jumped straight from #2c2c2b to #7d7a75. Without a
+   * mid-tone, half the words on a dense surface fall to #a19e99 at 2.66:1 and
+   * read washed out. 6.4:1. */
+  --color-ink-1: #5f5e59;
   --color-ink-2: #7d7a75;
   --color-ink-3: #a19e99;
   --color-ink-4: #bcbab6;
@@ -59,7 +66,10 @@
   --color-ok-soft: rgba(74, 123, 82, 0.12);
   --color-ok-line: rgba(74, 123, 82, 0.28);
 
-  --color-warn: #9a6a12;
+  /* 5.05:1 on --color-sunken. The old #9a6a12 measured 4.45:1 there — the
+   * only value on the location card outside AA, on its second-most-important
+   * line. Two hex digits; the soft/line alphas below are unchanged. */
+  --color-warn: #8f6210;
   --color-warn-soft: rgba(154, 106, 18, 0.12);
   --color-warn-line: rgba(154, 106, 18, 0.28);
 
@@ -69,6 +79,42 @@
 
   --color-cold: #2f79a6;
   --color-cold-soft: rgba(47, 121, 166, 0.12);
+
+  /* For the Targets family chart only. Earlier attempts all tried to tell
+   * the pipeline's stages apart with ONE hue -- alpha steps of blue, then a
+   * tint ramp of the same blue, and a neutral grey left over for "on
+   * floor" alongside it -- and every version asked the eye to do the same
+   * impossible thing: judge adjacent SHADES apart with no reference point
+   * to compare them against, and a flat grey doesn't even give the eye
+   * that much. A ramp (or a lone neutral) is the right tool when there's a
+   * single number to compare against a scale; it is the wrong tool for
+   * "which of these five things is this", which is what the bar is
+   * actually asking. That's a job for genuinely different colors, full
+   * stop -- grey included.
+   *
+   * So every stage gets its own hue -- on floor, on hand (back stock, no
+   * work left), in packing, in production, planned (booked, not started)
+   * -- spaced around the wheel so no two sit closer than about 60 degrees
+   * apart, and kept to the same muted, medium-saturation register as the
+   * rest of this palette so five distinct colors still read as one calm
+   * row rather than a chart in loud clothes. None of the five borrows a
+   * hue that already means something elsewhere (ok/warn/danger's green/
+   * amber/red, --color-identity's own reserved set) so nothing on this bar
+   * can be misread as a status pill. "Needs a plan" still isn't a sixth
+   * swatch -- it's the plain track colour showing through, because
+   * "nothing has been arranged" should look like nothing, not compete for
+   * a hue of its own. */
+  --color-stage-floor: #4f9163;
+  /* One band for everything behind the floor. The made pile and the freezer
+     ARE tracked apart — they are different places to walk to — but that
+     belongs in the delegation modal, where somebody is deciding a trip, not
+     on a bar being scanned twenty rows at a time for shape. Splitting it
+     here bought a fifth hue and a fifth legend entry to answer a question
+     the list is not asking. (Formerly also `--color-stage-packing`, from
+     when the bar split packing from production.) */
+  --color-stage-onhand: #2f79a6;
+  --color-stage-production: #7a5ea8;
+  --color-stage-planned: #b8935a;
 
   /* ---- Identity. A small solid palette for per-person UI — an avatar
      stack, initials chips — never for status (that's ok/warn/danger/cold
@@ -94,6 +140,15 @@
 
   /* ---- Elevation is a ring. The blur is only atmosphere, and only on layers
      that actually float. ---- */
+  /* The only shadow a resting surface may borrow, and only while a pointer is
+     on it: a card that lifts has stopped resting. Wide and faint on purpose —
+     34px of blur at 4% reads as the corner leaving the page, where a tight
+     dark one reads as a border someone drew badly. Never apply it without the
+     motion; a shadow with nothing moving is just a resting shadow. */
+  --shadow-lift:
+    0 14px 34px rgba(25, 25, 25, 0.042), 0 4px 10px rgba(25, 25, 25, 0.024),
+    0 0 0 1px rgba(42, 28, 0, 0.07);
+
   --shadow-xs: 0 0 0 1px rgba(42, 28, 0, 0.07);
   --shadow-sm: 0 0 0 1px rgba(42, 28, 0, 0.07);
   --shadow-md:
@@ -106,10 +161,29 @@
     0 20px 24px rgba(25, 25, 25, 0.05), 0 5px 8px rgba(25, 25, 25, 0.027),
     0 0 0 1px rgba(42, 28, 0, 0.07);
 
-  /* ---- Radii: 4, 6, 16, pill. Nothing else. ---- */
+  /* ---- Radii: 4, 6, 12, 16, pill. Nothing else.
+     Notion runs a ladder by object size, not one value: 4 page icon,
+     6 rows and controls, 8 fields, 12 cards, 16 tiles. This system had no
+     rung for a card, so cards were drawn at the row radius. `--radius-card`
+     is that rung. `--radius-lg` stays a 6px alias for the segmented controls
+     that already use it. ---- */
+  /* The one gradient in the system, and a recorded fork of the "never a
+   * gradient" ban: white type on a photograph needs a value floor, and the
+   * two flat alternatives both lose. A uniform veil muddies the whole image
+   * and still measured 3.45:1; a hard-edged plate cuts a band across the
+   * middle of it. Measured 15.8:1 typical, 7.2:1 worst case.
+   * Scoped to entity-card covers — see .claude/skills/entity-card/. */
+  --scrim-cover: linear-gradient(
+    to top,
+    rgba(24, 20, 17, 0.95) 0%,
+    rgba(24, 20, 17, 0.78) 42%,
+    rgba(24, 20, 17, 0) 92%
+  );
+
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 6px;
+  --radius-card: 12px;
   --radius-xl: 16px;
 }
 

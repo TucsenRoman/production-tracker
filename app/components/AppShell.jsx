@@ -3,7 +3,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
-import { cx, TabDot, Tooltip } from "./ui";
+import { cx, SlotProvider, SlotTarget, TabDot, Tooltip } from "./ui";
 import { useDoubleTapHotkey } from "../lib/useDoubleTapHotkey";
 import { TabletFrameContext } from "./TabletFrame";
 
@@ -130,11 +130,11 @@ export default function AppShell({
     };
   }, []);
 
-  // Double-tap "b" toggles the sidebar; double-tap a digit jumps to that nav
+  // Double-tap "0" toggles the sidebar; double-tap a digit jumps to that nav
   // item. Both are the same gesture, so they're the same hook — see
   // useDoubleTapHotkey for the shared typing/repeat/modifier guard.
   const hotkeyBindings = useMemo(() => {
-    const bindings = { b: () => setSidebarOpen((o) => !o) };
+    const bindings = { 0: () => setSidebarOpen((o) => !o) };
     visibleNav.slice(0, 9).forEach((n, i) => {
       bindings[String(i + 1)] = () => onNavigate(n.id);
     });
@@ -214,6 +214,10 @@ export default function AppShell({
   const framed = useContext(TabletFrameContext);
 
   return (
+    /* Screens post their own header controls up here through `Slot`. The
+     * provider has to sit above BOTH the header and `children`, since the
+     * target is in one and the poster is in the other. */
+    <SlotProvider>
     <div
       className={cx(
         framed ? "h-full" : "min-h-screen lg:h-screen",
@@ -299,7 +303,7 @@ export default function AppShell({
                   <div className="absolute left-0 top-full mt-1 z-40">{brandMenu}</div>
                 )}
               </div>
-              <Tooltip label={sidebarOpen ? "Collapse sidebar (B B)" : "Expand sidebar (B B)"} side="right">
+              <Tooltip label={sidebarOpen ? "Collapse sidebar (0 0)" : "Expand sidebar (0 0)"} side="right">
                 <button
                   onClick={() => setSidebarOpen((o) => !o)}
                   aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
@@ -485,7 +489,16 @@ export default function AppShell({
                   <h2 className="hidden lg:block text-[32px] font-bold text-ink leading-tight">
                     {active.label}
                   </h2>
-                  <div className="flex items-center gap-2 ml-auto shrink-0">{pageActions}</div>
+                  {/* Two ways in, on purpose. `pageActions` is for a shell
+                      that already knows the control; the slot is for a screen
+                      that owns the state behind it — a settings dialog's open
+                      flag lives in the screen, and prop-drilling it up through
+                      the console just to render a button would put the button
+                      and its handler in different files. */}
+                  <div className="flex items-center gap-2 ml-auto shrink-0">
+                    {pageActions}
+                    <SlotTarget name="page-actions" className="flex items-center gap-2" />
+                  </div>
                 </div>
                 {pageSubtitle}
               </div>
@@ -526,5 +539,6 @@ export default function AppShell({
         </nav>
       </div>
     </div>
+    </SlotProvider>
   );
 }

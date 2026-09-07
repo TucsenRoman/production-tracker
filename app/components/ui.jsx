@@ -550,6 +550,14 @@ export function Tooltip({
   side = "top",
   className,
   disabled = false,
+  // Opt-in only: pins the bubble directly above the pointer instead of
+  // centering it on the trigger's own box. The trigger-centered default is
+  // right for the normal case (an icon or button, where the trigger IS
+  // basically a point) but wrong for a trigger that's a long strip of a
+  // bar — centering on a wide trigger puts the bubble wherever its
+  // midpoint happens to be, which can be far from where the pointer
+  // actually is. Every other call site leaves this off and is unaffected.
+  followCursor = false,
 }) {
   const [open, setOpen] = useState(false);
   // Where to actually draw the bubble, in viewport coordinates — null
@@ -559,27 +567,38 @@ export function Tooltip({
   const timerRef = useRef(null);
   const wrapRef = useRef(null);
   const bubbleRef = useRef(null);
+  // Last known pointer position, in viewport coordinates. A ref, not
+  // state — it's read only at the moments we actually reposition (open,
+  // and each subsequent move while open), so it doesn't need to trigger a
+  // render just from being written.
+  const cursorRef = useRef({ x: 0, y: 0 });
 
-  const show = () => {
-    if (disabled) return;
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setOpen(true), 350);
-  };
-  const hide = () => {
-    clearTimeout(timerRef.current);
-    setOpen(false);
-    setPos(null);
-  };
-  useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  // Runs after the (invisible, unmeasured) bubble is in the DOM but before
-  // the browser paints, so the flip/clamp math is invisible to the user —
-  // it never shows the wrong position first and then jumps.
-  useLayoutEffect(() => {
-    if (!open) return;
-    const trigger = wrapRef.current?.getBoundingClientRect();
+  const reposition = () => {
     const bubble = bubbleRef.current?.getBoundingClientRect();
-    if (!trigger || !bubble) return;
+    if (!bubble) return;
+
+    const clamp = (value, size, max) =>
+      Math.min(
+        Math.max(value, TOOLTIP_MARGIN),
+        Math.max(TOOLTIP_MARGIN, max - size - TOOLTIP_MARGIN),
+      );
+
+    if (followCursor) {
+      const { x, y } = cursorRef.current;
+      // Prefers directly above the pointer; drops below it only when
+      // there's genuinely no room above, same "flip rather than clip"
+      // rule the trigger-anchored path below uses.
+      const top =
+        y - bubble.height - TOOLTIP_GAP >= TOOLTIP_MARGIN
+          ? y - bubble.height - TOOLTIP_GAP
+          : y + TOOLTIP_GAP;
+      const left = clamp(x - bubble.width / 2, bubble.width, window.innerWidth);
+      setPos({ top, left });
+      return;
+    }
+
+    const trigger = wrapRef.current?.getBoundingClientRect();
+    if (!trigger) return;
 
     const fits = (s) => {
       if (s === "top")
@@ -608,12 +627,6 @@ export function Tooltip({
         ? opposite[side]
         : side;
 
-    const clamp = (value, size, max) =>
-      Math.min(
-        Math.max(value, TOOLTIP_MARGIN),
-        Math.max(TOOLTIP_MARGIN, max - size - TOOLTIP_MARGIN),
-      );
-
     let top, left;
     if (placed === "top" || placed === "bottom") {
       top =
@@ -637,6 +650,38 @@ export function Tooltip({
       );
     }
     setPos({ top, left });
+  };
+
+  const show = (e) => {
+    if (disabled) return;
+    if (followCursor && typeof e?.clientX === "number") {
+      cursorRef.current = { x: e.clientX, y: e.clientY };
+    }
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setOpen(true), 350);
+  };
+  const hide = () => {
+    clearTimeout(timerRef.current);
+    setOpen(false);
+    setPos(null);
+  };
+  // Keeps the bubble pinned above the pointer as it moves across a wide
+  // trigger, rather than freezing it wherever the pointer happened to
+  // enter — only does anything once the bubble is already open, and only
+  // in followCursor mode.
+  const track = (e) => {
+    if (!followCursor || typeof e.clientX !== "number") return;
+    cursorRef.current = { x: e.clientX, y: e.clientY };
+    if (open) reposition();
+  };
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  // Runs after the (invisible, unmeasured) bubble is in the DOM but before
+  // the browser paints, so the flip/clamp math is invisible to the user —
+  // it never shows the wrong position first and then jumps.
+  useLayoutEffect(() => {
+    if (!open) return;
+    reposition();
     // Re-measures only on the signals that can actually move the trigger or
     // change the bubble's own size — not every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -647,6 +692,7 @@ export function Tooltip({
       ref={wrapRef}
       className={cx("relative inline-flex shrink-0", className)}
       onMouseEnter={show}
+      onMouseMove={track}
       onMouseLeave={hide}
       onFocus={show}
       onBlur={hide}
@@ -666,7 +712,7 @@ export function Tooltip({
               visibility: pos ? "visible" : "hidden",
             }}
             className={cx(
-              "pointer-events-none z-40 whitespace-nowrap",
+              "pointer-events-none z-60 whitespace-nowrap",
               "px-2 py-1 rounded-md bg-ink text-white text-xs font-medium shadow-md animate-fade-in",
             )}
           >
@@ -817,6 +863,161 @@ export function Dropdown({
         </div>
       )}
     </div>
+  );
+}
+
+/* -------------------------------------------------------------- Popover -- */
+
+const POPOVER_GAP = 6; // trigger-to-panel gap
+const POPOVER_MARGIN = 8; // never closer than this to the viewport edge
+
+/**
+ * A small floating panel hung off a trigger, opened by a click and closed
+ * three ways.
+ *
+ * The app had three separate pieces of floating-layer code and no primitive:
+ * `Tooltip` portals and does boundary math but is hover-only and
+ * `pointer-events-none`; `Dropdown` is dismissible and interactive but is a
+ * listbox that positions itself with `absolute` inside its own trigger's box;
+ * `Modal` takes over the screen. A legend, a filter panel, a "what does this
+ * mean" card — anything you open deliberately, read or poke at, and dismiss —
+ * had none of them. This is that gap, built from the halves that already
+ * worked.
+ *
+ * **Portaled and `position: fixed`, not `absolute`** — this is the whole
+ * reason it cannot be a few lines inside a screen. An absolutely positioned
+ * panel is clipped by any ancestor that establishes a clip, and the obvious
+ * place to want one is a sticky toolbar — which in this app is
+ * `StickyFadeHeader`, an element whose entire job is to carry a `mask-image`.
+ * A mask clips its subtree. A panel opened from a control in that toolbar and
+ * positioned the easy way is cut off at the header's padding edge and faded
+ * out by the very gradient that makes the header work.
+ *
+ * Placement is a preference, not a promise: measured against the trigger's
+ * real on-screen rect and the live viewport after mount, flipped to the
+ * opposite side when the preferred one does not fit, and slid along the cross
+ * axis to stay on screen. It re-measures on scroll and resize, so a panel
+ * hung off a sticky control stays attached to it while the page moves.
+ *
+ * Dismissal is deliberately over-served, because a floating thing you cannot
+ * get rid of is worse than no floating thing: Escape, a pointer-down anywhere
+ * outside, and clicking the trigger again (which is the caller's own toggle —
+ * the outside-press listener ignores presses inside this wrapper, so the two
+ * never fight and produce a close-then-reopen flicker). Presses inside the
+ * panel do nothing at all, so its own content stays usable.
+ *
+ * Controlled on purpose. The caller already owns the open state to drive its
+ * trigger's pressed styling and `aria-expanded`; handing that to the panel
+ * would mean two sources of truth for one boolean.
+ */
+export function Popover({
+  open,
+  onClose,
+  content,
+  side = "bottom",
+  /** Which edge of the panel lines up with the trigger's: "start" | "end". */
+  align = "start",
+  label,
+  className,
+  panelClassName,
+  children,
+}) {
+  const [pos, setPos] = useState(null);
+  const wrapRef = useRef(null);
+  const panelRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+
+    const place = () => {
+      const trigger = wrapRef.current?.getBoundingClientRect();
+      const panel = panelRef.current?.getBoundingClientRect();
+      if (!trigger || !panel) return;
+
+      const clamp = (value, size, max) =>
+        Math.min(
+          Math.max(value, POPOVER_MARGIN),
+          Math.max(POPOVER_MARGIN, max - size - POPOVER_MARGIN),
+        );
+
+      const room = {
+        bottom:
+          trigger.bottom + panel.height + POPOVER_GAP <=
+          window.innerHeight - POPOVER_MARGIN,
+        top: trigger.top - panel.height - POPOVER_GAP >= POPOVER_MARGIN,
+      };
+      const placed = room[side] ? side : room[side === "top" ? "bottom" : "top"] ? (side === "top" ? "bottom" : "top") : side;
+
+      const top =
+        placed === "top"
+          ? trigger.top - panel.height - POPOVER_GAP
+          : trigger.bottom + POPOVER_GAP;
+      const left = clamp(
+        align === "end" ? trigger.right - panel.width : trigger.left,
+        panel.width,
+        window.innerWidth,
+      );
+      setPos({ top, left });
+    };
+
+    place();
+    // `true` on scroll: the capture phase catches scrolling in any container,
+    // not just the window — the console's content pane is its own scroller.
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, side, align, content]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (wrapRef.current?.contains(e.target)) return; // the trigger's own toggle
+      if (panelRef.current?.contains(e.target)) return; // working inside the panel
+      onClose?.();
+    };
+    const onKey = (e) => e.key === "Escape" && onClose?.();
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) setPos(null);
+  }, [open]);
+
+  return (
+    <span ref={wrapRef} className={cx("relative inline-flex shrink-0", className)}>
+      {children}
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            aria-label={label}
+            style={{
+              position: "fixed",
+              top: pos?.top ?? 0,
+              left: pos?.left ?? 0,
+              // Hidden, not unmounted, until the first measurement lands —
+              // it has to be in the DOM to have a size to measure, and it
+              // must never paint at (0,0) first and then jump.
+              visibility: pos ? "visible" : "hidden",
+            }}
+            className={cx(PANEL, "z-40 animate-fade-in", panelClassName)}
+          >
+            {content}
+          </div>,
+          document.body,
+        )}
+    </span>
   );
 }
 
@@ -1069,9 +1270,15 @@ export function Segmented({
   // instead of just bigger. Pinning both keeps the pill proportions.
   const pad = size === "sm" ? "text-xs px-2 h-7" : "text-sm px-2.5 h-7";
 
+  /* An option may carry a `hint`: one line explaining what picking it does,
+   * shown on hover. Meant for chips that are a MODE rather than a filter —
+   * a filter's label says everything ("Out", "Under min"), but a mode like
+   * Fill/Align changes how the rest of the screen should be read, and that
+   * cannot fit in one word. Chips without a hint are untouched, so no
+   * existing Segmented gains a tooltip it did not ask for. */
   const chips = options.map((o) => {
     const isActive = o.value === value;
-    return (
+    const chip = (
       <button
         key={o.value}
         role="tab"
@@ -1091,6 +1298,12 @@ export function Segmented({
         {o.label}
         {o.count != null && <TabDot count={o.count} />}
       </button>
+    );
+    if (!o.hint) return chip;
+    return (
+      <Tooltip key={o.value} label={o.hint}>
+        {chip}
+      </Tooltip>
     );
   });
 

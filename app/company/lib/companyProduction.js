@@ -1,17 +1,19 @@
 "use client";
 
 /**
- * Seeded per-location production history — the batches each location has
- * closed out on the floor. Same record shape the shop floor's own history
- * uses (see ../../lib/domain.js's SEED.history), so the exact same yield
- * and time-in-station math applies unchanged; this file just gives the
- * company layer something to sum.
+ * Per-location production history — the batches each location has closed
+ * out on the floor. Same record shape the shop floor's own history uses
+ * (../../lib/domain.js's SEED.history), because it IS that history: this
+ * used to be a hand-copied duplicate of those same six records (drifted
+ * the moment either copy was edited without the other), which is exactly
+ * backwards for a single-location demo where LOC-1 always meant "the shop
+ * floor" anyway. Referencing SEED.history directly makes that explicit —
+ * one seed, read from two places, instead of one seed and a stale echo of it.
  *
  * In a real build this would be a live rollup fed by the floor's own data,
- * not a separate seed — it's kept standalone for now because the floor
- * domain has no concept of "which location" yet (see the note in
- * companyDomain.js). LOC-1's numbers mirror the floor demo's own history
- * exactly.
+ * not a seed at all — the floor domain has no concept of "which location"
+ * yet (see the note in companyDomain.js), so a real multi-location build
+ * would still need to key incoming batches by location somewhere.
  *
  * Single-location demo (Sept 2026): this used to also carry a "LOC-2"
  * entry for a second location ("Foreston Depot") so the console had a real
@@ -23,17 +25,8 @@
  * just less data for it to run on.
  */
 
-import { shiftDate, todayKey } from "../../lib/domain";
-
-const T = todayKey();
+import { SEED } from "../../lib/domain";
 
 export const PRODUCTION_SEED = {
-  "LOC-1": [
-    { id: "B-1042", product: "Applewood Bacon", closedOn: shiftDate(T, -10), boxWeight: 62, finalWeight: 47, minutes: { Smokehouse: 260, Packaging: 40 } },
-    { id: "B-1041", product: "Summer Sausage", closedOn: shiftDate(T, -11), boxWeight: 40, finalWeight: 34, minutes: { Smokehouse: 210, Packaging: 38 } },
-    { id: "B-1039", product: "Bratwurst - Original", closedOn: shiftDate(T, -12), boxWeight: 55, finalWeight: 49, minutes: { Packaging: 50 } },
-    { id: "B-1037", product: "Bratwurst - Jalapeño Cheddar", closedOn: shiftDate(T, -13), boxWeight: 38, finalWeight: 33, minutes: { Packaging: 42 } },
-    { id: "B-1036", product: "Applewood Bacon", closedOn: shiftDate(T, -14), boxWeight: 58, finalWeight: 41, minutes: { Smokehouse: 305, Packaging: 55 } },
-    { id: "B-1033", product: "Snack Sticks - Honey BBQ", closedOn: shiftDate(T, -16), boxWeight: 30, finalWeight: 26, minutes: { Smokehouse: 195, Packaging: 30 } },
-  ],
+  "LOC-1": SEED.history,
 };

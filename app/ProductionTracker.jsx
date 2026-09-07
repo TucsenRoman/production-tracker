@@ -23,14 +23,11 @@ import { StaffProvider } from "./lib/staff";
 import {
   DEFAULT_TASK_CATEGORIES,
   SEED,
-  STAGES,
-  STATIONS,
   categoryInUse,
   defaultThreshold,
   isManager,
   moveStock,
   newId,
-  nextStageIndex,
   normalizeItem,
   productType,
   putOnFloor,
@@ -39,6 +36,8 @@ import {
   visibleTasks,
   yieldPct,
 } from "./lib/domain";
+import { StationsProvider, useStations } from "./lib/stations";
+import { useSharedStationConfig, useSharedStations } from "./lib/sharedStations";
 
 const NAV = [
   { id: "board", label: "Production board", short: "Board", icon: SquareArrowRightExit },
@@ -101,6 +100,7 @@ function Application() {
   const toast = useToast();
   const { user, signIn, signOut } = useSession();
   const today = todayKey();
+  const { stages, stations, nextStageIndex } = useStations();
 
   const [view, setView] = useState("board");
   const [batches, setBatches] = usePersistentState("batches", SEED.batches);
@@ -148,22 +148,38 @@ function Application() {
         stockByName.set(item.name, (stockByName.get(item.name) ?? 0) + (item.stockCount ?? 0));
       }
 
-      setInventory((prev) =>
-        Array.from(stockByName.entries()).map(([name, stock]) => {
-          // Clover only knows what is sellable. The made / freezer / floor split
-          // lives here, so an existing local split survives every refresh.
-          const existing = prev.find((p) => p.product === name);
-          return normalizeItem({
-            product: name,
-            type: existing?.type ?? productType(name),
-            made: existing?.made ?? 0,
-            freezer: existing?.freezer ?? 0,
-            floor: existing ? existing.floor : stock,
-            threshold: existing?.threshold ?? defaultThreshold(name),
-            unit: existing?.unit ?? "lb",
-          });
-        })
-      );
+      setInventory((prev) => {
+        // Union, not replace. This used to be prev.find(...) inside a plain
+        // .map() over Clover's own list — correct for a product Clover
+        // still lists, but it meant any product Clover DOESN'T return this
+        // sync (this sandbox has only ~12 items against a 20+ product
+        // demo case) silently disappeared from the floor entirely, taking
+        // its real floor/freezer split with it. Seed the map from `prev`
+        // first so a product with no match in this sync just carries over
+        // unchanged, instead of vanishing.
+        const byName = new Map(prev.map((p) => [p.product, p]));
+        for (const [name, stock] of stockByName.entries()) {
+          // Clover only knows what is sellable. The made / freezer / floor
+          // split lives here, so an existing local split survives every
+          // refresh — and a name Clover has no real count for (`stock` is
+          // null in this sandbox — no quantity app enabled) never overwrites
+          // a real floor with a false zero.
+          const existing = byName.get(name);
+          byName.set(
+            name,
+            normalizeItem({
+              product: name,
+              type: existing?.type ?? productType(name),
+              made: existing?.made ?? 0,
+              freezer: existing?.freezer ?? 0,
+              floor: existing ? existing.floor : (stock ?? 0),
+              threshold: existing?.threshold ?? defaultThreshold(name),
+              unit: existing?.unit ?? "lb",
+            }),
+          );
+        }
+        return Array.from(byName.values());
+      });
       setCloverStatus("live");
       setSyncedAt(new Date().toISOString());
     } catch {
@@ -286,7 +302,7 @@ function Application() {
           ? {
               ...b,
               finalWeight,
-              stage: STAGES.length - 1,
+              stage: stages.length - 1,
               destination,
               lastActionBy: staff.name,
             }
@@ -401,7 +417,7 @@ function Application() {
           product,
           estWeight: qty,
           boxWeight: null,
-          stage: STATIONS.indexOf(station),
+          stage: stations.indexOf(station),
           needsSmoke: station === "Smokehouse",
           destination: null,
           startedAt: today,
@@ -507,12 +523,25 @@ function Application() {
   );
 }
 
+function ApplicationWithStations() {
+  // Sourced from the admin console's own Stations screen (see
+  // ./lib/sharedStations.js) rather than a local copy, so a station added
+  // there shows up here as a stage on the board, not just in Permissions.
+  const liveStations = useSharedStations();
+  const liveStationConfig = useSharedStationConfig();
+  return (
+    <StationsProvider stations={liveStations} config={liveStationConfig}>
+      <Application />
+    </StationsProvider>
+  );
+}
+
 export default function ProductionTracker() {
   return (
     <ToastProvider>
       <SlotProvider>
         <StaffProvider>
-          <Application />
+          <ApplicationWithStations />
         </StaffProvider>
       </SlotProvider>
     </ToastProvider>

@@ -11,7 +11,6 @@ import {
   KeyRound,
   LayoutGrid,
   Lock,
-  Package,
   PackageCheck,
   Plus,
   Scale,
@@ -41,21 +40,19 @@ import {
   cx,
 } from "../components/ui";
 import {
-  STAGES,
-  STAGE_ICON,
-  STATIONS,
   isManager,
-  nextStageIndex,
   weekOf,
   weighsInAt,
   yieldPct,
 } from "../lib/domain";
 import { useStaff } from "../lib/staff";
+import { useStations } from "../lib/stations";
 
 /* --------------------------------------------------------------- Overview -- */
 
 function StageColumn({ stage, batches }) {
-  const Icon = STAGE_ICON[stage];
+  const { iconFor } = useStations();
+  const Icon = iconFor(stage);
   return (
     <div className="shrink-0 snap-start w-[78vw] max-w-[280px] sm:w-auto sm:max-w-none">
       <div className="flex items-center gap-2 px-1 pb-2.5">
@@ -231,9 +228,10 @@ function QuickAddToStation({ station, products, onAdd }) {
 }
 
 function BatchCard({ batch, onStart }) {
-  const stage = STAGES[batch.stage];
+  const { stages, isFinalStage } = useStations();
+  const stage = stages[batch.stage];
   const willWeighIn = weighsInAt(batch) === stage;
-  const willFinalize = stage === "Packaging";
+  const willFinalize = isFinalStage(stage);
   return (
     <Card className="p-4 flex flex-col">
       <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -260,9 +258,10 @@ function BatchCard({ batch, onStart }) {
 
 function MoveDialog({ batch, onCancel, onCommit }) {
   const { findByPin } = useStaff();
-  const stage = batch ? STAGES[batch.stage] : null;
+  const { stages, iconFor, isFinalStage, nextStageIndex } = useStations();
+  const stage = batch ? stages[batch.stage] : null;
   const willWeighIn = batch ? weighsInAt(batch) === stage : false;
-  const willFinalize = stage === "Packaging";
+  const willFinalize = isFinalStage(stage);
   const needsWeight = willWeighIn || willFinalize;
 
   const [step, setStep] = useState(needsWeight ? "weight" : "confirm");
@@ -280,7 +279,7 @@ function MoveDialog({ batch, onCancel, onCommit }) {
 
   const reference = batch.boxWeight || batch.estWeight;
   const preview = willFinalize ? yieldPct(reference, weight) : null;
-  const nextLabel = willFinalize ? "Shelf-Ready" : STAGES[nextStageIndex(batch)];
+  const nextLabel = willFinalize ? "Shelf-Ready" : stages[nextStageIndex(batch)];
 
   const commit = () => {
     if (!staff) return;
@@ -299,7 +298,7 @@ function MoveDialog({ batch, onCancel, onCommit }) {
       open
       onClose={onCancel}
       title={batch.product}
-      icon={STAGE_ICON[stage]}
+      icon={iconFor(stage)}
       footer={
         <>
           <Button variant="ghost" onClick={step === "confirm" && needsWeight ? () => setStep("weight") : onCancel}>
@@ -450,7 +449,19 @@ function MoveDialog({ batch, onCancel, onCommit }) {
 function StationPlan({ station, tasks, products, onAdd, onRemove, prefill, onPrefillUsed }) {
   const [product, setProduct] = useState("");
   const [qty, setQty] = useState("");
-  const Icon = STAGE_ICON[station];
+  const { stations, iconFor } = useStations();
+  const Icon = iconFor(station);
+  // "Skips the smokehouse" only reads correctly for whichever station
+  // comes right after Smokehouse in the live list — a station further
+  // down the line isn't skipping anything, it's just its own stage.
+  const smokehouseIdx = stations.indexOf("Smokehouse");
+  const rightAfterSmokehouse = smokehouseIdx !== -1 && stations[smokehouseIdx + 1] === station;
+  const subtitle =
+    station === "Smokehouse"
+      ? "Batches that need smoking"
+      : rightAfterSmokehouse
+        ? "Batches that skip the smokehouse"
+        : "Batches queued at this stage";
 
   // A low-stock quick-add drops its values straight into this form.
   React.useEffect(() => {
@@ -475,7 +486,7 @@ function StationPlan({ station, tasks, products, onAdd, onRemove, prefill, onPre
       <CardHeader
         title={station}
         icon={Icon}
-        subtitle={station === "Smokehouse" ? "Batches that need smoking" : "Batches that skip the smokehouse"}
+        subtitle={subtitle}
         actions={<Badge tone={tasks.length ? "info" : "neutral"}>{tasks.length}</Badge>}
       />
 
@@ -540,6 +551,7 @@ function StationPlan({ station, tasks, products, onAdd, onRemove, prefill, onPre
  * shortfall written out in figures.
  */
 function TargetRow({ row, onPlan }) {
+  const { stations } = useStations();
   const { item, covered, uncovered, otherUnits } = row;
   const pct = (n) =>
     item.threshold > 0
@@ -567,7 +579,7 @@ function TargetRow({ row, onPlan }) {
           {/* ghost, not solid: thirteen rows x two stations is twenty-six
            *  buttons, and at default weight they shouted over the numbers
            *  they exist to act on. */}
-          {STATIONS.map((st) => (
+          {stations.map((st) => (
             <Button
               key={st}
               size="sm"
@@ -622,6 +634,7 @@ function TargetRow({ row, onPlan }) {
 }
 
 export function PlanningPane({ day, schedule, inventory, onAdd, onRemove }) {
+  const { stations } = useStations();
   const [prefill, setPrefill] = useState(null);
   const plan = schedule[day.key] || {};
   const products = inventory.map((i) => i.product);
@@ -644,7 +657,7 @@ export function PlanningPane({ day, schedule, inventory, onAdd, onRemove }) {
       .map((item) => {
         let planned = 0;
         const otherUnits = [];
-        for (const station of STATIONS) {
+        for (const station of stations) {
           for (const t of plan[station] || []) {
             if (t.text !== item.product) continue;
             if (t.unit === item.unit) planned += Number(t.qty) || 0;
@@ -744,7 +757,7 @@ export function PlanningPane({ day, schedule, inventory, onAdd, onRemove }) {
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {STATIONS.map((s) => (
+            {stations.map((s) => (
               <StationPlan
                 key={s}
                 station={s}
@@ -782,7 +795,8 @@ export default function BoardScreen({
   // (day strip, queueing new batches) so the intent at each call site reads
   // clearly.
   const canPlan = canSeeAll;
-  const [view, setView] = useState(canSeeAll ? "all" : user.station || STATIONS[0]);
+  const { stations, stages, iconFor } = useStations();
+  const [view, setView] = useState(canSeeAll ? "all" : user.station || stations[0]);
   const [moving, setMoving] = useState(null);
 
   const days = useMemo(() => weekOf(today), [today]);
@@ -791,22 +805,21 @@ export default function BoardScreen({
   const dayInfo = days.find((d) => d.key === selectedDay) || days[0];
 
   const stats = useMemo(() => {
-    const at = (s) => batches.filter((b) => STAGES[b.stage] === s).length;
-    const done = batches.filter((b) => STAGES[b.stage] === "Shelf-Ready");
+    const at = (s) => batches.filter((b) => stages[b.stage] === s).length;
+    const done = batches.filter((b) => stages[b.stage] === "Shelf-Ready");
     const yields = done
       .map((b) => yieldPct(b.boxWeight || b.estWeight, b.finalWeight))
       .filter((v) => v != null);
     return {
-      smokehouse: at("Smokehouse"),
-      packaging: at("Packaging"),
+      byStation: Object.fromEntries(stations.map((s) => [s, at(s)])),
       complete: done.length,
       avgYield: yields.length ? (yields.reduce((a, b) => a + b, 0) / yields.length).toFixed(1) : "—",
     };
-  }, [batches]);
+  }, [batches, stages, stations]);
 
   const options = [
     ...(canSeeAll ? [{ value: "all", label: "All stations", icon: LayoutGrid }] : []),
-    ...STATIONS.map((s) => ({ value: s, label: s, icon: STAGE_ICON[s] })),
+    ...stations.map((s) => ({ value: s, label: s, icon: iconFor(s) })),
   ];
 
   const commit = (payload) => {
@@ -817,7 +830,7 @@ export default function BoardScreen({
     setMoving(null);
   };
 
-  const stationBatches = batches.filter((b) => STAGES[b.stage] === view);
+  const stationBatches = batches.filter((b) => stages[b.stage] === view);
   const queue = (schedule[today] && schedule[today][view]) || [];
   const products = inventory.map((i) => i.product);
   const onCompleteTask = (station, id) => onRemoveTask(today, station, id);
@@ -829,8 +842,9 @@ export default function BoardScreen({
       {isToday ? (
         <>
           <StatGrid>
-            <StatCard icon={Flame} label="In smokehouse" value={stats.smokehouse} hint="batches" />
-            <StatCard icon={Package} label="In packaging" value={stats.packaging} hint="batches" />
+            {stations.map((s) => (
+              <StatCard key={s} icon={iconFor(s)} label={`In ${s.toLowerCase()}`} value={stats.byStation[s]} hint="batches" />
+            ))}
             <StatCard icon={CheckCircle2} label="Completed" value={stats.complete} tone="ok" hint="this shift" />
             <StatCard icon={Scale} label="Avg yield" value={stats.avgYield} unit="%" tone="primary" hint="completed batches" />
           </StatGrid>
@@ -846,11 +860,11 @@ export default function BoardScreen({
 
           {view === "all" ? (
             <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory no-scrollbar sm:grid sm:grid-cols-3 sm:mx-0 sm:px-0 sm:overflow-visible">
-              {STAGES.map((stage) => (
+              {stages.map((stage) => (
                 <StageColumn
                   key={stage}
                   stage={stage}
-                  batches={batches.filter((b) => STAGES[b.stage] === stage)}
+                  batches={batches.filter((b) => stages[b.stage] === stage)}
                 />
               ))}
             </div>
@@ -876,7 +890,7 @@ export default function BoardScreen({
               {stationBatches.length === 0 ? (
                 <Card>
                   <EmptyState
-                    icon={STAGE_ICON[view]}
+                    icon={iconFor(view)}
                     title={`Nothing waiting at ${view}`}
                     description="Batches appear here as soon as the previous station confirms them."
                   />

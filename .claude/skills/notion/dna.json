@@ -608,5 +608,95 @@
       "A hotkey for a repeated UI action should match the platform convention users already carry (e.g. Ctrl/Cmd+B for a sidebar toggle, as VS Code, Slack, Linear, and Notion all use) rather than an invented binding, and it should be discoverable — surfaced in the same tooltip that names the action, not left as tribal knowledge.",
       "Verify a transition by triggering it back and forth several times, not once — a remount bug or an auto-margin snap is often invisible on the first toggle and only shows up on the second or third."
     ]
+  },
+  "remeasure_2026_09_07": {
+    "scope": "card surfaces only — app.notion.com Home, signed-in app, light theme, computed-style probes",
+    "why": "the original capture covered shell, document and collection; ProTrack's location card is a tile, and PROMPT.md's 'NEVER a card' turned out to be an incomplete reading",
+    "prose": "CARDS.md",
+    "corrections": [
+      "'NEVER a card' -> never a BORDERED card. Notion cards carry no border, outline or shadow: a white shape at radius 12-16 whose edge is its cover and its corner.",
+      "There is no single radius. The ladder is 4 page icon / 6 rows, menus, tooltips / 8 fields and active nav / 12 cards / 16 tiles.",
+      "The grey ramp has FOUR steps, not three. #5f5e59 (6.4:1) is the most frequent text colour in the app and was missing entirely.",
+      "Icons sit one to two steps LIGHTER than the label beside them (#a19e99 icon against a #5f5e59 label), never level with it.",
+      "500 is a real weight tier: 400 body, 500 card titles and section labels, 600-700 page titles only. Nothing on a card is 600.",
+      "A card title is 14px and never above it. Hierarchy inside a card is bought with weight and ink; the cover is where a card spends size.",
+      "The cover is 30-58% of the card and is present even with no image, as a 4% warm tint (rgba(84,72,49,.04)) holding the glyph.",
+      "Hairlines are a warm ALPHA, rgba(28,19,1,.11) / rgba(42,28,0,.07), not the solid #e6e5e3 recorded before.",
+      "Two tint levels, not one: rgba(33,27,23,.05) @6px for a selected row, rgba(33,27,23,.076) @8px for active nav."
+    ],
+    "measured": {
+      "learn_card": {
+        "w": 240,
+        "h": 216,
+        "fill": "#ffffff",
+        "radius": 12,
+        "border": null,
+        "shadow": null,
+        "cover": {
+          "w": 240,
+          "h": 126,
+          "ratio": 1.9,
+          "fit": "cover",
+          "bleed": "full"
+        },
+        "padding": "12px 12px 10px",
+        "title": "14px/500 #2c2c2b lh18",
+        "meta": "12px/400 #a19e99"
+      },
+      "recent_tile": {
+        "w": 144,
+        "h": 144,
+        "fill": "#ffffff",
+        "radius": 16,
+        "border": null,
+        "shadow": null,
+        "cover_slot": {
+          "h": 44,
+          "pct_of_tile": 30.5,
+          "fill": "rgba(84,72,49,0.04)"
+        },
+        "padding": "10px 16px 12px",
+        "title": "14px/400 #5f5e59",
+        "meta": "12px/400 #a19e99"
+      },
+      "section_label": "12px/500 #7d7a75 sentence case + ~16px muted icon, no rule",
+      "sidebar_row": {
+        "h": 30,
+        "radius": 6,
+        "padding": "5px 8px",
+        "type": "14px/400 #5f5e59"
+      },
+      "search_field": {
+        "border": "1px rgba(28,19,1,0.11)",
+        "radius": 8,
+        "fill": null
+      },
+      "page_title": {
+        "document": "40px/700 lh48",
+        "home": "30px/600 lh36"
+      },
+      "page_icon": {
+        "size": 78,
+        "radius": 4
+      },
+      "type_scale_seen": [
+        11,
+        12,
+        13,
+        14,
+        16,
+        30,
+        32,
+        40
+      ],
+      "no_24px": "24 does not appear anywhere in the app"
+    },
+    "uncertainty": [
+      {
+        "value": "the faint edge visible around Home cards in a screenshot",
+        "confidence": 0.3,
+        "note": "computed styles report no border, outline or shadow on the card, its ancestors or its ::after. Recorded as: the card has no edge of its own."
+      }
+    ]
   }
 }

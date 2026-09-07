@@ -5,7 +5,7 @@ database page beside the navigation rail, Chrome at 1440×619, captured 2026-08-
 
 It is not checked in as a JPEG, for two reasons: the capture frames a private workspace,
 and a screenshot is a weaker reference than the numbers beside it. `measurements.json`
-holds every value read out of the running app via computed-style probes — colours,
+holds every value read out of the running app via computed-style probes — colors,
 coverage percentages, type steps, radii frequencies, shadow stacks, hover alphas,
 geometry. Everything in `../dna.json` marked MEASURED traces to this file.
 

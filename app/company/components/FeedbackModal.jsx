@@ -22,8 +22,7 @@ const TEXTAREA_BASE =
  * the standalone `/company/feedback` route from earlier the same session.
  * No admin gate — any signed-in user reaches it. No backend behind it
  * yet — "Send" is a mock, same "sort of" placeholder pattern as
- * PermissionsScreen's request-access flow and IntegrationsScreen's test
- * connection.
+ * PermissionsScreen's request-access flow and a location's POS sync.
  *
  * The parent only mounts this while `feedbackOpen` is true, so it always
  * opens on a blank form.

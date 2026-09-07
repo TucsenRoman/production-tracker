@@ -28,24 +28,24 @@ const fmtPct = (n) => (n == null ? "—" : `${n}%`);
  * point by the exact same definition `locationStats` counts here as
  * "flagged" — one predicate, not two drifting copies of it.
  */
-export function isFlaggedBatch(h) {
+export function isFlaggedBatch(h, targets = {}) {
   const y = yieldPct(h.boxWeight, h.finalWeight);
-  const slow = Object.keys(h.minutes || {}).some((s) => isOverTarget(s, h.minutes[s]));
+  const slow = Object.keys(h.minutes || {}).some((s) => isOverTarget(s, h.minutes[s], targets));
   return (y != null && y < LOW_YIELD_PCT) || slow;
 }
 
-function locationStats(history) {
+export function locationStats(history, targets = {}) {
   const yields = history.map((h) => yieldPct(h.boxWeight, h.finalWeight)).filter((v) => v != null);
   const avgYield = yields.length ? round1(yields.reduce((a, b) => a + b, 0) / yields.length) : null;
-  const flagged = history.filter(isFlaggedBatch);
+  const flagged = history.filter((h) => isFlaggedBatch(h, targets));
   return { batches: history.length, avgYield, flagged: flagged.length };
 }
 
-function stationStats(production, locations, station) {
+function stationStats(production, locations, station, targets = {}) {
   const perLocation = locations.map((loc) => {
     const history = production[loc.id] || [];
     const runs = history.filter((h) => h.minutes && h.minutes[station] != null);
-    const over = runs.filter((h) => isOverTarget(station, h.minutes[station]));
+    const over = runs.filter((h) => isOverTarget(station, h.minutes[station], targets));
     return {
       locationId: loc.id,
       name: loc.name,
@@ -58,7 +58,7 @@ function stationStats(production, locations, station) {
   const overCount = perLocation.reduce((a, l) => a + l.overCount, 0);
   return {
     station,
-    target: STAGE_TARGET_MINUTES[station],
+    target: targets[station] ?? STAGE_TARGET_MINUTES[station],
     runs,
     overCount,
     overPct: runs ? overCount / runs : 0,
@@ -68,17 +68,17 @@ function stationStats(production, locations, station) {
 
 const TONE_RANK = { danger: 0, warn: 1, ok: 2, neutral: 3 };
 
-export function buildCompanyInsights({ locations, stations, production }) {
+export function buildCompanyInsights({ locations, stations, production, targets = {} }) {
   const byLocation = locations.map((loc) => ({
     locationId: loc.id,
     name: loc.name,
-    ...locationStats(production[loc.id] || []),
+    ...locationStats(production[loc.id] || [], targets),
   }));
 
   const allHistory = locations.flatMap((loc) => production[loc.id] || []);
-  const company = locationStats(allHistory);
+  const company = locationStats(allHistory, targets);
 
-  const byStation = stations.map((s) => stationStats(production, locations, s));
+  const byStation = stations.map((s) => stationStats(production, locations, s, targets));
 
   // Scoped views (a floor manager sees just their own location) get
   // location-specific wording instead of the company-wide phrasing below.
@@ -194,6 +194,26 @@ export function answerInsightQuestion(card, question) {
     return `${st.station}: ${st.overCount} of ${st.runs} runs over the ${st.target}-minute target, company-wide. I don't have a specific answer for that yet, but that's everything behind this card.`;
   }
 
+  if (card.context.type === "day") {
+    const { batches, avgY, flaggedCount, companyAvg } = card.context;
+    if (/why|driv|cause/.test(q)) {
+      if (flaggedCount > 0) {
+        const names = batches.filter((b) => b.flagged).map((b) => b.product).join(", ");
+        return `${flaggedCount} of ${batches.length} batch${batches.length === 1 ? "" : "es"} that day ${
+          flaggedCount === 1 ? "was" : "were"
+        } flagged for low yield or slow time: ${names}.`;
+      }
+      return `Nothing flagged that day — every batch closed within target.`;
+    }
+    if (/compare|other|vs\.?|versus|average|typical/.test(q)) {
+      if (avgY == null || companyAvg == null) return `Not enough data yet to compare this day to the average.`;
+      const delta = round1(avgY - companyAvg);
+      if (Math.abs(delta) < 1) return `${fmtPct(avgY)} average yield that day — right in line with the ${fmtPct(companyAvg)} overall average.`;
+      return `${fmtPct(avgY)} average yield that day, ${Math.abs(delta)} points ${delta > 0 ? "above" : "below"} the ${fmtPct(companyAvg)} overall average.`;
+    }
+    return `${batches.length} batch${batches.length === 1 ? "" : "es"} closed, ${fmtPct(avgY)} average yield, ${flaggedCount} flagged. I don't have a specific answer for that yet, but that's everything behind this day.`;
+  }
+
   // "overall"
   const { company, byLocation } = card.context;
   const singleLocation = byLocation.length === 1 ? byLocation[0] : null;
@@ -244,9 +264,12 @@ export function answerCompanyQuestion({ company, locations, users, crewPins, int
     }.`;
   }
   if (/pin|code|station/.test(q)) {
-    const stationPins = crewPins.filter((p) => p.role === "station").length;
+    /* Lead PINs are the only non-person PIN left. Station device codes were
+     * removed once it was clear nothing authenticated against them: the floor
+     * signs in with a person's own PIN, that record carries their station, and
+     * stations are a filter on the board rather than a property of a tablet. */
     const leadPins = crewPins.filter((p) => p.role === "lead").length;
-    return `${stationPins} station device code${stationPins === 1 ? "" : "s"} issued and ${leadPins} lead PIN${leadPins === 1 ? "" : "s"} across the company.`;
+    return `${leadPins} lead PIN${leadPins === 1 ? "" : "s"} across the company. Stations are a view on the board, not a device — a tablet needs no code of its own.`;
   }
   return "I can answer questions about yield, POS connections, locations, team, and PINs from what's set up so far — try rephrasing, or ask about one of those.";
 }

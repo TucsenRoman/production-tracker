@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * Reusable double-tap hotkeys: press a bare key twice within `windowMs` to
- * fire its handler. "b" "b" toggles the sidebar, "2" "2" jumps to a nav item
+ * fire its handler. "0" "0" toggles the sidebar, "2" "2" jumps to a nav item
  * — same gesture everywhere it's used, so it only has to be explained once.
  *
  * `bindings` is a plain object of { key: handler }, matched against

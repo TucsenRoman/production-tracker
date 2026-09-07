@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Claude session scratch. The tarballs are how source gets shuttled to the
+# cloud container to be rendered and screenshotted; _to_delete/ is where files
+# go when they can't be deleted from the mount directly. None of it is source.
+/_to_delete/
+/_to_delete_files/
+/Claude outputs/
+*.tgz
+*.tar.gz

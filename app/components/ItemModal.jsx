@@ -4,9 +4,9 @@ import React, { useState } from "react";
 import { AlertTriangle, ArrowRightCircle, Flame, PackageX, Timer, Trash2 } from "lucide-react";
 
 import { Badge, Button, Field, Input, Modal, ProgressBar, Segmented, cx } from "./ui";
+import { useStations } from "../lib/stations";
 import {
   PRODUCT_TYPES,
-  STAGES,
   STATE_ICON,
   STOCK_STATES,
   behindStock,
@@ -69,6 +69,7 @@ export default function ItemModal({
   onRemove,
   onPutOut,
 }) {
+  const { stages } = useStations();
   const family = item.type || productType(item.product);
   const [threshold, setThreshold] = useState(String(item.threshold));
   const [max, setMax] = useState(String(item.max));
@@ -255,7 +256,7 @@ export default function ItemModal({
                     {activeBatches.length} batch{activeBatches.length > 1 ? "es" : ""}
                   </span>{" "}
                   in production — {activeBatches
-                    .map((b) => `${b.boxWeight || b.estWeight} lb in ${STAGES[b.stage]}`)
+                    .map((b) => `${b.boxWeight || b.estWeight} lb in ${stages[b.stage]}`)
                     .join(", ")}
                 </p>
               )}

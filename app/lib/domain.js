@@ -309,6 +309,47 @@ export const defaultMax = (name) => capacityFor(defaultThreshold(name));
 /** What the stocker should bring out to fill the case. */
 export const refillQty = (item) => Math.max(0, +(item.max - stockIn(item, "floor")).toFixed(1));
 
+/* THE SMALLEST BATCH WORTH RUNNING — the model's answer to "we're not at max,
+ * but we don't need to make 5 lb to get there, so we're good."
+ *
+ * Until this existed the planning screen had only two opinions about a
+ * product: it is exactly at max, or it wants work. Nothing in between. So a
+ * case sitting at 125 of 130, with a minimum of 60 and no problem in the
+ * world, was asked for a 5 lb batch every single morning — and the bulk
+ * action cheerfully proposed running the smokehouse for 2 lb of pork bellies.
+ *
+ * Expressed as a GAP, not a level, and that is the whole trick. A third
+ * threshold ("top up to here") would have been a third number to keep current
+ * on every product forever, and it would still not know that the last few
+ * pounds are not worth a changeover. A minimum batch says the same thing from
+ * the other end and says it in the units the decision is actually made in:
+ * not "how full is the case" but "is this job big enough to be worth doing".
+ *
+ * A quarter of the case, rounded to 5, never under 5 — a run smaller than a
+ * quarter of what the case holds is not worth the changeover. That is a
+ * default, not a law; it is per-product and editable, because a jerky batch
+ * and a ground beef batch have nothing in common but the word batch. */
+export const defaultMinBatch = (max) =>
+  Math.max(5, Math.round((Number(max) || 0) / 4 / 5) * 5);
+
+/* Deliberately asymmetric between the two routes, because the two routes
+ * have completely different fixed costs.
+ *
+ * MAKING has a real one: a changeover, a smokehouse cycle, somebody's whole
+ * afternoon. Below a certain size the setup costs more than the product is
+ * worth, which is what `minBatch` measures.
+ *
+ * MOVING costs approximately nothing. The stock already exists, it is
+ * already made, and somebody is walking past the freezer anyway — carrying
+ * out 2 lb is free. Applying a minimum here would invent a reason to leave
+ * finished product sitting in the back.
+ *
+ * One threshold on the product would have gotten this wrong in both
+ * directions at once. */
+export const worthMaking = (item, qty) =>
+  qty > 0 && qty >= (item.minBatch ?? defaultMinBatch(item.max));
+export const worthMoving = (qty) => qty > 0;
+
 /** Older saved records predate `made` and `type`, so fill them in on read. */
 export function normalizeItem(item) {
   const type = item.type || productType(item.product);
@@ -325,6 +366,10 @@ export function normalizeItem(item) {
     type,
     threshold,
     max: item.max ?? capacityFor(threshold),
+    // Derived from whatever max this product ends up with, same as max is
+    // derived from threshold — widen the case and the smallest sensible run
+    // grows with it until somebody says otherwise.
+    minBatch: item.minBatch ?? defaultMinBatch(item.max ?? capacityFor(threshold)),
   };
 }
 
@@ -465,10 +510,13 @@ export function yieldTone(pct) {
   return "danger";
 }
 
-export const isOverTarget = (station, minutes) =>
-  minutes != null && STAGE_TARGET_MINUTES[station] != null
-    ? minutes > STAGE_TARGET_MINUTES[station] * 1.15
-    : false;
+/** `targets` lets a caller override the default per-station minutes (e.g.
+ *  a company's own configured target from the Stations screen) without
+ *  this function needing to know where that override came from. */
+export const isOverTarget = (station, minutes, targets = {}) => {
+  const target = targets[station] ?? STAGE_TARGET_MINUTES[station];
+  return minutes != null && target != null ? minutes > target * 1.15 : false;
+};
 
 let idCounter = 0;
 /** Sequential, readable, and stable across a render pass. */
@@ -613,6 +661,14 @@ export const SEED = {
     { product: "Baby Back Ribs", made: 0, freezer: 24, floor: 16, threshold: 20, unit: "lb" },
     { product: "Smoked Ham", made: 0, freezer: 20, floor: 21, threshold: 18, unit: "lb" },
     { product: "Ring Bologna", made: 0, freezer: 6, floor: 7, threshold: 10, unit: "lb" },
+    // Added Sept 2026 once the sandbox catalogue grew past the original 9 —
+    // these four names came back from a live /v3/.../items pull with no
+    // match in this list at all, so they fell through to Clover's own (null)
+    // stock and read as permanently "Out". Same fix, same reason.
+    { product: "House Brats", made: 0, freezer: 20, floor: 19, threshold: 30, unit: "lb" },
+    { product: "Bone-In Pork Chops", made: 0, freezer: 20, floor: 14, threshold: 25, unit: "lb" },
+    { product: "Boneless Chuck Roast", made: 0, freezer: 14, floor: 11, threshold: 15, unit: "lb" },
+    { product: "Sirloin Steak", made: 0, freezer: 28, floor: 20, threshold: 25, unit: "lb" },
   ],
 
   schedule: {

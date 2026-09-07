@@ -1,0 +1,329 @@
+{
+  "meta": {
+    "name": "Entity card",
+    "slug": "entity-card",
+    "source": "GitHub profile sidebar, github.com/rauchg, light theme",
+    "captured": "2026-09-07",
+    "capture_method": "computed-style probes via getComputedStyle in the live page, not eyeballed from a screenshot",
+    "medium_of_origin": "web application, single-column sidebar module",
+    "first_choice_rejected": "Stripe Dashboard customer detail — the intended bar, login-walled, could not be fetched; GitHub's sidebar has the identical information model (identity, one action, icon+label meta rows, counts) and is public",
+    "not_copied": "GitHub's marks, palette and font. This is a STRUCTURAL dna: it dictates anatomy, ratios and refusals only. Colour and type come from the host app.",
+    "host_system": "ProTrack runs .claude/skills/notion/ — every neutral, radius and control height here resolves to that system's tokens",
+    "second_bar": "Notion's own card surfaces, app.notion.com Home, measured 2026-09-07 — see bar-notion.md and ../notion/CARDS.md. GitHub gave this card its ANATOMY; Notion gave it its FINISH. Where they disagree, Notion wins: the app is a Notion app."
+  },
+  "soul": {
+    "one_line": "A name tag, not a dashboard: one photograph, one name, then five flat facts and a way in.",
+    "adjectives": [
+      "flat",
+      "ruled",
+      "unhurried",
+      "literal",
+      "uncoloured"
+    ],
+    "lineage": "developer-tool profile pages; index cards; a plaque beside a door",
+    "read_distance": "one arm's length, scanning a grid of six",
+    "energy": {
+      "density": 6,
+      "variance": 2,
+      "contrast": 4,
+      "warmth": 6
+    }
+  },
+  "palette": {
+    "inherits_from_host": true,
+    "roles": [
+      {
+        "role": "ink (values)",
+        "coverage_pct": 6,
+        "note": "names, numerals, primary facts"
+      },
+      {
+        "role": "muted (units, labels)",
+        "coverage_pct": 4
+      },
+      {
+        "role": "hairline",
+        "coverage_pct": 1,
+        "note": "one tone, full bleed, never a box"
+      },
+      {
+        "role": "paper",
+        "coverage_pct": 60
+      },
+      {
+        "role": "photograph",
+        "coverage_pct": 29,
+        "note": "the entity's own image; the only chroma the card volunteers"
+      },
+      {
+        "role": "problem (danger/warn)",
+        "coverage_pct": 0.4,
+        "note": "confined to the issues band"
+      },
+      {
+        "role": "brand mark",
+        "coverage_pct": 0.3,
+        "note": "content, exempt from the two-colour budget"
+      }
+    ],
+    "banned": [
+      "an accent fill on the card's own action",
+      "a green success colour on an ordinary state",
+      "a tinted placeholder standing in for a missing photo",
+      "any colour inside the fact stack"
+    ]
+  },
+  "type": {
+    "families": [
+      {
+        "role": "everything",
+        "family": "host app's OS sans stack",
+        "fallback": "ui-sans-serif, system-ui"
+      }
+    ],
+    "scale": {
+      "display_to_body_ratio": 1.71,
+      "measured_reference": "24px/600 name over 14px/400 body",
+      "steps": [
+        24,
+        14,
+        12
+      ],
+      "max_sizes_per_frame": 3
+    },
+    "treatment": {
+      "case": "sentence, never uppercase",
+      "numerals": "tabular, 600 weight, ink",
+      "units": "400 weight, muted, same size as the numeral"
+    }
+  },
+  "space": {
+    "margin_pct": 5.25,
+    "icon_gap_px": 10,
+    "fact_row_pitch_px": 27,
+    "band_padding": "equal top and bottom in every band, including the footer",
+    "alignment": "one left rail at the card's own padding; every icon, avatar, brand mark and control starts on it",
+    "grouping": "full-bleed 1px hairlines, never a container"
+  },
+  "surface": {
+    "texture": "none",
+    "edges": "one radius, matching the host system",
+    "elevation": "a 1px ring; nothing at rest carries a shadow",
+    "imagery": "the entity's own photograph, full bleed, 16:7, no radius of its own, one hairline beneath",
+    "iconography": "host app's icon set at 15-16px, muted, decorative — never the carrier of meaning"
+  },
+  "signatures": [
+    {
+      "move": "Identity by mass",
+      "how": "the photo is the largest object by an order of magnitude",
+      "when": "always, at the top",
+      "never": "a stock glyph inflated to stand in for a photo"
+    },
+    {
+      "move": "Two sizes and a label tier",
+      "how": "24:14 = 1.71:1, plus 12px for row labels and avatar initials",
+      "when": "every frame",
+      "never": "a size increase used to signal importance"
+    },
+    {
+      "move": "Facts as sentences",
+      "how": "value 600 ink, unit 400 muted, `·` between, one line each",
+      "when": "any count or figure",
+      "never": "a stat tile, a boxed band, a divided panel"
+    },
+    {
+      "move": "One icon column",
+      "how": "every meta icon on one left rail, 15px, muted",
+      "when": "three or more facts",
+      "never": "an icon that changes size or colour row to row"
+    },
+    {
+      "move": "Rank by position",
+      "how": "anything actionable leaves the fact stack for a hairline-separated band of its own",
+      "when": "there is something to act on",
+      "never": "tinting a row red inside the facts and calling that hierarchy"
+    },
+    {
+      "move": "Neutral way in",
+      "how": "full-width secondary button, one control height, one trailing arrow",
+      "when": "the card links onward",
+      "never": "a filled accent button on a card that repeats in a grid"
+    },
+    {
+      "move": "Status as a word",
+      "how": "plain text in the row it belongs to",
+      "when": "a connection or an open/closed state",
+      "never": "a filled badge or a coloured pill"
+    }
+  ],
+  "weird_move": {
+    "what": "The photograph is allowed to be enormous — roughly 30% of the card — while every single thing below it is 14px and flat.",
+    "why": "Hierarchy is bought once, at the top, in one currency. Having spent it, the card has nothing left to shout with, which is what forces every later decision to be made with position and space instead of size and colour.",
+    "fails_if": "the mark is a placeholder glyph; then it is mass carrying no identity, and it should be deleted rather than inflated"
+  },
+  "archetypes": [
+    {
+      "id": "place",
+      "purpose": "one physical site in a grid",
+      "anatomy": "photo · name · facts column · issues band · owner row · connection row · action"
+    },
+    {
+      "id": "person",
+      "purpose": "one human",
+      "anatomy": "avatar · name · role eyebrow · counts sentence · action"
+    },
+    {
+      "id": "thing",
+      "purpose": "one device or record",
+      "anatomy": "glyph · name · spec sentence · status row · action"
+    }
+  ],
+  "voice": {
+    "register": "plain, declarative, no marketing",
+    "headline_shape": "the name people say out loud, nothing appended",
+    "banned_words": [
+      "overview",
+      "details",
+      "information",
+      "summary",
+      "at a glance"
+    ]
+  },
+  "bans": [
+    "Never an inner panel, tinted band, pill or chip.",
+    "Never a ruled uppercase section heading inside the card.",
+    "Never more than two coloured elements at rest; brand marks and hover states are exempt.",
+    "Never a filled accent button on a card that repeats.",
+    "Never a second radius, except a person's avatar, which is round.",
+    "Never a drop shadow at rest.",
+    "Never a fourth type size.",
+    "Never state the same problem twice in two tones.",
+    "Never a placeholder that is tinted, only one that is neutral."
+  ],
+  "tests": [
+    {
+      "id": 1,
+      "test": "no more than 3 distinct type sizes render",
+      "auto": true
+    },
+    {
+      "id": 2,
+      "test": "zero inner bordered or filled containers that are not click targets",
+      "auto": true
+    },
+    {
+      "id": 3,
+      "test": "no more than 2 non-neutral coloured elements can render at rest simultaneously",
+      "auto": false
+    },
+    {
+      "id": 4,
+      "test": "the identity mark is the largest object by 3x or more",
+      "auto": false
+    },
+    {
+      "id": 5,
+      "test": "the card's own action is neutral, full width, one control height",
+      "auto": true
+    },
+    {
+      "id": 6,
+      "test": "no uppercase ruled heading appears inside the card",
+      "auto": true
+    },
+    {
+      "id": 7,
+      "test": "every meta icon's left edge is on one column, within 2px",
+      "auto": false
+    },
+    {
+      "id": 8,
+      "test": "exactly one border radius is used, plus a round avatar",
+      "auto": true
+    },
+    {
+      "id": 9,
+      "test": "every band's top and bottom padding are equal",
+      "auto": false
+    },
+    {
+      "id": 10,
+      "test": "no problem is stated in two places on the same card",
+      "auto": false
+    },
+    {
+      "id": 11,
+      "test": "the name:body type ratio is between 1.6:1 and 1.9:1",
+      "auto": false
+    },
+    {
+      "id": 12,
+      "test": "counts render as one line of text, never as tiles",
+      "auto": true
+    }
+  ],
+  "reconstruction": {
+    "attempted": true,
+    "method": "three fresh-context critics (brief, system, craft) scored the rendered card against bar.md and this spec; each round's gaps were folded back into the spec before rebuilding",
+    "rounds": 5,
+    "gaps_found": [
+      "Round 1 — the spec said 'zero boxes' but the identity mark was itself a bordered 64px tile. Fixed in the design (full-bleed photo) and in the spec (the mark is the photo, not a framed glyph).",
+      "Round 1 — the spec's two-colour ban did not say 'at rest', so a hover-only danger icon counted against it.",
+      "Round 2 — the spec had no rule for RANK. A flagged batch was the fifth of five typographically identical rows, coloured red and nothing else. Added signature 6: anything actionable leaves the fact stack for its own band.",
+      "Round 2 — the spec had no rule against stating a problem twice; the stale-sync warning and the muted 'Synced 14d ago' said the same thing in two tones. Added to bans.",
+      "Round 2 — 'a 12px eyebrow, only as a row label' was too narrow: avatar initials legitimately use that tier.",
+      "Round 2 — the radius ban lost its avatar exception when PROMPT.md was trimmed to the 2KB cap. Restored.",
+      "Round 4 (Notion bar) — the 24px name was a GitHub move. Notion's card title is 14px and never above it; hierarchy inside a card is weight and ink. Name went to 16px/600 and 24px left the spec.",
+      "Round 4 — 'one radius throughout' was wrong. Notion runs a ladder by object size (4/6/8/12/16); the card is 12 and the rows inside it are 6. The ban became 'never one radius for card and rows'.",
+      "Round 4 — the card's border and 6px radius were both row values on a card. Removed the border, added --radius-card: 12px.",
+      "Round 4 — the grey ramp was missing Notion's #5f5e59 (6.4:1). Added as --color-ink-1; every muted word and unit on the card moved onto it, and icons dropped a step to #a19e99.",
+      "Round 5 — a borderless white card on a white page renders only 2 of 4 corners. Fixed the Notion way: the card fill became --color-sunken so its edge is a COLOUR CHANGE, not a border (Notion's rail trick).",
+      "Round 5 — the alert triangles were set in exactly their label's ink, the one thing both critics caught independently. Icons now sit a step lighter everywhere, alerts included.",
+      "Round 5 — --color-warn measured 4.45:1 on the card's surface, below AA and on its second-most-important line. Moved to #8f6210 (5.05:1)."
+    ]
+  },
+  "approved_forks": [
+    {
+      "fork": "The outer card keeps four sides, a border and a radius",
+      "why": "The host Notion system bans cards outright. A location is not a peer in a list of like things — it is the subject the whole console hangs off, and this tile carries six distinct bands no row holds at any width. Documented in the component and in project memory.",
+      "scope": "this screen only"
+    },
+    {
+      "fork": "24px name, off the host system's 12/13/14/16/32 scale",
+      "why": "32px is the page-title size and swamps a 400px card; 24 is the ratio the reference measured at (1.71:1).",
+      "scope": "entity cards only"
+    },
+    {
+      "fork": "A brand mark is exempt from the two-colour budget",
+      "why": "A partner's logo is content the user recognises, not accent the designer spent. Clover's own published mask icon in their own green.",
+      "scope": "connection rows"
+    },
+    {
+      "fork": "The card fill is --color-sunken, not white",
+      "why": "Notion's cards are white on warm paper; this app's console ground is white, so the relationship was inverted rather than abandoned. Notion move 5 — 'the colour change is the edge' — is what makes a borderless card hold, and it works in either direction.",
+      "scope": "entity cards on a white ground"
+    }
+  ],
+  "uncertainty": [
+    {
+      "value": "fact row pitch 27px",
+      "confidence": 0.6,
+      "note": "the reference measured 25px; 27 is internally consistent here but was not derived from it"
+    },
+    {
+      "value": "photo aspect 16:7",
+      "confidence": 0.5,
+      "note": "inferred, not measured — the reference uses a square avatar, not a banner"
+    },
+    {
+      "value": "stale-sync threshold of 7 days",
+      "confidence": 0.4,
+      "note": "invented for this domain; a real POS cadence should set it"
+    },
+    {
+      "value": "coverage percentages",
+      "confidence": 0.5,
+      "note": "estimated from one rendered card at 400px, not sampled across a grid"
+    }
+  ]
+}

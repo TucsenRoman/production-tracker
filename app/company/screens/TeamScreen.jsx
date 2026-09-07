@@ -223,8 +223,8 @@ function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave, on
     >
       <div className="space-y-4">
         <p className="text-xs text-ink-3 leading-relaxed">
-          {user.name.split(" ")[0]} punches this in on the floor at {location.name} to authorize a gated action —
-          it&rsquo;s personal to them, unlike a station&rsquo;s device code, and never shared.
+          {user.name.split(" ")[0]} punches this in on the floor at {location.name} to authorize a gated action.
+          It&rsquo;s personal to them and never shared — an approval, not a way in.
         </p>
         <p className="text-xs text-ink-4 leading-relaxed">
           The roster only shows that a PIN is set. The digits are here, behind an open you had to mean, rather than

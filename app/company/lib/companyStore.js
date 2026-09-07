@@ -8,7 +8,7 @@
  * the admin session IS persisted. An owner/admin signing in on their laptop
  * expects to stay signed in, unlike a shared tablet on the floor.
  *
- * The namespace carries a version suffix on purpose: bump it (v1 -> v2, Sept
+ * The namespace carries a version suffix on purpose: bump it (v3 -> v4, Sept
  * 2026) whenever COMPANY_SEED/PRODUCTION_SEED change shape or shrink (e.g.
  * the single-location demo cut). Without the bump, every browser that had
  * already hydrated from localStorage keeps serving its old stored copy
@@ -19,10 +19,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const NS = "milaca.company.v2";
+const NS = "milaca.company.v4";
 const key = (name) => `${NS}.${name}`;
 
+/* Dev switch: set NEXT_PUBLIC_PERSIST=off in .env.local to make every read
+ * miss and every write no-op, so a refresh always re-seeds from SEED and
+ * whatever is already sitting in localStorage is ignored rather than
+ * needing to be cleared by hand. Restart the dev server after changing it —
+ * NEXT_PUBLIC_* is inlined at build time. Unset (or anything but "off")
+ * keeps normal persistence. */
+const PERSIST = process.env.NEXT_PUBLIC_PERSIST !== "off";
+
+
 function read(name, fallback) {
+  if (!PERSIST) return fallback;
   if (typeof window === "undefined") return fallback;
   try {
     const raw = window.localStorage.getItem(key(name));
@@ -33,6 +43,7 @@ function read(name, fallback) {
 }
 
 function write(name, value) {
+  if (!PERSIST) return;
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key(name), JSON.stringify(value));

@@ -29,12 +29,12 @@ import {
 import {
   ROLE_BLURB,
   ROLE_LABEL,
-  STATIONS,
   assignableRoles,
   canManageStaff,
   roleRank,
 } from "../lib/domain";
 import { useStaff } from "../lib/staff";
+import { useStations } from "../lib/stations";
 
 /* One icon per role. The roster is read on a wall-mounted terminal rather
  * than a desk monitor, so a section wants something identifiable at a
@@ -114,6 +114,7 @@ function PinDialog({ person, isSelf, onCancel, onSave }) {
 /* ------------------------------------------------------------ Person form -- */
 
 function PersonDialog({ actor, person, onCancel, onSave }) {
+  const { stations } = useStations();
   const editing = Boolean(person);
   const roles = assignableRoles(actor);
 
@@ -176,7 +177,7 @@ function PersonDialog({ actor, person, onCancel, onSave }) {
               onChange={(v) => setStation(v === "none" ? "" : v)}
               options={[
                 { value: "none", label: "Any" },
-                ...STATIONS.map((s) => ({ value: s, label: s })),
+                ...stations.map((s) => ({ value: s, label: s })),
               ]}
             />
           </Field>
