@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ArrowUp,
   Calendar,
   Check,
@@ -16,6 +15,7 @@ import {
   Trash2,
   UserRound,
   UsersRound,
+  ClockAlert,
 } from "lucide-react";
 
 import {
@@ -77,7 +77,7 @@ const TABS = [
   {
     id: "overdue",
     label: "Overdue",
-    icon: AlertTriangle,
+    icon: ClockAlert,
     match: (t) => !t.completed && t.dueDate != null && daysUntil(t.dueDate) < 0,
   },
   {

@@ -214,18 +214,6 @@
   }
 }
 
-/* Lets the floor demo's TabletFrame force the touch-density tokens on for
-   a mouse-driven browser, via its "Simulate touch" toggle — mirrors the
-   media query above exactly. Applied on <html> since that's where the
-   toggle sets the class; see TabletFrame.jsx. */
-html.force-touch-density {
-  --row-h: 48px;
-  --cell-h: 48px;
-  --ctl-h: 44px;
-  --ctl-h-lg: 52px;
-  --gutter: 16px;
-}
-
 @layer base {
   html {
     scrollbar-gutter: stable;
@@ -309,14 +297,6 @@ html.force-touch-density {
       user-select: none;
       touch-action: manipulation;
     }
-  }
-
-  html.force-touch-density button,
-  html.force-touch-density [role="button"] {
-    -webkit-tap-highlight-color: transparent;
-    -webkit-user-select: none;
-    user-select: none;
-    touch-action: manipulation;
   }
 
   @media (prefers-reduced-motion: reduce) {

@@ -4,9 +4,10 @@
  * The live station list, as a context — same reason PINs stopped being a
  * bare import (see ./staff.jsx's doc comment): the Stations screen in the
  * admin console makes `stations` editable, so every screen that used to
- * read the `STAGES`/`STATIONS`/`STAGE_ICON` constants from ./domain.js has
- * to read the *current* list instead of a module-level copy of exactly
- * ["Smokehouse", "Packaging"].
+ * read the `STAGES`/`STAGE_ICON` constants from ./domain.js has to read the
+ * *current* list instead of a module-level copy of exactly
+ * ["Smokehouse", "Packaging"]. Those two constants are now deleted; only
+ * `STATIONS` survives there, as the seed this provider falls back to.
  *
  * Smokehouse keeps its one piece of special-cased business logic (it's the
  * only stage a batch can skip, via `needsSmoke`) — that's a real fact about

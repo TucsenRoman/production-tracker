@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { AlertTriangle, ArrowRightCircle, Flame, PackageX, Timer, Trash2 } from "lucide-react";
 
 import { Badge, Button, Field, Input, Modal, ProgressBar, Segmented, cx } from "./ui";
-import { useStations } from "../lib/stations";
 import {
   PRODUCT_TYPES,
   STATE_ICON,
@@ -46,8 +45,13 @@ const FLOOR_TONE = { out: "text-danger", low: "text-warn", ok: "text-ok" };
  *   - onRemove(product)                 — delete (only offered at zero stock)
  *   - onMove(item)                      — hand off to the caller's move flow
  *   - onPutOut(product)                 — one-tap: made + freezer -> floor
- * `canManage` hides every editing affordance (and the whole "manage" section
- * degrades to a read-only summary) for roles that shouldn't see it.
+ * There is no `canManage` gate. It was `isManager(user)` on a terminal
+ * hardcoded to manager, so the read-only summary it fell back to could never
+ * render — a whole alternate face of this dialog that no floor tablet has
+ * ever shown. Nothing here is hidden from the floor, because nothing here is
+ * worth hiding: minimums, case sizes and families are the shop's own numbers.
+ * The gated action in this dialog is the stock MOVE, and that asks
+ * `approve()` on the way out (see ProductionTracker's handleMove).
  *
  * `activeBatches`, `scheduledToday` and `recentBatches` are optional context
  * a caller can pre-compute from its own state (batches, schedule, history —
@@ -59,7 +63,6 @@ const FLOOR_TONE = { out: "text-danger", low: "text-warn", ok: "text-ok" };
 export default function ItemModal({
   item,
   perDay,
-  canManage,
   activeBatches = [],
   scheduledToday = [],
   recentBatches = [],
@@ -69,7 +72,6 @@ export default function ItemModal({
   onRemove,
   onPutOut,
 }) {
-  const { stages } = useStations();
   const family = item.type || productType(item.product);
   const [threshold, setThreshold] = useState(String(item.threshold));
   const [max, setMax] = useState(String(item.max));
@@ -108,7 +110,7 @@ export default function ItemModal({
       icon={STATE_ICON.floor}
       footer={
         <>
-          {canManage && total === 0 && (
+          {total === 0 && (
             <Button
               variant="ghost"
               icon={Trash2}
@@ -121,22 +123,20 @@ export default function ItemModal({
           <Button variant="ghost" onClick={onClose}>
             Close
           </Button>
-          {canManage && (
-            <Button
-              variant="primary"
-              disabled={!dirty}
-              onClick={() =>
-                onSave(item.product, {
-                  threshold: nextThreshold,
-                  max: nextMax,
-                  type,
-                  unit: unit.trim() || "lb",
-                })
-              }
-            >
-              Save changes
-            </Button>
-          )}
+          <Button
+            variant="primary"
+            disabled={!dirty}
+            onClick={() =>
+              onSave(item.product, {
+                threshold: nextThreshold,
+                max: nextMax,
+                type,
+                unit: unit.trim() || "lb",
+              })
+            }
+          >
+            Save changes
+          </Button>
         </>
       }
     >
@@ -319,8 +319,7 @@ export default function ItemModal({
           </p>
         )}
 
-        {canManage ? (
-          <div className="space-y-4 pt-1 border-t border-line">
+        <div className="space-y-4 pt-1 border-t border-line">
             <div className="grid grid-cols-2 gap-3 pt-4">
               <Field
                 label={`Minimum (${unit})`}
@@ -364,13 +363,7 @@ export default function ItemModal({
             <Field label="Unit" hint="Whatever this product is counted in.">
               <Input value={unit} onChange={(e) => setUnit(e.target.value)} className="max-w-24" />
             </Field>
-          </div>
-        ) : (
-          <p className="text-xs text-ink-4 border-t border-line pt-4">
-            Minimum {item.threshold} {item.unit} · full case {item.max} {item.unit} · {family}. Ask a
-            manager to change these.
-          </p>
-        )}
+        </div>
 
         {/* The one-tap shortcut for the common case — everything behind the
             floor moves there in a single step, instead of the from/to/amount
@@ -449,8 +442,7 @@ export default function ItemModal({
  * change before it's just a UI job. Parked, not planned:
  *
  * 4. Freeform product notes — a `note` field on the inventory item itself
- *    (`item.note`), edited here the same way threshold/max are, shown to
- *    everyone but only editable by `canManage`.
+ *    (`item.note`), edited here the same way threshold/max are.
  *
  * 5. Change audit trail — "who moved stock / edited this last, and when".
  *    Batches already track `lastActionBy` (see BoardScreen.jsx) as a

@@ -24,9 +24,15 @@ import { useActionAccess } from "../lib/actionAccess";
  * which reads as inactive rather than as permissive. You had to go back up
  * to the intro paragraph to decode it. As two named options the label is
  * the state: nothing to decode, nothing said twice. */
+/* "Any station PIN" was vocabulary from a world that no longer exists —
+ * station codes are gone, and crew have no PINs at all, so the loose option
+ * does not mean "a lesser credential", it means nobody is asked anything.
+ * Say that. The strict option is "Manager PIN" for the same reason: there is
+ * one kind of person-PIN now, and a lead tier that isn't a tier reads as a
+ * distinction the floor cannot see. */
 const PIN_MODES = [
-  { value: "lead", label: "Lead PIN" },
-  { value: "any", label: "Any station PIN" },
+  { value: "lead", label: "Manager PIN" },
+  { value: "any", label: "No approval" },
 ];
 
 /**

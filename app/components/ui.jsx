@@ -269,13 +269,20 @@ export function StickyFadeHeader({
   bg = "bg-canvas lg:bg-surface",
   fade = 18,
   pad = 44,
+  /* Symmetric with `pad`, and numeric for the same reason: the two paddings
+   * are one decision about how much air the bar sits in, and expressing one
+   * as a utility class and the other as a style made them look unrelated.
+   * 12 is exactly the `pt-3` this used to hardcode, so every existing caller
+   * renders identically. */
+  padTop = 12,
   z = 10,
 }) {
   return (
     <div
-      className={cx("relative sticky pt-3", top, bg, className)}
+      className={cx("relative sticky", top, bg, className)}
       style={{
         zIndex: z,
+        paddingTop: padTop,
         paddingBottom: pad,
         WebkitMaskImage: `linear-gradient(to bottom, black 0, black calc(100% - ${fade}px), transparent 100%)`,
         maskImage: `linear-gradient(to bottom, black 0, black calc(100% - ${fade}px), transparent 100%)`,
@@ -1196,15 +1203,47 @@ export function ScrollRail({
   const measure = useCallback(() => {
     const el = railRef.current;
     if (!el) return;
-    // Reserved clip room is padding, not content, but scrollWidth counts it
-    // either way — subtract whatever is applied right now so the reservation
-    // can't read as overflow and arm a scroller nothing needs. Read it live
-    // rather than assuming `clipRoom`, since it's only there while armed.
-    const contentWidth =
-      el.scrollWidth - (parseFloat(getComputedStyle(el).paddingRight) || 0);
+    /* The chips' own extent, NOT `scrollWidth`.
+     *
+     * `scrollWidth` counts a corner badge's overhang: TabDot is pinned at
+     * `-right-1.5`, so it hangs 6px past the last chip and reads as 6px of
+     * content the rail does not have. That is enough to arm a rail whose
+     * chips fit — and arming is what reserves `clipRoom`, which absorbs the
+     * overhang and makes the next reading say "fits". Arm, fit, arm, fit:
+     * the two states disagree about the same rail, so which one it lands in
+     * comes down to which measurement happened last. Landing armed is the
+     * bad one, and it is stable: `overflow-x: auto` with scrollWidth equal
+     * to clientWidth is a fade painted across a last tab that fits, with
+     * zero scroll range to move it out from under.
+     *
+     * A child's own `offsetLeft + offsetWidth` is its border box, and an
+     * absolutely-positioned badge is not in it, so this reads the same
+     * whether the rail is armed or not — no reservation to subtract, and
+     * nothing for the two states to disagree about. */
+    let last = el.lastElementChild;
+    // The trailing spacer is reserved room, not a chip — walk past it, or it
+    // adds its own width to the content and re-arms a rail that fits.
+    while (last && last.hasAttribute("data-rail-spacer"))
+      last = last.previousElementSibling;
+    const contentWidth = last
+      ? last.offsetLeft + last.offsetWidth
+      : el.scrollWidth - (parseFloat(getComputedStyle(el).paddingRight) || 0);
     const overflowing = contentWidth > el.clientWidth + 1;
+
+    /* The ENDS are a different question from whether to arm, and have to be
+     * measured against a different number.
+     *
+     * Arming asks "is there more chip than box", which is why it ignores the
+     * badge and the reserved room above. But "have we reached the end" is
+     * only ever about how far the thing can actually scroll — and that range
+     * includes the reservation, because the reservation is what the trailing
+     * badge lives in. Measuring the ends against the chip extent instead
+     * declares the rail finished `clipRoom` px early: the fade lifts, the
+     * rail looks arrived, and the last badge is still sitting outside the
+     * box with nothing to say it can be scrolled into view. */
+    const maxScroll = el.scrollWidth - el.clientWidth;
     const atStart = el.scrollLeft <= 1;
-    const atEnd = el.scrollLeft >= contentWidth - el.clientWidth - 1;
+    const atEnd = el.scrollLeft >= maxScroll - 1;
     // Bail on an unchanged reading: arming changes the rail's own padding,
     // which trips the observer again, and a fresh object every time would
     // re-render on each lap of that loop for nothing.
@@ -1235,6 +1274,33 @@ export function ScrollRail({
     const watch = () => {
       ro.disconnect();
       ro.observe(el);
+      /* The parent, which is the only one of the three that can report a
+       * change in the space AVAILABLE — and without it the rail latches.
+       *
+       * A ResizeObserver reports the box an element lays out into, and the
+       * rail's barely moves: it is an inline-flex sized to its own content
+       * and merely clamped by `max-w-full`, so it reads its container's
+       * width through `clientWidth` while its observed box stays at the
+       * chips' intrinsic width. The children never move either, being
+       * `shrink-0`. So neither observation fires when the container alone
+       * changes, and `window.resize` was left as the only signal.
+       *
+       * Rotating the tablet therefore re-measured, but nothing else did —
+       * and the failure that leaves is not a rail that fails to arm, it is
+       * one that arms on a first reading taken before the layout has
+       * settled (a late font, badge counts arriving with hydration) and
+       * then has nothing left to fire an observer, exactly the latch the
+       * `raf` above is meant to break and cannot always reach. A latched
+       * rail is scrollWidth === clientWidth with `overflow-x: auto` on: a
+       * fade painted over a last tab that fits perfectly well, and zero
+       * scroll range to move it out from under.
+       *
+       * The parent is a block box that fills its container, so its box does
+       * change, and one observation covers every case the window event
+       * misses. Loop-safe: arming puts padding on the wrapper, which fires
+       * this observer once more, and that pass re-reads the rail, gets the
+       * same answer, and is dropped by the bail-out in `measure`. */
+      if (el.parentElement) ro.observe(el.parentElement);
       for (const child of el.children) ro.observe(child);
     };
     watch();
@@ -1256,25 +1322,23 @@ export function ScrollRail({
   const fadeLeft = fade && armed && !edges.atStart;
   const fadeRight = fade && armed && !edges.atEnd;
 
-  /* The negative margins cancel the reservation's cost to LAYOUT. maxWidth
-   * cancels its cost to the rail's own content box, and without it the
-   * reservation is a latch: `max-w-full` clamps the border box, so the 14px
-   * of padding armed state adds comes straight out of content width, which
-   * manufactures exactly the overflow that keeps it armed. One transient
-   * overflow at first paint — a late font, badge counts arriving — and the
-   * rail stays armed forever, fading a last tab that fits perfectly well.
-   * Widening the clamp by the same reservation means the armed measurement
-   * sees the same content width the unarmed one did, so it can disarm when
-   * the overflow was never real, and stays armed when it was. */
-  const room = armed
-    ? {
-        paddingTop: clipRoom,
-        marginTop: -clipRoom,
-        paddingRight: clipRoom,
-        marginRight: -clipRoom,
-        maxWidth: `calc(100% + ${clipRoom}px)`,
-      }
-    : null;
+  /* Vertical only — the horizontal half of this reservation could never
+   * work, and that asymmetry is why the trailing badge kept getting sliced.
+   *
+   * Padding plus a cancelling negative margin grows a box without costing
+   * layout, and for HEIGHT that holds: a block grows upward when asked.
+   * Width does not behave the same way. The wrapper below is a block with
+   * auto width, and auto width IS its container's content box — `max-width`
+   * can only constrain that, never expand it. So the wrapper never took the
+   * extra px, its mask went on clipping at the original edge, and the last
+   * chip's badge (6px outside its chip, plus a 2px ring) was cut in half at
+   * the end of the scroll. Raising `clipRoom` did nothing, because the box
+   * it widened was not the box doing the clipping.
+   *
+   * The horizontal room is a real spacer child instead. Content sits inside
+   * `scrollWidth` and inside every clipping box on the way up, so the
+   * overhanging badge simply lands on top of it. */
+  const room = armed ? { paddingTop: clipRoom, marginTop: -clipRoom } : null;
 
   const center = (e) => {
     const el = railRef.current;
@@ -1318,20 +1382,28 @@ export function ScrollRail({
       style={{ ...room, ...style }}
     >
       {children}
+      {armed && clipRoom > 0 && (
+        <span
+          data-rail-spacer=""
+          aria-hidden="true"
+          style={{ flex: `0 0 ${clipRoom}px` }}
+        />
+      )}
     </Tag>
   );
 
   if (!fade) return rail;
 
-  // The last `clipRoom` px are reserved badge room, not content — a band
-  // ending at 100% would spend itself on that empty strip and barely touch
-  // the chips. Pull the right band in by the same amount so it fades the
-  // content edge itself.
+  /* The right band ends at the edge now, not short of it. It used to stop
+   * `clipRoom` px early because those px were trailing PADDING — an empty
+   * strip with nothing in it to fade. The reserved room is a spacer at the
+   * end of the content instead, and it is only ever on screen when the rail
+   * is scrolled fully right, where there is no right fade to draw at all. */
   const maskStops = [
     fadeLeft ? "transparent" : "black",
     fadeLeft ? `black ${band}px` : "black 0px",
-    fadeRight ? `black calc(100% - ${clipRoom + band}px)` : "black 100%",
-    fadeRight ? `transparent calc(100% - ${clipRoom}px)` : "black",
+    fadeRight ? `black calc(100% - ${band}px)` : "black 100%",
+    fadeRight ? "transparent" : "black",
   ].join(", ");
   const mask = `linear-gradient(to right, ${maskStops})`;
 

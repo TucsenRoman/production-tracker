@@ -230,7 +230,7 @@ export function answerInsightQuestion(card, question) {
 }
 
 /** Deterministic Q&A over the whole company — locations, team, POS, PINs, and the insights bundle. */
-export function answerCompanyQuestion({ company, locations, users, crewPins, integrations, insights }, question) {
+export function answerCompanyQuestion({ company, locations, users, integrations, insights }, question) {
   const q = (question || "").toLowerCase();
   const activeUsers = users.filter((u) => u.status === "active");
   const invited = users.filter((u) => u.status === "invited");
@@ -264,12 +264,12 @@ export function answerCompanyQuestion({ company, locations, users, crewPins, int
     }.`;
   }
   if (/pin|code|station/.test(q)) {
-    /* Lead PINs are the only non-person PIN left. Station device codes were
-     * removed once it was clear nothing authenticated against them: the floor
-     * signs in with a person's own PIN, that record carries their station, and
-     * stations are a filter on the board rather than a property of a tablet. */
-    const leadPins = crewPins.filter((p) => p.role === "lead").length;
-    return `${leadPins} lead PIN${leadPins === 1 ? "" : "s"} across the company. Stations are a view on the board, not a device — a tablet needs no code of its own.`;
+    /* Every PIN left in the system hangs off a person's own record, issued on
+     * the Team screen. Station device codes went once nothing authenticated
+     * against them — stations are a filter on the board, not a property of a
+     * tablet, and the tablet itself has no sign-in to hold a code for. */
+    const withPin = users.filter((u) => u.pin).length;
+    return `${withPin} ${withPin === 1 ? "person holds a PIN" : "people hold a PIN"} for approving gated actions. Stations are a view on the board, not a device — a tablet needs no code of its own.`;
   }
   return "I can answer questions about yield, POS connections, locations, team, and PINs from what's set up so far — try rephrasing, or ask about one of those.";
 }

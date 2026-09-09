@@ -42,7 +42,6 @@ import {
   generatePin,
   isValidEmail,
   isValidPin,
-  leadPinFor,
   newCompanyId,
 } from "../lib/companyDomain";
 
@@ -106,13 +105,14 @@ const ROLE_BLURB = {
   manager: "Runs the floor at their locations — Targets, Assignments, Inventory and Insights. No access to company settings.",
 };
 
-/* A location a person is assigned to, plus whether they hold a lead PIN
- * there. One object, because on the roster those two facts were being
- * printed as two separate lines that both named the same place. */
-const assignmentsFor = (user, locations, crewPins) =>
-  locations
-    .filter((l) => user.locationIds.includes(l.id))
-    .map((l) => ({ location: l, pin: leadPinFor(crewPins, user.id, l.id) }));
+/* The locations a person is assigned to, in roster order. */
+const assignmentsFor = (user, locations) => locations.filter((l) => user.locationIds.includes(l.id));
+
+/* Every PIN already spoken for, so a newly issued one can't collide. A PIN
+ * hangs off the person's own record — it is how the floor recognises them —
+ * so the whole company roster is the namespace. */
+const pinsInUse = (users, exceptId) =>
+  users.filter((u) => u.pin && u.id !== exceptId).map((u) => u.pin);
 
 function LocationChecklist({ locations, selected, onToggle }) {
   if (locations.length === 0) {
@@ -267,156 +267,174 @@ function EditDialog({ user, locations, onCancel, onSave }) {
   );
 }
 
-/* --------------------------------------------------------- Lead PIN chips -- */
+/* ------------------------------------------------------------ Person PIN -- */
 
 /**
- * Deliberately not styled like the device-code dialog on Locations: this one
- * is about a person, momentarily, not a station long-term — so it talks
- * about "authorizing an action," never "signing in as."
+ * Issue, replace, or clear the PIN a person punches on the floor.
+ *
+ * Two states, not one form, and the difference is the whole point: a PIN that
+ * exists is never rendered back. Both things you can do to a live PIN —
+ * replace it, clear it — are done without reading it, so the only moment
+ * anybody but its owner sees the digits is the moment they are minted.
+ *
+ * Deliberately not styled like the device-code dialog on Locations: this is
+ * about a person, momentarily, not a station long-term — so it says
+ * "authorize an action", never "sign in as".
  */
-function LeadPinDialog({ user, location, existing, allPins, onCancel, onSave, onRemove }) {
-  const [pin, setPin] = useState(existing?.pin || generatePin(allPins));
-  const pinTaken = allPins.includes(pin) && pin !== existing?.pin;
+function PersonPinDialog({ user, taken, onCancel, onSave, onClear }) {
+  const [issuing, setIssuing] = useState(!user.pin);
+  /* Generated rather than blank, because a human choosing four digits under
+   * mild pressure picks a year. Editable all the same — an admin reissuing a
+   * PIN over the phone may want one that survives being said out loud. */
+  const [pin, setPin] = useState(() => generatePin(taken));
+  const first = user.name.split(" ")[0];
+
+  const pinTaken = taken.includes(pin);
   const valid = isValidPin(pin) && !pinTaken;
 
   return (
     <Modal
       open
       onClose={onCancel}
-      title={existing ? `Edit lead PIN — ${user.name}` : `Issue lead PIN — ${user.name}`}
+      title={user.pin ? `PIN — ${user.name}` : `Issue a PIN — ${user.name}`}
       icon={ShieldCheck}
       footer={
         <>
-          {/* Revoking used to be a ~10px trash icon riding inside the roster
-           *  chip. It lives here now: full-size, on the far side of the
-           *  footer, behind the same deliberate open as the digits. */}
-          {existing && (
-            <Button variant="ghost" icon={Trash2} className="mr-auto hover:text-danger" onClick={onRemove}>
-              Revoke
+          {/* Clearing sits on the far side of the footer, and needs nothing
+           *  revealed to do its job — which is what makes "this PIN has been
+           *  seen by the wrong person" a fixable state rather than a
+           *  confession. */}
+          {user.pin && (
+            <Button variant="ghost" icon={Trash2} className="mr-auto hover:text-danger" onClick={onClear}>
+              Clear PIN
             </Button>
           )}
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" icon={Plus} disabled={!valid} onClick={() => onSave(pin)}>
-            {existing ? "Save changes" : "Issue PIN"}
-          </Button>
+          {issuing ? (
+            <Button variant="primary" icon={Plus} disabled={!valid} onClick={() => onSave(pin)}>
+              {user.pin ? "Replace PIN" : "Issue PIN"}
+            </Button>
+          ) : (
+            <Button variant="primary" icon={Dices} onClick={() => setIssuing(true)}>
+              Issue a new one
+            </Button>
+          )}
         </>
       }
     >
       <div className="space-y-4">
         <p className="text-xs text-ink-3 leading-relaxed">
-          {user.name.split(" ")[0]} punches this in on the floor at {location.name} to authorize a gated action.
-          It&rsquo;s personal to them and never shared — an approval, not a way in.
+          {first} punches this in on the floor to authorize a gated action. It is an approval, not a way in —
+          nothing about the tablet changes, and there is nothing to sign out of.
         </p>
-        <p className="text-xs text-ink-4 leading-relaxed">
-          The roster only shows that a PIN is set. The digits are here, behind an open you had to mean, rather than
-          printed down a list anyone passing the desk or watching a screenshare can read.
-        </p>
-        <Field label="Code" error={pinTaken ? "That code is already in use — try another." : null}>
-          <div className="flex items-center gap-2">
-            <Input
-              autoFocus
-              inputMode="numeric" maxLength={4}
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-              className="font-mono tracking-[0.3em]"
-            />
-            <Button variant="secondary" icon={Dices} onClick={() => setPin(generatePin(allPins))}>
-              Generate
-            </Button>
-          </div>
-        </Field>
+
+        {issuing ? (
+          <>
+            <Field label="Code" error={pinTaken ? "That code is already in use — try another." : null}>
+              <div className="flex items-center gap-2">
+                <Input
+                  autoFocus
+                  inputMode="numeric" maxLength={4}
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  className="font-mono tracking-[0.3em]"
+                />
+                <Button variant="secondary" icon={Dices} onClick={() => setPin(generatePin(taken))}>
+                  Generate
+                </Button>
+              </div>
+            </Field>
+            {/* The honest cost of issuing from here rather than letting the
+             *  person choose it at the tablet: you are looking at it. Say so,
+             *  and say what to do about it, instead of implying a secret. */}
+            <p className="text-xs text-ink-4 leading-relaxed">
+              This is the only screen that will ever show it. Hand it to {first} yourself — if anyone else reads
+              it over your shoulder, clear it and issue another.
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-ink-4 leading-relaxed">
+            {first} has a PIN. It isn&rsquo;t shown here, to you or anyone else — issue a new one to replace it,
+            or clear it so nothing can be approved in their name.
+          </p>
+        )}
       </div>
     </Modal>
   );
 }
 
 /**
- * Where a person works, and whether they can authorise a gated action there.
- *
- * These used to be two things: a grey line listing every location by name,
- * and below it a row of pills that each named the SAME location again next
- * to four dots. At one location that's a word printed twice; at four it's
- * eight place names stacked in one row of a roster. So they are one thing
- * now — the location is said once, and the PIN is a state ON it.
- *
- * Each unit is still one control at --ctl-h opening the dialog that holds
- * the digits; the capsule is gone because a masked PIN was carrying more
- * chrome than the person's own name.
+ * Where a person works. Names only — the PIN used to be a state ON each of
+ * these, and isn't one any more.
  */
-function PersonAssignments({ user, locations, crewPins, onAddPin, onUpdatePin, onRemovePin }) {
-  const [editing, setEditing] = useState(null); // { location, existing }
-  const assignments = assignmentsFor(user, locations, crewPins);
-  const allPins = crewPins.map((p) => p.pin);
-
+function PersonAssignments({ user, locations }) {
+  const assignments = assignmentsFor(user, locations);
   if (assignments.length === 0) {
     return <p className="text-xs text-ink-4">No locations assigned</p>;
   }
+  return <p className="text-xs text-ink-3 truncate">{assignments.map((l) => l.name).join(", ")}</p>;
+}
 
-  /* An invited teammate has no account for a personal PIN to hang off yet.
-   * Say it once at the end of the row rather than once per location — with
-   * four locations the old per-row sentence was four sentences. */
+/**
+ * Whether this person can authorize anything on the floor — one control, in
+ * its own column, NOT folded into the assignments beside it.
+ *
+ * The units there read "Milaca ••••", which was right when a PIN was issued
+ * per location. A person carries one PIN now, on their own record, so putting
+ * it back in that row would print one fact once per place they work and imply
+ * it varies by building — the exact thing the model just stopped doing. Its
+ * own column also lets the state line up down the roster, which is what the
+ * "No PIN" view above is for scanning.
+ */
+function PersonPin({ user, users, onSetPin }) {
+  const [open, setOpen] = useState(false);
+
+  /* An invited teammate has no accepted account for a PIN to hang off yet. */
   if (user.status !== "active") {
-    return (
-      <p className="text-xs text-ink-3">
-        {assignments.map((a) => a.location.name).join(", ")}
-        <span className="text-ink-4"> · lead PINs open up once they accept</span>
-      </p>
-    );
+    return <span className="text-xs text-ink-4">once accepted</span>;
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 -ml-2">
-      {assignments.map(({ location, pin }) => (
-        <Tooltip
-          key={location.id}
-          label={pin ? `Manage ${user.name.split(" ")[0]}'s lead PIN at ${location.name}` : `Issue a lead PIN for ${location.name}`}
+    <>
+      <Tooltip label={user.pin ? `Replace or clear ${user.name.split(" ")[0]}'s PIN` : `Issue a PIN for ${user.name}`}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 h-[var(--ctl-h)] px-2 -ml-2 rounded-md text-xs text-ink-2 hover:bg-hover hover:text-ink transition-colors"
         >
-          <button
-            type="button"
-            onClick={() => setEditing({ location, existing: pin })}
-            className="inline-flex items-center gap-1.5 h-[var(--ctl-h)] px-2 rounded-md text-xs text-ink-2 hover:bg-hover hover:text-ink transition-colors"
-          >
-            <span className="truncate max-w-40">{location.name}</span>
-            {pin ? (
-              <>
-                <ShieldCheck size={11} className="text-icon-2 shrink-0" />
-                {/* Masked, always. A code printed down a roster is legible to
-                 *  anyone passing the desk or watching the screenshare. */}
-                <span aria-label="lead PIN set, hidden" className="font-mono font-semibold tracking-[0.2em] text-ink-3">
-                  ••••
-                </span>
-              </>
-            ) : (
-              <span className="text-ink-4">no PIN</span>
-            )}
-          </button>
-        </Tooltip>
-      ))}
+          {user.pin ? (
+            <>
+              <ShieldCheck size={11} className="text-icon-2 shrink-0" />
+              {/* Masked, always. A code printed down a roster is legible to
+               *  anyone passing the desk or watching the screenshare. */}
+              <span aria-label="PIN set, hidden" className="font-mono font-semibold tracking-[0.2em] text-ink-3">
+                ••••
+              </span>
+            </>
+          ) : (
+            <span className="text-ink-4">No PIN</span>
+          )}
+        </button>
+      </Tooltip>
 
-      {editing && (
-        <LeadPinDialog
+      {open && (
+        <PersonPinDialog
           user={user}
-          location={editing.location}
-          existing={editing.existing}
-          allPins={editing.existing ? allPins.filter((p) => p !== editing.existing.pin) : allPins}
-          onCancel={() => setEditing(null)}
-          onRemove={() => {
-            if (editing.existing) onRemovePin(editing.existing.id);
-            setEditing(null);
+          taken={pinsInUse(users, user.id)}
+          onCancel={() => setOpen(false)}
+          onClear={() => {
+            onSetPin(user, null);
+            setOpen(false);
           }}
           onSave={(pin) => {
-            if (editing.existing) {
-              onUpdatePin(editing.existing.id, { pin });
-            } else {
-              onAddPin({ id: newCompanyId("PIN"), role: "lead", userId: user.id, locationId: editing.location.id, pin });
-            }
-            setEditing(null);
+            onSetPin(user, pin);
+            setOpen(false);
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -435,8 +453,8 @@ function sinceLabel(user) {
 /* -------------------------------------------------------------- List view -- */
 
 function TeamList({
-  users, locations, currentUser, crewPins, compareNames,
-  onEdit, onRemove, onResend, onAddPin, onUpdatePin, onRemovePin,
+  users, allUsers, locations, currentUser, compareNames,
+  onEdit, onRemove, onResend, onSetPin,
 }) {
   if (users.length === 0) {
     return (
@@ -505,14 +523,15 @@ function TeamList({
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <PersonAssignments
-                        user={u}
-                        locations={locations}
-                        crewPins={crewPins}
-                        onAddPin={onAddPin}
-                        onUpdatePin={onUpdatePin}
-                        onRemovePin={onRemovePin}
-                      />
+                      <PersonAssignments user={u} locations={locations} />
+                    </div>
+
+                    {/* The PIN reads as a column of its own down the roster —
+                     *  fixed width for the same reason the date beside it is,
+                     *  so "who can't approve anything" is a glance rather than
+                     *  a read. */}
+                    <div className="w-28 shrink-0">
+                      <PersonPin user={u} users={allUsers} onSetPin={onSetPin} />
                     </div>
 
                     {/* Fixed width so the column holds its edge whether or not
@@ -563,14 +582,11 @@ export default function TeamScreen({
   users,
   locations,
   currentUser,
-  crewPins,
   onInvite,
   onUpdate,
   onRemove,
   onResend,
-  onAddPin,
-  onUpdatePin,
-  onRemovePin,
+  onSetPin,
 }) {
   const [tab, setTab] = useState("all");
   const [locIds, setLocIds] = useState([]);
@@ -580,8 +596,9 @@ export default function TeamScreen({
   const [editing, setEditing] = useState(null);
 
   const multiLocation = locations.length > 1;
-  const gapFor = (u) =>
-    u.status === "active" && assignmentsFor(u, locations, crewPins).some((a) => !a.pin);
+  /* One PIN per person, so this is one question per person — it used to be
+   * "is any of their locations missing one". */
+  const gapFor = (u) => u.status === "active" && !u.pin;
 
   /* Location is a SCOPE, not a view. The two are different questions — "which
    * of these people am I looking at" versus "at which of my plants" — and
@@ -595,11 +612,11 @@ export default function TeamScreen({
 
   /* Named views, each carrying its own count — the shape TasksScreen
    * established, badges and all. Counts are of the SCOPED roster, so picking
-   * Princeton and reading "No lead PIN 3" means three at Princeton, not three
+   * Princeton and reading "No PIN 3" means three at Princeton, not three
    * company-wide of whom some are elsewhere. */
   const TABS = [
     { id: "all", label: "Everyone", icon: Users, match: () => true },
-    { id: "pin", label: "No lead PIN", icon: ShieldCheck, match: gapFor },
+    { id: "pin", label: "No PIN", icon: ShieldCheck, match: gapFor },
     { id: "pending", label: "Pending", icon: Mail, match: (u) => u.status !== "active" },
   ].map((t) => ({ ...t, count: scoped.filter(t.match).length }));
 
@@ -626,7 +643,7 @@ export default function TeamScreen({
   ) : gapCount > 0 ? (
     <span>
       <span className="font-medium text-ink">{gapCount}</span>{" "}
-      {gapCount === 1 ? "person has" : "people have"} no lead PIN yet, so nothing gated can be
+      {gapCount === 1 ? "person has" : "people have"} no PIN yet, so nothing gated can be
       authorised in their name.
     </span>
   ) : null;
@@ -720,16 +737,17 @@ export default function TeamScreen({
       <div className="space-y-5">
         <TeamList
           users={visible}
+          /* The filtered list is what's rendered; the whole roster is what a
+           * new PIN has to be unique against, and a search box must not be
+           * able to hand out a code somebody off-screen already holds. */
+          allUsers={users}
           locations={locations}
           currentUser={currentUser}
-          crewPins={crewPins}
           compareNames={NAME_SORTS[sortIdx].compare}
           onEdit={setEditing}
           onRemove={onRemove}
           onResend={onResend}
-          onAddPin={onAddPin}
-          onUpdatePin={onUpdatePin}
-          onRemovePin={onRemovePin}
+          onSetPin={onSetPin}
         />
       </div>
 

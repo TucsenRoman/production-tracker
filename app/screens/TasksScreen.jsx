@@ -16,6 +16,7 @@ import {
   Trash2,
   UserRound,
   UsersRound,
+  ClockAlert,
 } from "lucide-react";
 
 import {
@@ -41,13 +42,12 @@ import {
   categoryIcon,
   daysUntil,
   dueLabel,
-  isManager,
   sortTasks,
+  stateShort,
   todayKey,
-  visibleTasks,
 } from "../lib/domain";
 import { useDoubleTapHotkey } from "../lib/useDoubleTapHotkey";
-import { useStaff } from "../lib/staff";
+import { asFloorUser, useCompanyRoster } from "../lib/companyRoster";
 
 /**
  * The four things worth knowing at a glance. Each tile is also the filter
@@ -78,7 +78,7 @@ const TABS = [
   {
     id: "overdue",
     label: "Overdue",
-    icon: AlertTriangle,
+    icon: ClockAlert,
     match: (t) => !t.completed && t.dueDate != null && daysUntil(t.dueDate) < 0,
   },
   {
@@ -97,7 +97,6 @@ function TaskRow({
   task,
   staff,
   categories,
-  canManage,
   onToggle,
   onEdit,
   onRemove,
@@ -197,6 +196,29 @@ function TaskRow({
           </p>
         )}
 
+        {/* The route, as the console worked it out. A restock is not one trip:
+          * back stock sits in two places, and "Restock 128 lb" sends somebody
+          * hunting where "88 from the made pile, 40 from the freezer" is a
+          * walk they can do. Targets has been writing this as structured
+          * `pullFrom` parts since the stocking route was built and nothing
+          * ever read them — the sentence survived only inside the note, which
+          * the edit dialog overwrites the moment anyone touches the task.
+          * Rendering the parts means the route outlives an edit. */}
+        {Array.isArray(task.pullFrom) && task.pullFrom.length > 0 && (
+          <p className="mt-0.5 flex items-center flex-wrap gap-1.5 text-xs text-ink-3">
+            <span className="font-medium text-ink-4">Pull:</span>
+            {task.pullFrom.map((part) => (
+              <span
+                key={`${part.where}-${part.qty}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-inset text-ink-2 tnum"
+              >
+                {Math.round(part.qty)} {task.unit || "lb"}
+                <span className="text-ink-4">{stateShort(part.where).toLowerCase()}</span>
+              </span>
+            ))}
+          </p>
+        )}
+
         <div className="mt-1.5 flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-ink-3">
           <span className="inline-flex items-center gap-1.5">
             {assignee ? (
@@ -234,31 +256,29 @@ function TaskRow({
         </div>
       </div>
 
-      {canManage && (
-        // Hidden until the row is actually being looked at — hover or
-        // keyboard focus — so a completed list doesn't read as a wall of
-        // controls when all you're doing is scanning it. On a touch screen
-        // (the floor terminal) there is no hover, so they stay visible —
-        // otherwise edit and remove are simply unreachable there.
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity duration-100">
-          <IconButton
-            label={`Edit "${task.title}"`}
-            icon={Pencil}
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-          />
-          <IconButton
-            label={`Remove "${task.title}"`}
-            icon={Trash2}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-          />
-        </div>
-      )}
+      {/* Hidden until the row is actually being looked at — hover or keyboard
+          focus — so a completed list doesn't read as a wall of controls when
+          all you're doing is scanning it. On a touch screen (the floor
+          terminal) there is no hover, so they stay visible — otherwise edit
+          and remove are simply unreachable there. */}
+      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity duration-100">
+        <IconButton
+          label={`Edit "${task.title}"`}
+          icon={Pencil}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+        />
+        <IconButton
+          label={`Remove "${task.title}"`}
+          icon={Trash2}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+        />
+      </div>
     </li>
   );
 }
@@ -548,8 +568,31 @@ export default function TasksScreen({
   onRenameCategory,
   onRemoveCategory,
 }) {
-  const { staff } = useStaff();
-  const canManage = isManager(user);
+  /* The people a task can be handed to are the CONSOLE's people, not a floor
+   * roster of the screen's own. Crew are not in the system — no records, no
+   * PINs — so the only nameable humans in the shop are the floor managers an
+   * admin added on the console's Team screen. This screen used to read
+   * `useStaff()`, whose seed roster still listed two crew members who no
+   * longer exist anywhere else, which meant both ends offered "assign to
+   * Jake" and neither could ever resolve the id back to a person. */
+  const { people } = useCompanyRoster();
+  const staff = useMemo(() => people.map(asFloorUser), [people]);
+
+  /* "Yours" only means something to somebody the roster knows. The shop-floor
+   * tablet is a shared terminal with no sign-in — it is a place, not a person
+   * (`TABLET` in ProductionTracker) — so on the floor the tab could never
+   * match a task and sat there permanently reading zero. In the console the
+   * current user is a real teammate, and it is the most useful tab there is.
+   * Deriving it from roster membership rather than a flag means neither
+   * caller has to remember to pass one. */
+  const identified = useMemo(
+    () => people.some((p) => p.id === user.id),
+    [people, user.id],
+  );
+  const tabs = useMemo(
+    () => (identified ? TABS : TABS.filter((t) => t.id !== "yours")),
+    [identified],
+  );
 
   const [tab, setTab] = useState("open");
   const [adding, setAdding] = useState(false);
@@ -608,7 +651,12 @@ export default function TasksScreen({
     onToggle(task.id);
   };
 
-  const base = useMemo(() => visibleTasks(tasks, user), [tasks, user]);
+  /* Was `visibleTasks(tasks, user)`, which filtered a crew member down to
+   * their own work plus whatever was unclaimed. There are no crew: the shop
+   * tablet is a shared terminal and the console user is a manager, so the
+   * filter returned the whole list in every render it ever ran. The list is
+   * the list. */
+  const base = tasks;
 
   /** Dot counts: each tab's own filter, except Completed's dot counts today's
    *  completions specifically ("nice work") rather than the whole history
@@ -616,12 +664,12 @@ export default function TasksScreen({
   const counts = useMemo(
     () =>
       Object.fromEntries(
-        TABS.map((t) => [
+        tabs.map((t) => [
           t.id,
           base.filter((task) => (t.dotMatch || t.match)(task, user.id)).length,
         ]),
       ),
-    [base, user.id],
+    [base, tabs, user.id],
   );
 
   /** Counts across every task (not just what this user can see) — the manage
@@ -697,7 +745,7 @@ export default function TasksScreen({
        *  sticky bar, canvas/surface background), so there's nothing to
        *  override here — see that component for why each default is what
        *  it is. */}
-      <StickyFadeHeader>
+      <StickyFadeHeader padTop={24}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           {/* fade only — scroll mode engages itself when the row actually
            *  overflows; forcing it on left the rail 14px scrollable (its
@@ -707,7 +755,7 @@ export default function TasksScreen({
             value={tab}
             onChange={changeTab}
             className="min-w-0"
-            options={TABS.map((t) => ({
+            options={tabs.map((t) => ({
               value: t.id,
               label: t.label,
               icon: t.icon,
@@ -717,24 +765,22 @@ export default function TasksScreen({
             }))}
           />
 
-          {canManage && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Button
-                variant="primary"
-                icon={Plus}
-                onClick={() => setAdding(true)}
-              >
-                New task
-              </Button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              variant="primary"
+              icon={Plus}
+              onClick={() => setAdding(true)}
+            >
+              New task
+            </Button>
 
-              <IconButton
-                label="Manage categories"
-                icon={Settings}
-                onClick={() => setManagingCategories(true)}
-                className="shrink-0"
-              />
-            </div>
-          )}
+            <IconButton
+              label="Manage categories"
+              icon={Settings}
+              onClick={() => setManagingCategories(true)}
+              className="shrink-0"
+            />
+          </div>
         </div>
       </StickyFadeHeader>
 
@@ -751,12 +797,10 @@ export default function TasksScreen({
               description={
                 tab === "completed"
                   ? "Finished tasks show up here."
-                  : canManage
-                    ? "Add a task for the floor to pick up."
-                    : "Check back once management assigns something."
+                  : "Add a task for the floor to pick up."
               }
               action={
-                canManage && tab === "open" ? (
+                tab === "open" ? (
                   <Button icon={Plus} onClick={() => setAdding(true)}>
                     New task
                   </Button>
@@ -795,7 +839,6 @@ export default function TasksScreen({
                         task={task}
                         staff={staff}
                         categories={categories}
-                        canManage={canManage}
                         completedView={tab === "completed"}
                         showCategoryIcon={false}
                         onToggle={() => handleToggle(task)}
@@ -816,7 +859,6 @@ export default function TasksScreen({
                 task={task}
                 staff={staff}
                 categories={categories}
-                canManage={canManage}
                 completedView={tab === "completed"}
                 onToggle={() => handleToggle(task)}
                 onEdit={() => setEditingTask(task)}

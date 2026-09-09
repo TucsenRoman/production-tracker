@@ -6,7 +6,6 @@ import { Input, ToastProvider, useToast } from "../components/ui";
 import ConsoleShell from "./components/ConsoleShell";
 import BrandModals from "./components/BrandModals";
 import { newId } from "../lib/domain";
-import { StaffProvider } from "../lib/staff";
 import { StationsProvider, migrateStage } from "../lib/stations";
 import CompanyAuthScreen from "./screens/CompanyAuthScreen";
 import InsightsScreen from "./screens/InsightsScreen";
@@ -22,7 +21,7 @@ import { usePersistentState as useFloorPersistentState } from "../lib/store";
 import { useBrandModals } from "./lib/useBrandModals";
 import { COMPANY_SEED, DEMO_SECOND_LOCATION, DEFAULT_STATIONS, PROVIDERS, defaultPermissions, isValidStationName, simulateSync } from "./lib/companyDomain";
 import { PRODUCTION_SEED } from "./lib/companyProduction";
-import { SEED, DEFAULT_TASK_CATEGORIES, todayKey, categoryInUse } from "../lib/domain";
+import { SEED, DEFAULT_TASK_CATEGORIES, makeScheduleEntry, setStockRange, todayKey, categoryInUse } from "../lib/domain";
 import { answerCompanyQuestion, buildCompanyInsights } from "./lib/insights";
 import { navFor } from "./lib/nav";
 
@@ -403,28 +402,22 @@ function Application() {
     });
   };
 
-  /* ---- Lead PINs — the approval PINs Permissions gates actions behind ---- */
+  /* ---- PINs — the approval PINs Permissions gates actions behind ---- */
 
-  const handleAddPin = (pin) => {
-    setCrewPins((prev) => [...prev, pin]);
-    if (pin.role === "lead") {
-      const person = users.find((u) => u.id === pin.userId);
-      toast(`Lead PIN issued to ${person ? person.name : "teammate"}`, {
-        detail: `${pin.pin} — theirs to use for gated actions.`,
-      });
-    } else {
-      toast(`Device code issued for ${pin.station}`, { detail: `${pin.pin} — hand it off and the tablet's ready.` });
-    }
-  };
-
-  const handleUpdatePin = (id, patch) => {
-    setCrewPins((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-    toast("PIN updated");
-  };
-
-  const handleRemovePin = (id) => {
-    setCrewPins((prev) => prev.filter((p) => p.id !== id));
-    toast("PIN revoked", { tone: "info" });
+  /**
+   * A PIN lives on the person's own record, so this is an ordinary user
+   * patch — `null` clears it. It gets its own handler rather than riding
+   * handleUpdateUser because "Team member updated" is the wrong thing to say
+   * about the one field the floor authenticates against.
+   *
+   * The toast deliberately does NOT repeat the digits, unlike the lead-PIN
+   * one it replaces: the dialog showed them once on purpose, and a toast
+   * outlives the modal it came from — including on a screenshare.
+   */
+  const handleSetUserPin = (user, pin) => {
+    setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, pin: pin || null } : u)));
+    if (pin) toast(`PIN issued to ${user.name}`, { detail: "Hand it over now — it isn't shown again." });
+    else toast(`PIN cleared for ${user.name}`, { tone: "info" });
   };
 
   /* ---- Permissions ---- */
@@ -615,22 +608,14 @@ function Application() {
   /* Editing the band writes to the real inventory record, not to a private
    * overrides map — "the min for this product is 50" is a fact about the
    * product, and the floor app reads the same field. */
+  /* The clamp — a smallest-batch bigger than the whole case can never be
+   * satisfied, so the product would sit in "fine" forever with a permanent
+   * hole in it — moved into `setStockRange` in the shared domain, because the
+   * floor's own item modal writes this same band and did not know the rule.
+   * One writer, one invariant, both ends. */
   const handleSetStockRange = (product, { threshold, max, minBatch }) => {
-    const ceiling = Math.max(max, threshold);
     setInventory((prev) =>
-      prev.map((i) =>
-        i.product === product
-          ? {
-              ...i,
-              threshold,
-              max: ceiling,
-              // Clamped to the case: a smallest-batch bigger than the whole
-              // case can never be satisfied, so the product would sit in
-              // "fine" forever with a permanent hole in it.
-              minBatch: Math.max(0, Math.min(minBatch ?? i.minBatch ?? 0, ceiling)),
-            }
-          : i,
-      ),
+      prev.map((i) => (i.product === product ? setStockRange(i, { threshold, max, minBatch }) : i)),
     );
     toast(
       `${product} set to min ${Math.round(threshold)} · max ${Math.round(max)}`,
@@ -640,18 +625,25 @@ function Application() {
     );
   };
 
-  const handleAddScheduleTask = (day, station, product, qty) => {
+  /* `unit` is a real parameter now, not an assumption. Both writers here
+   * hardcoded `unit: "lb"` while the modal that scheduled the run displayed
+   * the product's actual unit — so a plan for "3 racks" of bacon was written
+   * as "3 lb" and the floor's board, which does check units, refused to count
+   * it toward the target it was made for. */
+  const handleAddScheduleTask = (day, station, product, qty, unit = "lb") => {
     setSchedule((prev) => ({
       ...prev,
       [day]: {
         ...prev[day],
-        [station]: [...((prev[day] && prev[day][station]) || []), { id: newId("T"), text: product, qty, unit: "lb" }],
+        [station]: [...((prev[day] && prev[day][station]) || []), makeScheduleEntry({ product, qty, unit })],
       },
     }));
-    toast(`${product} planned`, { detail: `${station} · ${qty} lb` });
-    // Deliberately never touches `batches` — unlike the floor terminal's own
-    // handleAddTask, planning from the console never spawns a live batch,
-    // even when today happens to be the selected day.
+    toast(`${product} planned`, { detail: `${station} · ${qty} ${unit}` });
+    /* Deliberately never touches `batches`. Planning from the console lands
+     * on a future production day; the floor turns a plan into a live batch
+     * when that day arrives, through its own Start control. That is the whole
+     * division of labour — the console decides what should run, the terminal
+     * decides that it is now running. */
   };
 
   /* Same as handleAddScheduleTask, but for a family's worth of products at
@@ -661,9 +653,9 @@ function Application() {
     if (!entries || entries.length === 0) return;
     setSchedule((prev) => {
       const next = { ...prev };
-      for (const { day, station, product, qty } of entries) {
+      for (const { day, station, product, qty, unit } of entries) {
         const dayBucket = { ...(next[day] || {}) };
-        dayBucket[station] = [...(dayBucket[station] || []), { id: newId("T"), text: product, qty, unit: "lb" }];
+        dayBucket[station] = [...(dayBucket[station] || []), makeScheduleEntry({ product, qty, unit })];
         next[day] = dayBucket;
       }
       return next;
@@ -671,7 +663,7 @@ function Application() {
     const totalQty = entries.reduce((n, e) => n + (Number(e.qty) || 0), 0);
     toast(
       entries.length === 1 ? `${entries[0].product} planned` : `${entries.length} products planned`,
-      { detail: `${entries[0].station} · ${Math.round(totalQty)} lb total` },
+      { detail: `${entries[0].station} · ${Math.round(totalQty)} ${entries[0].unit || "lb"} total` },
     );
   };
 
@@ -740,6 +732,11 @@ function Application() {
         dueDate: today,
         product,
         qty,
+        /* `unit` rides along because the floor renders the pull route as
+         * structured parts now, and a part carries a quantity but not the
+         * unit it is measured in — that belongs to the product. Without it
+         * the tablet had to guess "lb". */
+        unit,
         pullFrom: pull?.parts || [],
         note: pull?.sentence
           ? `Pull ${pull.sentence} — no run needed, it is already made.`
@@ -878,14 +875,11 @@ function Application() {
           users={users}
           locations={locations}
           currentUser={currentUser}
-          crewPins={crewPins}
           onInvite={handleInviteUser}
           onUpdate={handleUpdateUser}
           onRemove={handleRemoveUser}
           onResend={handleResendInvite}
-          onAddPin={handleAddPin}
-          onUpdatePin={handleUpdatePin}
-          onRemovePin={handleRemovePin}
+          onSetPin={handleSetUserPin}
         />
       )}
 
@@ -933,9 +927,7 @@ function Application() {
 export default function CompanyConsole() {
   return (
     <ToastProvider>
-      <StaffProvider>
-        <Application />
-      </StaffProvider>
+      <Application />
     </ToastProvider>
   );
 }

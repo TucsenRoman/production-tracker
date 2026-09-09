@@ -9,10 +9,8 @@
 import {
   Boxes,
   BroomSparkles,
-  CheckCircle2,
   ClipboardList,
   FileText,
-  Flame,
   Package,
   PackageCheck,
   Snowflake,
@@ -25,17 +23,16 @@ import {
 
 /* ------------------------------------------------------------- Lifecycle -- */
 
-/** A batch moves Smokehouse → Packaging → Shelf-Ready. */
-export const STAGES = ["Smokehouse", "Packaging", "Shelf-Ready"];
+/* `STAGES` and `STAGE_ICON` lived here and are gone: both were module-level
+ * copies of a list the admin now edits. Stage order, stage names and the
+ * icon for each all come from `useStations()` (./stations.jsx), which reads
+ * the console's own station config — see that file for why a batch's stage
+ * is a NAME and not an index into this array. What survives is the seed the
+ * provider falls back to before anything is configured. */
 
-/** Stages a person can be signed in to. Shelf-Ready is an outcome, not a post. */
+/** The stations a fresh install starts with, and the fallback if the console
+ *  has somehow stored an empty list. */
 export const STATIONS = ["Smokehouse", "Packaging"];
-
-export const STAGE_ICON = {
-  Smokehouse: Flame,
-  Packaging: Package,
-  "Shelf-Ready": CheckCircle2,
-};
 
 /** Target minutes in station, used to flag slow batches. */
 export const STAGE_TARGET_MINUTES = { Smokehouse: 240, Packaging: 45 };
@@ -43,41 +40,31 @@ export const STAGE_TARGET_MINUTES = { Smokehouse: 240, Packaging: 45 };
 /** Yield below this is worth a manager's attention. */
 export const LOW_YIELD_PCT = 75;
 
-/* ----------------------------------------------------------------- Staff -- */
+/* ------------------------------------------------------------- Identity -- */
 
-/**
- * Shop-floor terminals are shared, so people identify by PIN rather than by
- * session. Managers are the same records with elevated scope.
+/* There is no role model here any more, and that is the point.
  *
- * Roles are ranked, and the rank is the whole permission model: you may only
- * act on someone below you. Nobody can promote a person to their own level or
- * above, which is what stops a manager from minting a second owner.
- */
-export const ROLES = ["crew", "manager", "owner"];
-
-export const ROLE_LABEL = { crew: "Crew", manager: "Floor manager", owner: "Owner" };
-
-export const ROLE_BLURB = {
-  crew: "Runs batches, records weights, moves stock.",
-  manager: "Everything crew can do, plus schedule, insights and PINs.",
-  owner: "Full access, including managing other managers.",
-};
-
-export const roleRank = (role) => Math.max(0, ROLES.indexOf(role));
-
-/** Managers and up see the planning screens. */
-export const isManager = (user) => !!user && roleRank(user.role) >= roleRank("manager");
-
-/** You can edit someone strictly below you — and always yourself. */
-export function canManageStaff(actor, target) {
-  if (!actor || !target) return false;
-  if (actor.id === target.id) return true;
-  return isManager(actor) && roleRank(actor.role) > roleRank(target.role);
-}
-
-/** The roles `actor` is allowed to hand out — always below their own. */
-export const assignableRoles = (actor) =>
-  ROLES.filter((r) => roleRank(r) < roleRank(actor?.role));
+ * This section held ROLES / ROLE_LABEL / ROLE_BLURB / roleRank / isManager /
+ * canManageStaff / assignableRoles: a ranked permission system where you
+ * could act on anyone below you. It was built for a floor where people
+ * signed in. Nobody signs into the floor now — the iPad's passcode is the
+ * lock, the terminal is a place rather than a person, and crew have no
+ * records at all. So the tablet was passing a hardcoded `role: "manager"`
+ * into every one of those checks and getting "yes" every time, which is not
+ * a permission model, it is a permission model's shadow. Every screen it
+ * gated has been collapsed to what it always actually rendered.
+ *
+ * What replaced it, and where to look instead:
+ *   - Who may do a given thing on the floor → `approve()` in ./approval.jsx,
+ *     configured on the console's Permissions screen, answered with a real
+ *     person's PIN at the moment it matters, and written to the approval log.
+ *   - Who may see which console screens → `navFor()` in
+ *     ../company/lib/nav.js, where `adminOnly`/`managerOnly` are EXCLUSIVE
+ *     rather than a ladder. The console has its own ROLES/ROLE_LABEL in
+ *     companyDomain.js; that is the live role model, and it is deliberately
+ *     two roles rather than three ranks.
+ *
+ * Don't reintroduce a rank here to answer a console question. */
 
 export const initialsOf = (name = "") =>
   name
@@ -88,27 +75,17 @@ export const initialsOf = (name = "") =>
     .join("")
     .toUpperCase() || "?";
 
-/** PINs are 4 digits, and a blocked list keeps the obvious ones out. */
-export const WEAK_PINS = ["0000", "1111", "1234", "2222", "3333", "4444", "9999"];
-
-export function validatePin(pin, { existing = [], allowWeak = false } = {}) {
-  if (!/^\d{4}$/.test(pin || "")) return "Use exactly 4 digits.";
-  if (!allowWeak && WEAK_PINS.includes(pin)) return "That PIN is too easy to guess.";
-  if (existing.includes(pin)) return "Someone already uses that PIN.";
-  return null;
-}
-
-export const SEED_STAFF = [
-  { id: "S-1", pin: "1470", name: "Jake Nowak", role: "crew", station: "Smokehouse" },
-  { id: "S-2", pin: "2635", name: "Maria Ruiz", role: "manager", station: null },
-  { id: "S-3", pin: "3812", name: "Tyler Boyd", role: "crew", station: "Packaging" },
-  { id: "S-4", pin: "4059", name: "Sam Whitfield", role: "owner", station: null },
-].map((s) => ({ ...s, initials: initialsOf(s.name) }));
-
-/** Kept as the seed-only fallback; screens read the live list from useStaff(). */
-export const STAFF = SEED_STAFF;
-
-export const findStaffByPin = (pin) => SEED_STAFF.find((s) => s.pin === pin) || null;
+/* The floor's own staff roster lived here — SEED_STAFF, STAFF,
+ * findStaffByPin, canManageStaff, assignableRoles, and the PIN validator that
+ * served them — and it is gone (Sept 2026). Crew are not in the system: no
+ * records, no accounts, no PINs. The only shop people with records are floor
+ * managers, an admin adds them on the console's Team screen, and the floor
+ * reads that one roster through ./companyRoster.jsx. Two rosters meant two
+ * answers to "who is this?", and the stale one had started winning — the
+ * Board's move dialog was checking PINs against people who no longer exist,
+ * and the Tasks assign picker was offering their names. `roleRank` and
+ * `isManager` above survive because they answer a question about a role, not
+ * about a person. */
 
 /* ------------------------------------------------------------------ Time -- */
 
@@ -194,6 +171,12 @@ export const STOCK_STATES = [
 export const STATE_IDS = STOCK_STATES.map((s) => s.id);
 
 export const stateLabel = (id) => STOCK_STATES.find((s) => s.id === id)?.label || id;
+
+/** The short name — the PLACE, not the status. "In stock" is the right label
+ *  for a column header and the wrong one for a route: a stocking task telling
+ *  somebody to fetch "40 lb in stock" names a fact about the number, where
+ *  "40 lb freezer" names where their feet should go. */
+export const stateShort = (id) => STOCK_STATES.find((s) => s.id === id)?.short || id;
 
 /** Icon for each stock state — shared by every screen that shows one. */
 export const STATE_ICON = { made: PackageCheck, freezer: Snowflake, floor: Store };
@@ -373,6 +356,27 @@ export function normalizeItem(item) {
   };
 }
 
+const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+
+/**
+ * Write a product's stock band, with the one invariant that has to hold:
+ * the smallest batch worth running can never exceed the whole case.
+ *
+ * The console clamped it; the floor did not. The floor's item modal wrote
+ * `threshold` and `max` and never touched `minBatch`, so dropping a case size
+ * from 130 to 20 left a 30 lb minimum batch sitting behind it — a gap that
+ * can never be closed, which parks the product in "fine" forever with a
+ * permanent hole in it. Two editors for one band, one of which knew the rule.
+ * Now there is one writer and both call it.
+ */
+export function setStockRange(item, { threshold, max, minBatch }) {
+  const base = normalizeItem(item);
+  const min = Math.max(0, num(threshold, base.threshold));
+  const ceiling = Math.max(num(max, base.max), min);
+  const batch = num(minBatch, base.minBatch ?? defaultMinBatch(ceiling));
+  return { ...base, threshold: min, max: ceiling, minBatch: Math.max(0, Math.min(batch, ceiling)) };
+}
+
 export const stockIn = (item, state) => Number(item?.[state] ?? 0);
 
 export const totalStock = (item) =>
@@ -493,6 +497,47 @@ export function putOnFloor(item) {
  * index was an alias for a position in the admin's station list, so
  * reordering that list moved every batch on the floor. See the doc comment on
  * `nextStage` for the whole of it. */
+
+/**
+ * The two record factories the floor and the console both build through.
+ *
+ * These used to be object literals written out five times between
+ * ProductionTracker.jsx and CompanyConsole.jsx — byte-for-byte identical in
+ * places, quietly different in others (the console dropped the real `unit` on
+ * the floor and hardcoded "lb", so a plan for "3 racks" of bacon arrived as
+ * "3 lb"). A shape written in one place cannot drift; a shape written in five
+ * already had.
+ *
+ * `batchId` on a schedule entry is the link that makes the two halves of
+ * planning legible to each other: null means "planned, nobody has started
+ * it", an id means "this is on the floor right now". Before it existed the
+ * console had to exclude today from its own arithmetic entirely, because a
+ * plan and the batch it spawned were indistinguishable and got counted twice.
+ */
+export function makeScheduleEntry({ product, qty, unit = "lb", batchId = null }) {
+  return {
+    id: newId("T"),
+    text: product,
+    qty: Number(qty) || 0,
+    unit: unit || "lb",
+    batchId,
+  };
+}
+
+export function makeBatch({ product, qty, station, startedAt }) {
+  return {
+    id: newId("B"),
+    product,
+    estWeight: Number(qty) || 0,
+    boxWeight: null,
+    stage: station,
+    // The one piece of station logic that is a fact about smoking meat rather
+    // than an artifact of the old hardcoded pair — see stations.jsx.
+    needsSmoke: station === "Smokehouse",
+    destination: null,
+    startedAt,
+  };
+}
 
 /** Only the Smokehouse captures a formal box weight. */
 export const weighsInAt = (batch) => (batch.needsSmoke ? "Smokehouse" : null);
@@ -712,8 +757,6 @@ export const SEED = {
     { id: "B-1033", product: "Snack Sticks - Honey BBQ", closedOn: shiftDate(T, -16), boxWeight: 30, finalWeight: 26, minutes: { Smokehouse: 195, Packaging: 30 } },
   ],
 
-  staff: SEED_STAFF,
-
   /** Fallback catalogue, used until Clover responds. */
   inventory: [
     { product: "Applewood Bacon", made: 12, freezer: 30, floor: 18, threshold: 45, unit: "lb" },
@@ -807,10 +850,10 @@ export const SEED = {
       title: "Move Pork Bellies to the prep table",
       category: "stocking",
       priority: "urgent",
-      assignedTo: "S-1",
+      assignedTo: null,
       dueDate: T,
       note: "88 lb raw in the freezer — smokehouse needs it for tomorrow's bacon run.",
-      createdBy: "Sam Whitfield",
+      createdBy: "Dana Whitfield",
       createdAt: `${shiftDate(T, 0)}T06:45:00`,
       completed: false,
     },
@@ -831,7 +874,7 @@ export const SEED = {
       title: "Portion Snack Sticks - Honey BBQ into 1 lb bags",
       category: "prep",
       priority: "normal",
-      assignedTo: "S-3",
+      assignedTo: null,
       dueDate: T,
       note: "18 lb in the freezer, ready to bag.",
       createdBy: "Maria Ruiz",
@@ -855,7 +898,7 @@ export const SEED = {
       title: "Wipe down and restock the display case glass",
       category: "cleaning",
       priority: "low",
-      assignedTo: "S-3",
+      assignedTo: null,
       dueDate: T,
       note: null,
       createdBy: "Maria Ruiz",
@@ -870,10 +913,10 @@ export const SEED = {
       assignedTo: null,
       dueDate: T,
       note: "Twice a shift — clipboard's on the freezer door.",
-      createdBy: "Sam Whitfield",
+      createdBy: "Dana Whitfield",
       createdAt: `${shiftDate(T, 0)}T06:00:00`,
       completed: true,
-      completedBy: "Tyler Boyd",
+      completedBy: "Shop floor",
       completedAt: `${shiftDate(T, 0)}T09:12:00`,
     },
     {
@@ -881,10 +924,10 @@ export const SEED = {
       title: "Print new price tags for Snack Sticks - Hot",
       category: "admin",
       priority: "normal",
-      assignedTo: "S-2",
+      assignedTo: "U-2",
       dueDate: shiftDate(T, 1),
       note: "New case price starts tomorrow.",
-      createdBy: "Sam Whitfield",
+      createdBy: "Dana Whitfield",
       createdAt: `${shiftDate(T, -1)}T15:30:00`,
       completed: false,
     },
@@ -893,7 +936,7 @@ export const SEED = {
       title: "Deep clean the smokehouse racks",
       category: "cleaning",
       priority: "normal",
-      assignedTo: "S-1",
+      assignedTo: null,
       dueDate: shiftDate(T, -1),
       note: "Weekly — pushed from yesterday.",
       createdBy: "Maria Ruiz",
@@ -905,10 +948,10 @@ export const SEED = {
       title: "Count the petty cash drawer",
       category: "admin",
       priority: "low",
-      assignedTo: "S-2",
+      assignedTo: "U-3",
       dueDate: shiftDate(T, 2),
       note: null,
-      createdBy: "Sam Whitfield",
+      createdBy: "Dana Whitfield",
       createdAt: `${shiftDate(T, -1)}T17:00:00`,
       completed: false,
     },
@@ -920,7 +963,7 @@ export const SEED = {
       assignedTo: null,
       dueDate: null,
       note: "New rolls are in the supply closet, top shelf.",
-      createdBy: "Tyler Boyd",
+      createdBy: "Marcus Reed",
       createdAt: `${shiftDate(T, -3)}T11:00:00`,
       completed: false,
     },
@@ -935,7 +978,7 @@ export const SEED = {
       createdBy: "Maria Ruiz",
       createdAt: `${shiftDate(T, -2)}T16:30:00`,
       completed: true,
-      completedBy: "Jake Nowak",
+      completedBy: "Shop floor",
       completedAt: `${shiftDate(T, -2)}T17:05:00`,
     },
   ],

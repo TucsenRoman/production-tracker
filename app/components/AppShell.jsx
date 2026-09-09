@@ -35,6 +35,30 @@ const TAB_COLS = {
 
 export default function AppShell({
   brand,
+  /**
+   * Which chrome this app wears. Two apps, two machines, two answers.
+   *
+   * "rail" (default, the console) is the desktop shape: a collapsible
+   * 240px sidebar, a floating content card, a 32px page title.
+   *
+   * "tabs" (the shop floor) is a bottom tab bar at every width, a slim top
+   * strip naming the shop and the screen, and content that runs the full
+   * width and scrolls as a page.
+   *
+   * The floor used to get "rail" in landscape and, purely because the `lg`
+   * breakpoint happens to fall between an iPad's two orientations, the
+   * bottom bar in portrait — so the tablet had two different navigations
+   * depending on which way somebody turned it. It is also carried around
+   * the shop rather than parked, and a rail is the one nav position a
+   * held tablet cannot reach with the thumb holding it. Three destinations
+   * were costing 240px, a fifth of the screen's width, most of it empty
+   * since the user block came out.
+   *
+   * This is a prop rather than a breakpoint because it is not a question
+   * about width. A phone-sized console window should still get the rail;
+   * a landscape tablet should still get tabs.
+   */
+  chrome = "rail",
   nav,
   view,
   onNavigate,
@@ -213,6 +237,13 @@ export default function AppShell({
   // inside a TabletFrame so `framed` is always false for it.
   const framed = useContext(TabletFrameContext);
 
+  /* In tabs mode the desktop branch is not "hidden at this width", it does
+   * not exist — so rather than fighting every `lg:` class with an override,
+   * `lgOnly` blanks them out at the source. Keeps one JSX tree instead of
+   * two, and keeps the rail app byte-identical to what it renders today. */
+  const tabs = chrome === "tabs";
+  const lgOnly = (classes) => (tabs ? "" : classes);
+
   return (
     /* Screens post their own header controls up here through `Slot`. The
      * provider has to sit above BOTH the header and `children`, since the
@@ -220,15 +251,32 @@ export default function AppShell({
     <SlotProvider>
     <div
       className={cx(
-        framed ? "h-full" : "min-h-screen lg:h-screen",
-        "lg:flex lg:flex-col lg:overflow-hidden bg-canvas"
+        /* Tabs mode owns its scroll rather than letting the page scroll.
+         * On a real device that is simply better — the shop name and the tab
+         * bar stay put while only the work moves — and in the TabletFrame
+         * mock it is the difference between usable and not: the mock screen
+         * is a fixed-height `overflow: hidden` box, so a page-scrolling
+         * layout inside it is clipped at the fold with no way to reach the
+         * rest. */
+        framed ? "h-full" : tabs ? "h-screen" : "min-h-screen lg:h-screen",
+        tabs ? "flex flex-col overflow-hidden" : "lg:flex lg:flex-col lg:overflow-hidden",
+        "bg-canvas"
       )}
       style={{ "--app-mobile-header-h": `${mobileHeaderH}px` }}
     >
-      <div className="lg:flex-1 lg:flex lg:overflow-hidden lg:min-h-0 lg:py-3 lg:pr-3">
+      <div
+        className={
+          tabs
+            ? "flex-1 flex flex-col min-h-0 overflow-hidden"
+            : "lg:flex-1 lg:flex lg:overflow-hidden lg:min-h-0 lg:py-3 lg:pr-3"
+        }
+      >
         {/* Desktop sidebar. Collapsing shrinks the rail to icon width; the nav
             labels collapse their own width/margin over the same 300ms, so
-            nothing unmounts or pops — it all narrows together. */}
+            nothing unmounts or pops — it all narrows together. Absent
+            entirely in tabs mode: the bottom bar below is the nav there, and
+            a hidden rail would still cost its wrapper's layout. */}
+        {!tabs && (
         <div
           className={cx(
             // No overflow-hidden here: the inner <aside> animates its own
@@ -363,6 +411,18 @@ export default function AppShell({
               {bottomNavItems.map(([n, i]) => renderNavItem(n, i))}
             </nav>
 
+            {/* The whole footer is opt-in, and the floor opts out.
+              *
+              * A shared terminal has nobody to name. It used to sit here
+              * anyway — an avatar reading "MM", the shop's name where a
+              * person's would go, and a "Shared terminal" badge underneath —
+              * which is a lot of chrome spent saying "this is not a user".
+              * The shop is already on screen permanently as the brand line at
+              * the top of the rail (that label is the defence against a
+              * mis-set tablet), so the footer was repeating it in the costume
+              * of an account. The console still passes a real person and gets
+              * the full block, switcher and all. */}
+            {userName && (
             <div className="px-2 pt-3">
               <div ref={userMenuRef} className="relative">
                 {userMenuOpen && userMenu && (
@@ -424,6 +484,12 @@ export default function AppShell({
                       </div>
                     </div>
                   )}
+                  {/* A shell with no session has nothing to sign out OF — the
+                      floor terminal now opens straight up behind the iPad's own
+                      passcode. Rendering the control anyway left a button that
+                      looked live and did nothing, which is worse than the space
+                      it saves. */}
+                  {onSignOut && (
                   <button
                     onClick={onSignOut}
                     aria-label="Sign out"
@@ -437,38 +503,68 @@ export default function AppShell({
                   >
                     <LogOut size={15} className="shrink-0" />
                   </button>
+                  )}
                 </div>
               </div>
             </div>
+            )}
           </aside>
         </div>
+        )}
 
-        {/* Mobile top bar */}
+        {/* Top bar — phone-width in rail mode, and NOT AT ALL in tabs mode.
+          *
+          * On the floor it had one job left: name the shop and hang the
+          * "Change shop" chevron off it. Both moved to a tab of their own,
+          * which is a better home for the setting (with one location
+          * configured the chevron never rendered at all, so the tablet's only
+          * setting was reachable only in a demo state) and frees the strip's
+          * height on a screen where the work was below the fold.
+          *
+          * The screen still gets a title: the page H2 below renders in tabs
+          * mode, scrolling with the content instead of pinned above it. */}
+        {!tabs && (
         <header
           ref={mobileHeaderRef}
-          className="lg:hidden sticky top-0 z-30 bg-canvas/90 backdrop-blur-sm border-b border-line pt-safe"
+          className={cx(
+            lgOnly("lg:hidden"),
+            tabs && "shrink-0",
+            "sticky top-0 z-30 bg-canvas/90 backdrop-blur-sm border-b border-line pt-safe"
+          )}
         >
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-brand leading-none mb-1.5">{brand}</p>
-              <h1 className="text-base font-medium text-ink leading-none truncate">
+              <p className="text-xs font-medium text-brand leading-none">{brand}</p>
+              <h1 className="mt-1.5 text-base font-medium text-ink leading-none truncate">
                 {active.label}
               </h1>
             </div>
-            <button
+            {/* Same on the mobile header, and gone entirely without a user —
+                see the sidebar footer above. With a session the chip is a
+                sign-out button; with a user but no session it is an identity
+                badge. */}
+            {userName && (
+            <div
+              className={cx(
+                "flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-full bg-surface border border-line shrink-0",
+                onSignOut && "cursor-pointer"
+              )}
               onClick={onSignOut}
-              className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-full bg-surface border border-line shrink-0"
+              role={onSignOut ? "button" : undefined}
+              aria-label={onSignOut ? "Sign out" : undefined}
             >
               <span className="flex items-center justify-center w-7 h-7 rounded-full bg-ink text-white text-xs font-medium">
                 {initials}
               </span>
-              <LogOut size={13} className="text-ink-3" />
-            </button>
+              {onSignOut && <LogOut size={13} className="text-ink-3" />}
+            </div>
+            )}
           </div>
         </header>
+        )}
 
-        <main className="flex-1 lg:overflow-hidden">
-          <div className="lg:h-full">
+        <main className={cx("flex-1", tabs ? "min-h-0 overflow-hidden" : lgOnly("lg:overflow-hidden"))}>
+          <div className={tabs ? "h-full" : lgOnly("lg:h-full")}>
             <div
               // Named so a page (see TasksScreen's "back to top" control) can
               // find and scroll *this* element specifically — on mobile the
@@ -476,8 +572,16 @@ export default function AppShell({
               // back to `window` when this doesn't move.
               data-app-scroll
               className={cx(
-                "mx-auto w-full max-w-5xl px-4 pt-5 pb-28 sm:px-6 lg:max-w-none lg:h-full lg:overflow-y-auto thin-scrollbar lg:px-6 lg:py-6",
-                "lg:rounded-md lg:border lg:border-line lg:bg-surface lg:flex lg:flex-col"
+                "mx-auto w-full px-4 pt-5 pb-28 sm:px-6",
+                tabs && "h-full overflow-y-auto thin-scrollbar",
+                /* Tabs mode runs edge to edge: a production board wants the
+                   width, and with the rail gone there is plenty. Rail mode
+                   keeps its reading-width cap and its floating card. */
+                tabs ? "max-w-none" : "max-w-5xl",
+                lgOnly(
+                  "lg:max-w-none lg:h-full lg:overflow-y-auto thin-scrollbar lg:px-6 lg:py-6" +
+                    " lg:rounded-md lg:border lg:border-line lg:bg-surface lg:flex lg:flex-col"
+                )
               )}
             >
               {/* The page header carries the page's OWN actions and a one-line
@@ -486,7 +590,11 @@ export default function AppShell({
                   name from the sticky bar, so only actions and subtitle show. */}
               <div className="mb-4">
                 <div className="flex items-start justify-between gap-4">
-                  <h2 className="hidden lg:block text-[32px] font-bold text-ink leading-tight">
+                  {/* Shown in tabs mode too, now that nothing above it names
+                    * the screen. It scrolls away with the content rather than
+                    * holding height permanently, which is the trade the old
+                    * sticky strip could not make. */}
+                  <h2 className={cx(lgOnly("hidden lg:block"), "text-[32px] font-bold text-ink leading-tight")}>
                     {active.label}
                   </h2>
                   {/* Two ways in, on purpose. `pageActions` is for a shell
@@ -509,8 +617,15 @@ export default function AppShell({
 
         {overlay}
 
-        {/* Mobile tab bar */}
-        <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-surface border-t border-line pb-safe">
+        {/* The tab bar. Phone-width only in rail mode; the app's whole
+            navigation in tabs mode, sitting on the bottom edge where a thumb
+            already is on a tablet somebody is carrying. */}
+        <nav
+          className={cx(
+            lgOnly("lg:hidden"),
+            "fixed inset-x-0 bottom-0 z-30 bg-surface border-t border-line pb-safe"
+          )}
+        >
           <div className={cx("grid", TAB_COLS[visibleNav.length] || "grid-cols-4")}>
             {visibleNav.map((n) => {
               const on = n.id === view;

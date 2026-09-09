@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowDownAZ,
@@ -10,7 +10,6 @@ import {
   ArrowUpWideNarrow,
   Beef,
   Bone,
-  CloudOff,
   CookingPot,
   Drumstick,
   Flame,
@@ -21,7 +20,6 @@ import {
   PackageCheck,
   PackageX,
   Plus,
-  RefreshCw,
   Sandwich,
   Snowflake,
   Store,
@@ -65,7 +63,6 @@ import {
   defaultThreshold,
   productType,
   refillQty,
-  relativeTime,
   stockIn,
   stockStatus,
   totalStock,
@@ -154,60 +151,11 @@ const FOCUS = [
   },
 ];
 
-/**
- * Sync status and the refresh action are one fact, not two — "we're connected
- * to Clover" and "click here to re-check" are the same click target. A badge
- * plus a separate button said it twice and cost two control widths for it.
- *
- * The click itself is throttled locally: a register can get mashed, and
- * Clover's API doesn't need a request for every tap. One refresh goes out,
- * then the button won't fire again for REFRESH_COOLDOWN_MS regardless of how
- * fast `status` comes back — that's the caller's business, not the guard's.
- */
-const REFRESH_COOLDOWN_MS = 4000;
-
-function SourceBadge({ status, syncedAt, onRefresh }) {
-  const [cooling, setCooling] = useState(false);
-  const timerRef = useRef(null);
-
-  const loading = status === "loading";
-  const error = status === "error";
-  const blocked = loading || cooling;
-  const label = loading ? "Syncing…" : error ? "Unreachable" : syncedAt ? relativeTime(syncedAt) : "Sync";
-
-  const handleClick = () => {
-    if (blocked) return;
-    onRefresh();
-    setCooling(true);
-    timerRef.current = setTimeout(() => setCooling(false), REFRESH_COOLDOWN_MS);
-  };
-
-  React.useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={blocked}
-      title={error ? "Clover unreachable — click to retry" : "Click to refresh from Clover"}
-      className={cx(
-        "inline-flex items-center gap-1.5 px-2.5 h-[var(--ctl-h)] rounded-full border",
-        "text-xs font-medium transition-colors duration-100",
-        blocked ? "cursor-wait opacity-70" : "",
-        error
-          ? "border-warn-line bg-warn-soft text-warn hover:bg-warn-soft"
-          : "border-line bg-surface text-ink-3 hover:bg-hover hover:text-ink-2"
-      )}
-    >
-      {error ? (
-        <CloudOff size={12} className="shrink-0" />
-      ) : (
-        <RefreshCw size={12} className={cx("shrink-0", loading && "animate-spin")} />
-      )}
-      {label}
-    </button>
-  );
-}
+/* `SourceBadge` lived here — the Clover status pill with the click-to-refresh
+ * cooldown. It moved to the Settings tab (app/screens/SettingsScreen.jsx),
+ * with the shop setting and the approval log, so everything about how this
+ * terminal is wired up sits in one place instead of riding in the toolbar of
+ * a screen about stock. */
 
 /* --------------------------------------------------------------- Move flow -- */
 
@@ -319,14 +267,20 @@ function MoveDialog({ item, initialFrom, onCancel, onConfirm }) {
 function AddProductDialog({ existing, unit, onCancel, onAdd }) {
   const [name, setName] = useState("");
   const [threshold, setThreshold] = useState("");
-  const [touched, setTouched] = useState(false);
   const duplicate = existing.some((p) => p.toLowerCase() === name.trim().toLowerCase());
   const valid = name.trim().length > 0 && !duplicate;
   const type = productType(name);
 
-  // Follows the family as you type, until you disagree with it once.
+  /* Follows the family as you type, until you disagree with it once — which
+   * is what the empty string tracks. There used to be a separate `touched`
+   * flag here that nothing ever set, so `touched && ...` was permanently
+   * false and a threshold typed into the field below was silently thrown
+   * away: every product added from the floor got its family default no
+   * matter what was entered. The field's own emptiness is the same signal
+   * without a second piece of state to forget to update. */
   const suggested = defaultThreshold(name);
-  const effective = touched && threshold !== "" ? Number(threshold) : suggested;
+  const typed = threshold.trim() === "" ? null : Number(threshold);
+  const effective = Number.isFinite(typed) && typed > 0 ? typed : suggested;
 
   return (
     <Modal
@@ -410,10 +364,18 @@ export default function InventoryScreen({
   inventory,
   velocity = {},
   status,
-  syncedAt,
-  canManage,
-  onRefresh,
+  /* Context for the item modal: what is already coming for this product but
+   * is not stock yet. ProductionTracker has passed all three of these since
+   * the modal was written and this screen never destructured them, so the
+   * "in production / scheduled today" panel could not render — which meant a
+   * run the console booked for today was invisible from the one screen a
+   * floor manager checks before deciding to make more of something. */
+  batches = [],
+  schedule = {},
+  history = [],
+  today,
   onMove,
+  onPutOut,
   onAddProduct,
   onUpdateProduct,
   onRemoveProduct,
@@ -490,7 +452,6 @@ export default function InventoryScreen({
 
       return true;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inventory, query, filters, velocity]);
 
   /* The list sections by family rather than running flat, and the family
@@ -669,12 +630,9 @@ export default function InventoryScreen({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            <SourceBadge status={status} syncedAt={syncedAt} onRefresh={onRefresh} />
-            {canManage && (
-              <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
-                Add product
-              </Button>
-            )}
+            <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
+              Add product
+            </Button>
           </div>
         </div>
       </StickyFadeHeader>
@@ -894,7 +852,18 @@ export default function InventoryScreen({
         <ItemModal
           item={detailItem}
           perDay={rate(detailItem)}
-          canManage={canManage}
+          activeBatches={batches.filter(
+            (b) => b.product === detailItem.product && b.finalWeight == null,
+          )}
+          scheduledToday={Object.entries(schedule[today] || {}).flatMap(
+            ([station, entries]) =>
+              (entries || [])
+                .filter((t) => t.text === detailItem.product && !t.batchId)
+                .map((t) => ({ ...t, station })),
+          )}
+          recentBatches={history
+            .filter((b) => b.product === detailItem.product)
+            .slice(0, 3)}
           onClose={() => setDetail(null)}
           onSave={(product, patch) => {
             onUpdateProduct(product, patch);
@@ -908,6 +877,20 @@ export default function InventoryScreen({
             setDetail(null);
             setMoving({ item, from: stockIn(item, "made") > 0 ? "made" : "freezer" });
           }}
+          /* ItemModal has offered a one-tap "Put out" since it was written,
+           * behind `canPutOut(item) && onPutOut`, and ProductionTracker has
+           * been passing `onPutOut` all along — but this screen never
+           * destructured the prop, so it stopped here and the control could
+           * not render. The cheapest work on the floor (stock that is already
+           * made, walked to the case) was unreachable; every put-out went the
+           * long way through the from/to/amount dialog. */
+          onPutOut={
+            onPutOut &&
+            ((product) => {
+              onPutOut(product);
+              setDetail(null);
+            })
+          }
         />
       )}
 

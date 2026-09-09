@@ -392,22 +392,43 @@ export default function ProductionScreen({
      * one is stock coming and the other is only an intention. */
     const scheduled = new Map();
     const inProduction = new Map();
-    const bump = (map, product, n) =>
+    /* `unit`, when given, is checked against the product's own unit before
+     * the quantity is added — the floor's board has always done this and the
+     * planning desk never did, so a mismatch silently inflated the number
+     * here while reading correctly there. Anything with no unit to compare
+     * (a batch, a stocking task) is counted as before. */
+    const unitOf = new Map(inventory.map((i) => [i.product, i.unit || "lb"]));
+    const bump = (map, product, n, unit) => {
+      if (unit != null && unit !== (unitOf.get(product) || "lb")) return;
       map.set(product, (map.get(product) || 0) + n);
+    };
 
     /* A rolling window forward, NOT the rest of the calendar week. On a
      * Friday the current week has no production days left, so a week-bounded
      * scan could never see a plan at all and everything read as unplanned —
      * including runs booked for Monday. A plan is a plan regardless of which
-     * week it falls in. Today is excluded because adding a run on today
-     * spawns a batch too, and both would count. */
-    for (let i = 1; i <= 7; i += 1) {
+     * week it falls in.
+     *
+     * Today is now IN the window, which it could not be before. The old
+     * exclusion was there because a plan line and the batch it spawned were
+     * indistinguishable, so counting today meant counting the same pounds
+     * twice — and the cost was a blind spot exactly where it hurt most: a run
+     * the floor queued for this morning was invisible to this screen, which
+     * cheerfully proposed scheduling it again. A started line now carries its
+     * `batchId` and is skipped here, because `inProduction` below is already
+     * counting that batch. Unstarted lines are real committed work and count.
+     *
+     * Units are checked, not assumed. A plan measured in racks is not three
+     * pounds of bacon, and summing it as though it were is how a target reads
+     * as met by work that does not exist. */
+    for (let i = 0; i <= 7; i += 1) {
       const key = shiftDate(today, i);
       const dow = new Date(`${key}T00:00:00`).getDay();
       if (dow === 0 || dow === 6) continue; // no production at the weekend
       for (const station of stations) {
         for (const t of (schedule[key] || {})[station] || []) {
-          bump(scheduled, t.text, Number(t.qty) || 0);
+          if (t.batchId) continue; // already a live batch — counted below
+          bump(scheduled, t.text, Number(t.qty) || 0, t.unit);
         }
       }
     }
@@ -607,7 +628,7 @@ export default function ProductionScreen({
   const commitBulk = (tasks) => {
     if (tasks.length === 0) return;
     if (onAddTasks) onAddTasks(tasks);
-    else tasks.forEach((t) => onAddTask(t.day, t.station, t.product, t.qty));
+    else tasks.forEach((t) => onAddTask(t.day, t.station, t.product, t.qty, t.unit));
     setBulkOpen(false);
   };
 
@@ -1350,7 +1371,7 @@ function PlanRow({
           stations={stations}
           onClose={() => setOpen(false)}
           onConfirm={(how, qty, station, pull) => {
-            if (how === "make") onAddTask(defaultDay, station, item.product, qty);
+            if (how === "make") onAddTask(defaultDay, station, item.product, qty, item.unit);
             else
               onAddStocking(item.product, qty, item.unit, state === "out", {
                 parts: pull,

@@ -1,115 +1,110 @@
 "use client";
 
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Boxes,
+  Factory,
   ListTodo,
-  MapPin,
   Package,
-  SquareArrowRightExit,
-  UsersRound,
+  Store,
 } from "lucide-react";
 
-import { Badge, SlotProvider, SlotTarget, ToastProvider, useToast } from "./components/ui";
+import { SlotProvider, SlotTarget, ToastProvider, useToast } from "./components/ui";
 import AppShell from "./components/AppShell";
-import RoleSwitcher from "./components/RoleSwitcher";
-import { TabletFrameContext } from "./components/TabletFrame";
-import SignInScreen from "./screens/SignInScreen";
 import { LocationPicker, LocationSwitchDialog } from "./components/LocationSetting";
 import { useDeviceLocation } from "./lib/deviceLocation";
-import BoardScreen from "./screens/BoardScreen";
+import { ApprovalProvider, useApproval, useApprovalLog } from "./lib/approval";
+import BatchesScreen from "./screens/BatchesScreen";
 import TasksScreen from "./screens/TasksScreen";
 import InventoryScreen from "./screens/InventoryScreen";
-import TeamScreen from "./screens/TeamScreen";
-import { usePersistentState, useSession } from "./lib/store";
-import { StaffProvider } from "./lib/staff";
+import SettingsScreen from "./screens/SettingsScreen";
+import { usePersistentState } from "./lib/store";
 import {
   DEFAULT_TASK_CATEGORIES,
   SEED,
   categoryInUse,
   defaultThreshold,
-  isManager,
+  makeBatch,
+  makeScheduleEntry,
   moveStock,
   newId,
   normalizeItem,
   productType,
   putOnFloor,
+  setStockRange,
   stateLabel,
   todayKey,
-  visibleTasks,
   yieldPct,
 } from "./lib/domain";
 import { StationsProvider, useStations } from "./lib/stations";
 import { useSharedStationConfig, useSharedStations } from "./lib/sharedStations";
 
 const NAV = [
-  { id: "board", label: "Production board", short: "Board", icon: SquareArrowRightExit },
+  /* "Batches", not "Production board". A board is a thing the software has;
+   * a batch is the thing the shop makes, and it is the word already used
+   * everywhere else in this model — `SEED.batches`, `makeBatch`, "close out a
+   * batch". The screen is now a ledger of them rather than a wall of cards,
+   * which is the other half of the same change. */
+  { id: "batches", label: "Batches", short: "Batches", icon: Factory },
   { id: "tasks", label: "Tasks", short: "Tasks", icon: ListTodo },
   { id: "inventory", label: "Inventory", short: "Inventory", icon: Package },
-  { id: "team", label: "Team & PINs", short: "Team", icon: UsersRound },
+  /* The fourth tab is labelled with the SHOP, not "Settings" — see `nav`
+   * below, where the label is filled in at render. Naming it after the place
+   * is what keeps a mis-set tablet visible now that the top strip that used
+   * to carry the shop name is gone: a terminal quietly filing a week of work
+   * against the wrong building is the failure this guards, and the tab bar is
+   * the one piece of chrome that is always on screen. */
+  { id: "settings", label: "Settings", short: "Shop", icon: Store },
+  /* "Team & PINs" is gone. It managed a floor staff roster that no longer
+   * exists: crew are not in the system, and floor managers are added in the
+   * console and claim their own PIN when one is first asked for. A screen for
+   * editing people who cannot be edited here is worse than no screen. */
 ];
+
+/**
+ * The tablet has no identity.
+ *
+ * There is no sign-in — the iPad's passcode is the lock and ProTrack opens
+ * straight up — so nothing on the floor is hidden behind who you are. That is
+ * safe because nothing here is worth hiding: pounds, batches, thresholds, days
+ * of cover. Anything that genuinely needs a person behind it goes through
+ * `useApproval`, where the Permissions screen decides.
+ *
+ * The `role: "manager"` it used to carry is gone, and so are the
+ * `isManager(...)` checks it existed to satisfy. Those checks are the ones
+ * this comment promised were on their way out: a question asked of a constant
+ * always has the same answer, and every screen has been collapsed to the
+ * branch it always took.
+ *
+ * What is left is genuinely all the terminal needs to know about itself: an
+ * id to stamp on work, and a name for the tasks it completes.
+ */
+const TABLET = { id: "TABLET", name: "Shop floor" };
 
 /* --------------------------------------------------------------- App shell */
 
-function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, place, onChangePlace, children }) {
-  // Inside a TabletFrame, RoleSwitcher portals straight to document.body
-  // instead of going through AppShell's overlay slot — the bezel's own
-  // `transform: scale()` becomes a new containing block for anything
-  // `position: fixed` inside it, which would otherwise trap the chip's
-  // drag-and-clamp positioning against the mock device instead of the real
-  // viewport. Outside a TabletFrame (framed === false) nothing changes.
-  const framed = useContext(TabletFrameContext);
-  const [brandOpen, setBrandOpen] = useState(false);
-  const roleSwitcher = <RoleSwitcher user={user} onChange={onViewAsRole} />;
-
+function Shell({ nav, view, onNavigate, children }) {
   return (
-    <>
-      {framed && typeof document !== "undefined" ? createPortal(roleSwitcher, document.body) : null}
       <AppShell
-        /* The SHOP, not the company. With one location the two were
-         *  interchangeable and the company name read fine; with two, a
-         *  terminal that only ever says "Milaca Meats" is a tablet you cannot
-         *  tell apart from the one in the other building — and everything it
-         *  records stamps a location. The name being permanently on screen is
-         *  the whole defence against a mis-set tablet quietly mis-filing a
-         *  week of work. */
-        brand={place ? `Protrack — ${place.name}` : "Protrack"}
-        /* Reuses the console's own brand-menu machinery rather than inventing
-         *  a control: the shop name is already the most prominent text in the
-         *  rail, so the way to change it is to click it. */
-        brandMenuOpen={brandOpen}
-        onBrandMenuOpenChange={onChangePlace ? setBrandOpen : undefined}
-        brandMenu={
-          <div className="w-56 bg-surface border border-line rounded-xl shadow-pop overflow-hidden animate-pop-in p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setBrandOpen(false);
-                onChangePlace();
-              }}
-              className="w-full flex items-center gap-2.5 text-left px-2.5 py-2 rounded-md text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink transition-colors duration-100"
-            >
-              <MapPin size={14} className="text-icon-2 shrink-0" />
-              Change shop
-            </button>
-          </div>
-        }
+        /* A bottom tab bar at every width, not a sidebar. This tablet is
+         *  carried around the shop — set down by the freezer, picked up at
+         *  the bench — and a left rail is the one nav position the thumb
+         *  holding it cannot reach. It also ends the split personality the
+         *  floor had: the `lg` breakpoint falls between an iPad's two
+         *  orientations, so turning the device used to change the entire
+         *  navigation. See AppShell's `chrome` prop. */
+        chrome="tabs"
+        /* No `brand`, and no brand menu. Both belonged to the top strip, and
+         *  the strip is gone — the shop names the fourth tab now, and
+         *  "Change shop" is a control on the screen behind it. That is a
+         *  better home for a setting that, with one location configured,
+         *  never rendered a chevron at all. */
         nav={nav}
         view={view}
         onNavigate={onNavigate}
-        onSignOut={onSignOut}
-        initials={user.initials}
-        userName={user.name}
-        userBadge={
-          isManager(user) ? (
-            <Badge className="shrink-0">{user.role === "owner" ? "Owner" : "Floor manager"}</Badge>
-          ) : null
-        }
-        userMeta={
-          !isManager(user) ? (
-            <p className="text-xs text-ink-3 capitalize truncate">{user.station || "Crew"}</p>
-          ) : null
-        }
+        /* No user block at all — no initials, no name, no "Shared terminal"
+         *  badge, and no sign-out, because there is nothing and nobody to sign
+         *  out of. AppShell omits its whole footer when no `userName` arrives. */
         pageActions={<SlotTarget name="page-actions" className="flex items-center gap-2" />}
         pageSubtitle={
           <SlotTarget
@@ -117,11 +112,9 @@ function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, place, on
             className="empty:hidden mt-1 text-sm text-ink-2 leading-normal"
           />
         }
-        overlay={framed ? null : roleSwitcher}
       >
         {children}
       </AppShell>
-    </>
   );
 }
 
@@ -129,11 +122,15 @@ function Shell({ user, nav, view, onNavigate, onSignOut, onViewAsRole, place, on
 
 function Application() {
   const toast = useToast();
-  const { user, signIn, signOut } = useSession();
+  const user = TABLET;
+  const approve = useApproval();
+  /* Read-only here — the provider writes it. This is the first thing that
+   * has ever rendered the log. */
+  const [approvalLog] = useApprovalLog();
   const { locations, location, setLocation, needsChoice } = useDeviceLocation();
   const [switching, setSwitching] = useState(false);
   const today = todayKey();
-  const { stages, stations, nextStage, finalStage, normalizeStage } = useStations();
+  const { nextStage, finalStage, normalizeStage } = useStations();
 
   const [view, setView] = useState("board");
   const [storedBatches, setBatches] = usePersistentState("batches", SEED.batches);
@@ -143,6 +140,24 @@ function Application() {
    * written, but a wrong name is at least visible where a stale index quietly
    * pointed at whatever moved into that slot. */
   const batches = React.useMemo(() => storedBatches.map(normalizeStage), [storedBatches, normalizeStage]);
+
+  /* ...and written back, once, the first time one is seen.
+   *
+   * Normalising on READ alone was a trap. `batches` is a derived view, but
+   * every `setBatches` updater below receives the RAW array, so a batch still
+   * carrying a number went into `nextStage`, which looks its stage up with
+   * `stages.indexOf` — a number is never in a list of names, so it answered
+   * -1 and did the right thing for the case it was written for: an unknown
+   * stage means a deleted station, so leave the batch where it is. The move
+   * committed, the approval logged, the toast said "Batch moved forward", and
+   * nothing on the floor moved. Every writer would otherwise have to
+   * remember to normalise, and the store would never heal.
+   *
+   * Self-cancelling: once the write lands there are no numbers left to find. */
+  useEffect(() => {
+    if (!storedBatches.some((b) => typeof b?.stage === "number")) return;
+    setBatches((prev) => prev.map(normalizeStage));
+  }, [storedBatches, normalizeStage, setBatches]);
   const [history, setHistory] = usePersistentState("history", SEED.history);
   const [inventory, setInventory] = usePersistentState("inventory", SEED.inventory);
   const [schedule, setSchedule] = usePersistentState("schedule", SEED.schedule);
@@ -152,13 +167,12 @@ function Application() {
   /** Records saved before the third state existed get filled in on read. */
   const stock = useMemo(() => inventory.map(normalizeItem), [inventory]);
 
-  // Same "how much is waiting for me" signal as the Tasks screen's own Open
-  // tab dot, scoped the same way (visibleTasks: everyone sees unclaimed
-  // work, managers see everything) so the rail badge never disagrees with
-  // the screen it's shortcutting to.
+  // The same count the Tasks screen's own tabs add up to. There is no
+  // per-person scoping left to mirror — the terminal sees the whole list —
+  // so this is simply "how much is still open".
   const openTaskCount = useMemo(
-    () => (user ? visibleTasks(tasks, user).filter((t) => !t.completed).length : 0),
-    [tasks, user]
+    () => tasks.filter((t) => !t.completed).length,
+    [tasks]
   );
 
   const [cloverStatus, setCloverStatus] = useState("loading");
@@ -207,6 +221,16 @@ function Application() {
           byName.set(
             name,
             normalizeItem({
+              /* Spread the existing record FIRST rather than listing the
+               * fields to keep. This used to name them one by one, which
+               * meant every field it forgot was silently reset on each
+               * sync — and it forgot `max` and `minBatch`, the two numbers
+               * the console's Targets screen exists to set. A manager set a
+               * case size in the office, the tablet refreshed from Clover,
+               * and normalizeItem re-derived both from the family default.
+               * Whatever the console knows about a product outlives a sync;
+               * Clover only ever gets to speak for what is on the floor. */
+              ...(existing || {}),
               product: name,
               type: existing?.type ?? productType(name),
               made: existing?.made ?? 0,
@@ -272,7 +296,9 @@ function Application() {
     });
   };
 
-  const handleMove = (product, from, to, amount) => {
+  const handleMove = async (product, from, to, amount) => {
+    const by = await approve("inventory-transfer", { detail: `${amount} ${product}` });
+    if (!by) return;
     setInventory((prev) =>
       prev.map((i) => (i.product === product ? moveStock(normalizeItem(i), from, to, amount) : i))
     );
@@ -284,9 +310,18 @@ function Application() {
     });
   };
 
+  /* Routed through `setStockRange` rather than spreading the patch straight
+   * on, so the floor and the console's Targets screen enforce the same
+   * invariant — a smallest-batch bigger than the whole case is unsatisfiable,
+   * and used to be reachable from here by simply lowering the max. */
   const handleUpdateProduct = (product, patch) => {
+    const { threshold, max, minBatch, ...rest } = patch;
     setInventory((prev) =>
-      prev.map((i) => (i.product === product ? { ...normalizeItem(i), ...patch } : i))
+      prev.map((i) =>
+        i.product === product
+          ? { ...setStockRange(i, { threshold, max, minBatch }), ...rest }
+          : i,
+      ),
     );
     toast(`${product} updated`, {
       detail: `${patch.threshold}–${patch.max} ${patch.unit} · ${patch.type}`,
@@ -315,25 +350,40 @@ function Application() {
 
   /* ---- Board ---- */
 
-  const handleAdvance = (id, staff) => {
+  /* Every one of these asks the same way and lets the Permissions screen
+   * decide which ones actually stop. `by.ungated` means nobody had to stand
+   * behind it, so there is no name to stamp — the alternative, inventing one,
+   * is how an audit trail starts lying. */
+  const handleAdvance = async (id) => {
+    const batch = batches.find((b) => b.id === id);
+    const by = await approve("weigh-in", { detail: batch && `${batch.id} ${batch.product}` });
+    if (!by) return;
     setBatches((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, stage: nextStage(b), lastActionBy: staff.name } : b))
+      prev.map((b) => (b.id === id ? { ...b, stage: nextStage(b), lastActionBy: by.name } : b))
     );
-    toast("Batch moved forward");
+    toast("Batch moved forward", by.name ? { detail: `Approved by ${by.name}` } : undefined);
   };
 
-  const handleWeighIn = (id, boxWeight, staff) => {
+  const handleWeighIn = async (id, boxWeight) => {
+    const batch = batches.find((b) => b.id === id);
+    const by = await approve("weigh-in", { detail: batch && `${batch.id} ${batch.product}` });
+    if (!by) return;
     setBatches((prev) =>
       prev.map((b) =>
-        b.id === id ? { ...b, boxWeight, stage: nextStage(b), lastActionBy: staff.name } : b
+        b.id === id ? { ...b, boxWeight, stage: nextStage(b), lastActionBy: by.name } : b
       )
     );
-    toast(`Box weight recorded — ${boxWeight} lb`, { detail: `Confirmed by ${staff.name}` });
+    toast(`Box weight recorded — ${boxWeight} lb`, by.name ? { detail: `Confirmed by ${by.name}` } : undefined);
   };
 
-  const handleFinalize = (id, finalWeight, destination, staff) => {
+  const handleFinalize = async (id, finalWeight, destination) => {
     const batch = batches.find((b) => b.id === id);
     if (!batch) return;
+
+    /* The flagship gated action, and the one that ships requiring a lead: it
+     * locks in the number the whole shift gets measured against. */
+    const by = await approve("close-batch", { detail: `${batch.id} ${batch.product}` });
+    if (!by) return;
 
     setBatches((prev) =>
       prev.map((b) =>
@@ -343,7 +393,7 @@ function Application() {
               finalWeight,
               stage: finalStage,
               destination,
-              lastActionBy: staff.name,
+              lastActionBy: by.name,
             }
           : b
       )
@@ -354,7 +404,7 @@ function Application() {
         id: batch.id,
         product: batch.product,
         closedOn: today,
-        closedBy: staff.name,
+        closedBy: by.name,
         boxWeight: batch.boxWeight || batch.estWeight,
         finalWeight,
         minutes: null,
@@ -436,44 +486,74 @@ function Application() {
     toast(`"${category?.label}" removed`);
   };
 
-  /* ---- Schedule ---- */
+  /* ---- Today's plan ---- */
 
-  const handleAddTask = (day, station, product, qty) => {
+  /* The floor no longer books future days — that moved to the console's
+   * Targets screen, which can see a week of demand and the stock bands
+   * behind it. What is left here is everything that happens TODAY, and the
+   * two verbs it needs.
+   *
+   * The split matters because the old single `handleAddTask(day, ...)`
+   * branched on `day === today` to decide whether to spawn a batch. The
+   * console had the same function without the branch. So the same gesture
+   * produced live work from one screen and a dead plan line from the other,
+   * and nothing on either side said which had happened. */
+
+  /** Queue something for today at a station: a plan line and the live batch
+   *  it stands for, created together and linked. */
+  const handleQueueForToday = (station, product, qty) => {
+    const batch = makeBatch({ product, qty, station, startedAt: today });
+    const entry = makeScheduleEntry({ product, qty, batchId: batch.id });
+    setBatches((prev) => [...prev, batch]);
     setSchedule((prev) => ({
       ...prev,
-      [day]: {
-        ...prev[day],
-        [station]: [...((prev[day] && prev[day][station]) || []), { id: newId("T"), text: product, qty, unit: "lb" }],
+      [today]: {
+        ...prev[today],
+        [station]: [...((prev[today] && prev[today][station]) || []), entry],
       },
     }));
-
-    // Today's plan becomes real work immediately; a future day stays a plan.
-    if (day === today) {
-      setBatches((prev) => [
-        ...prev,
-        {
-          id: newId("B"),
-          product,
-          estWeight: qty,
-          boxWeight: null,
-          stage: station,
-          needsSmoke: station === "Smokehouse",
-          destination: null,
-          startedAt: today,
-        },
-      ]);
-      toast(`${product} added to ${station}`, { detail: "Batch card created for today." });
-    } else {
-      toast(`${product} planned`, { detail: `${station} · ${qty} lb` });
-    }
+    toast(`${product} added to ${station}`, { detail: "Batch card created for today." });
   };
 
-  const handleRemoveTask = (day, station, id) => {
+  /**
+   * Start a run the console planned — the handshake that was missing.
+   *
+   * A batch scheduled in the office for a future day used to simply expire:
+   * the day arrived, the line sat on the board, and the only control on it
+   * deleted it. Now the plan line keeps its identity and gains a batch,
+   * stamped both ways, so nothing is retyped and nothing is counted twice.
+   */
+  const handleStartPlanned = (station, entryId) => {
+    const entry = ((schedule[today] || {})[station] || []).find((t) => t.id === entryId);
+    if (!entry || entry.batchId) return;
+    const batch = makeBatch({
+      product: entry.text,
+      qty: entry.qty,
+      station,
+      startedAt: today,
+    });
+    setBatches((prev) => [...prev, batch]);
     setSchedule((prev) => ({
       ...prev,
-      [day]: {
-        ...prev[day],
-        [station]: ((prev[day] && prev[day][station]) || []).filter((t) => t.id !== id),
+      [today]: {
+        ...prev[today],
+        [station]: ((prev[today] && prev[today][station]) || []).map((t) =>
+          t.id === entryId ? { ...t, batchId: batch.id } : t,
+        ),
+      },
+    }));
+    toast(`${entry.text} started at ${station}`, {
+      detail: `${entry.qty} ${entry.unit} · batch card created.`,
+    });
+  };
+
+  /** Drop a planned line nobody started. Plans change; this is not "done". */
+  const handleRemovePlanned = (station, entryId) => {
+    setSchedule((prev) => ({
+      ...prev,
+      [today]: {
+        ...prev[today],
+        [station]: ((prev[today] && prev[today][station]) || []).filter((t) => t.id !== entryId),
       },
     }));
   };
@@ -481,45 +561,40 @@ function Application() {
   /* ---- Render ---- */
 
   /* Before anything else: a tablet that does not know which shop it is in
-   * cannot record anything honestly, so this is the one question that comes
-   * ahead of signing in. With a single location it never appears. */
+   * cannot record anything honestly, so it is the one question the terminal
+   * ever asks. With a single location it never appears. */
   if (needsChoice) return <LocationPicker locations={locations} onPick={setLocation} />;
 
-  if (!user) return <SignInScreen onSignIn={signIn} />;
-
-  const nav = NAV.filter((n) => isManager(user) || !n.managerOnly).map((n) =>
-    n.id === "tasks" ? { ...n, count: openTaskCount } : n
-  );
-  const current = nav.some((n) => n.id === view) ? view : "board";
+  /* Nothing is hidden from the terminal — see TABLET above. The filter is
+   * gone rather than left always-true, so nobody re-adds a flag to it. */
+  const nav = NAV.map((n) => {
+    if (n.id === "tasks") return { ...n, count: openTaskCount };
+    /* The shop's own name, so the bar always says where this tablet thinks it
+     * is. Falls back to "Shop" before the roster has hydrated, or if a tablet
+     * genuinely has no location set — in which case the Settings screen says
+     * so in as many words. */
+    if (n.id === "settings" && location?.name) {
+      return { ...n, label: location.name, short: location.name };
+    }
+    return n;
+  });
+  const current = nav.some((n) => n.id === view) ? view : "batches";
 
   return (
-    <Shell
-      user={user}
-      nav={nav}
-      view={current}
-      onNavigate={setView}
-      onSignOut={signOut}
-      place={location}
-      onChangePlace={locations.length > 1 ? () => setSwitching(true) : undefined}
-      onViewAsRole={(role) => {
-        // Re-signs the same person at a different role: session only, so the
-        // stored roster keeps whatever they actually hold.
-        signIn({ ...user, role });
-        toast(`Viewing as ${role}`, { tone: "info" });
-      }}
-    >
-      {current === "board" && (
-        <BoardScreen
+    <Shell nav={nav} view={current} onNavigate={setView}>
+      {current === "batches" && (
+        <BatchesScreen
           batches={batches}
           schedule={schedule}
           inventory={stock}
+          history={history}
           today={today}
-          user={user}
           onAdvance={handleAdvance}
           onWeighIn={handleWeighIn}
           onFinalize={handleFinalize}
-          onAddTask={handleAddTask}
-          onRemoveTask={handleRemoveTask}
+          onQueueForToday={handleQueueForToday}
+          onStartPlanned={handleStartPlanned}
+          onRemovePlanned={handleRemovePlanned}
         />
       )}
 
@@ -544,12 +619,10 @@ function Application() {
           inventory={stock}
           velocity={velocity}
           status={cloverStatus}
-          syncedAt={syncedAt}
-          canManage={isManager(user)}
           batches={batches}
           schedule={schedule}
           history={history}
-          onRefresh={loadClover}
+          today={today}
           onMove={handleMove}
           onPutOut={handlePutOut}
           onAddProduct={handleAddProduct}
@@ -559,12 +632,21 @@ function Application() {
       )}
 
 
-      {current === "team" && (
-        <TeamScreen
-          user={user}
-          onNotify={(message, tone = "success") => toast(message, { tone })}
+      {current === "settings" && (
+        <SettingsScreen
+          place={location}
+          locations={locations}
+          log={approvalLog}
+          cloverStatus={cloverStatus}
+          syncedAt={syncedAt}
+          onRefresh={loadClover}
+          /* Only offered when there is somewhere else to go. The switch itself
+           * is still gated by the `switch-location` approval inside the
+           * dialog — moving the control did not make it cheaper. */
+          onChangeShop={locations.length > 1 ? () => setSwitching(true) : undefined}
         />
       )}
+
       {switching && (
         <LocationSwitchDialog
           current={location}
@@ -584,6 +666,19 @@ function Application() {
   );
 }
 
+/* The provider has to sit ABOVE the component that calls `useApproval`, and
+ * it wants the tablet's shop for the log, so this thin layer reads the
+ * setting and wraps. `useDeviceLocation` is a storage read, so calling it in
+ * both places costs nothing. */
+function ApplicationWithApprovals() {
+  const { location } = useDeviceLocation();
+  return (
+    <ApprovalProvider location={location}>
+      <Application />
+    </ApprovalProvider>
+  );
+}
+
 function ApplicationWithStations() {
   // Sourced from the admin console's own Stations screen (see
   // ./lib/sharedStations.js) rather than a local copy, so a station added
@@ -592,7 +687,7 @@ function ApplicationWithStations() {
   const liveStationConfig = useSharedStationConfig();
   return (
     <StationsProvider stations={liveStations} config={liveStationConfig}>
-      <Application />
+      <ApplicationWithApprovals />
     </StationsProvider>
   );
 }
@@ -601,9 +696,7 @@ export default function ProductionTracker() {
   return (
     <ToastProvider>
       <SlotProvider>
-        <StaffProvider>
-          <ApplicationWithStations />
-        </StaffProvider>
+        <ApplicationWithStations />
       </SlotProvider>
     </ToastProvider>
   );

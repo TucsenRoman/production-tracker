@@ -1,107 +1,45 @@
 "use client";
 
 /**
- * Bridges the one piece of state the shop-floor terminal (this app, `/`)
- * and the admin console (`/company`) actually mean the same thing by:
- * the station list. The two apps are deliberately separate — see
- * ../company/lib/companyDomain.js's module doc — with their own persistence
- * namespaces (./store.js's `milaca.production.v1` vs
- * ../company/lib/companyStore.js's `milaca.company.v2`), because most of
- * their state has no reason to be shared. Stations are the exception: this
- * demo is single-location, and the console's LOC-1 *is* the floor this app
- * renders, so a station added on the console's Stations screen has to show
- * up here or the whole point of that screen is cosmetic.
+ * The floor's window onto the console's station list.
  *
- * Reads the console's own storage key directly rather than forking a
- * second editable copy — whatever the Stations screen writes is exactly
- * what this reads, no separate "sync" step to keep correct. If the
- * console's NS constant in companyStore.js ever changes, this key has to
- * move with it.
+ * Stations are company-level config: a station is a view on the production
+ * board, not a property of a device, and the console's Stations screen is
+ * where one is added, renamed, reordered or given an icon. A station that
+ * only existed in the console would make that screen cosmetic, so the floor
+ * reads it here.
+ *
+ * It reads through the console's OWN hook — exactly the way
+ * ./companyRoster.jsx reads the console's users — rather than reaching into
+ * localStorage with a key of its own. That is not a style preference. This
+ * module used to hold its own hand-written `"milaca.company.v2.stations"`,
+ * and when the console's namespace was bumped to v4 the string stayed behind:
+ * every station added, renamed or reordered in the console silently stopped
+ * reaching the floor, which fell back to the shipped Smokehouse/Packaging
+ * default and looked for all the world like it was working. Naming the hook
+ * instead of the key makes that failure impossible to reintroduce — and
+ * brings the cross-tab `storage` sync in ../lib/persistence.js along with it,
+ * so a rename in the office lands on an open tablet without a reload.
  */
 
-import { useEffect, useState } from "react";
-
+import { usePersistentState as useCompanyState } from "../company/lib/companyStore";
+import { COMPANY_SEED } from "../company/lib/companyDomain";
 import { STATIONS as DEFAULT_STATIONS } from "./domain";
 
-const COMPANY_STATIONS_KEY = "milaca.company.v2.stations";
-const COMPANY_STATION_CONFIG_KEY = "milaca.company.v2.stationConfig";
-
-/* Same dev switch as store.js — with persistence off, the console never
- * writes these keys, so anything still sitting under them is stale and
- * must be ignored rather than quietly overriding the seeded stations. */
-const PERSIST = process.env.NEXT_PUBLIC_PERSIST !== "off";
-
-function readCompanyStations() {
-  if (!PERSIST) return null;
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(COMPANY_STATIONS_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function readCompanyStationConfig() {
-  if (!PERSIST) return null;
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(COMPANY_STATION_CONFIG_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * The live station list, sourced from the console. Falls back to the
- * shipped default until the console has ever been opened (nothing stored
- * yet), and updates live if the console changes it in another tab —
- * a real scenario here: the office runs the console, the floor tablet runs
- * this app, at the same time.
+ * The live station list. Falls back to the shipped default if the console has
+ * somehow stored an empty one — a board with no stations on it is not a state
+ * worth rendering faithfully.
  */
 export function useSharedStations() {
-  const [stations, setStations] = useState(() => readCompanyStations() || DEFAULT_STATIONS);
-
-  useEffect(() => {
-    // Pick up whatever's already there once mounted client-side (the
-    // initial useState runs before hydration can see localStorage on some
-    // paths, so this re-checks rather than trusting the lazy initializer).
-    const stored = readCompanyStations();
-    if (stored) setStations(stored);
-
-    const onStorage = (e) => {
-      if (e.key && e.key !== COMPANY_STATIONS_KEY) return;
-      const next = readCompanyStations();
-      if (next) setStations(next);
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  return stations;
+  const [stations] = useCompanyState("stations", COMPANY_SEED.stations);
+  return Array.isArray(stations) && stations.length > 0 ? stations : DEFAULT_STATIONS;
 }
 
 /** Per-station extras set on the console's Stations screen — a custom icon
  *  today, more later — keyed the same way `stations` itself is, so a
  *  station's row here always matches its row there. */
 export function useSharedStationConfig() {
-  const [config, setConfig] = useState(() => readCompanyStationConfig() || {});
-
-  useEffect(() => {
-    const stored = readCompanyStationConfig();
-    if (stored) setConfig(stored);
-
-    const onStorage = (e) => {
-      if (e.key && e.key !== COMPANY_STATION_CONFIG_KEY) return;
-      const next = readCompanyStationConfig();
-      if (next) setConfig(next);
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  return config;
+  const [config] = useCompanyState("stationConfig", {});
+  return config && typeof config === "object" ? config : {};
 }
