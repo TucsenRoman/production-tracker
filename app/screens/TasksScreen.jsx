@@ -28,10 +28,12 @@ import {
   Input,
   Label,
   Modal,
+  ScreenToolbar,
   Segmented,
-  StickyFadeHeader,
   Tooltip,
   cx,
+  scrollAppToTop,
+  scrollAppToToolbar,
 } from "../components/ui";
 import {
   PRIORITY_LABEL,
@@ -612,6 +614,10 @@ export default function TasksScreen({
   const changeTab = (v) => {
     setStickyDone(new Set());
     setTab(v);
+    // Back to where the bar sticks, not to 0 — see scrollAppToToolbar.
+    // Instant, not smooth: the new tab's list is already what's rendered, so
+    // a smooth scroll would animate through rows that aren't there any more.
+    scrollAppToToolbar();
   };
 
   // Desktop scrolls the AppShell's own card (`[data-app-scroll]`); mobile
@@ -632,12 +638,9 @@ export default function TasksScreen({
     };
   }, []);
 
-  const scrollToTop = () => {
-    document
-      .querySelector("[data-app-scroll]")
-      ?.scrollTo({ top: 0, behavior: "smooth" });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  // Smooth here on purpose — this one is a deliberate "take me back up",
+  // where watching the travel is the confirmation that it worked.
+  const scrollToTop = () => scrollAppToTop("smooth");
 
   useDoubleTapHotkey({ t: scrollToTop });
 
@@ -745,11 +748,11 @@ export default function TasksScreen({
        *  sticky bar, canvas/surface background), so there's nothing to
        *  override here — see that component for why each default is what
        *  it is. */}
-      <StickyFadeHeader padTop={24}>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          {/* fade only — scroll mode engages itself when the row actually
+      <ScreenToolbar
+        tabs={
+          /* fade only — scroll mode engages itself when the row actually
            *  overflows; forcing it on left the rail 14px scrollable (its
-           *  own reserved badge room) even with space to spare. */}
+           *  own reserved badge room) even with space to spare. */
           <Segmented
             fade
             value={tab}
@@ -764,8 +767,9 @@ export default function TasksScreen({
               count: t.id === "completed" ? undefined : counts[t.id],
             }))}
           />
-
-          <div className="flex items-center gap-1.5 shrink-0">
+        }
+        actions={
+          <>
             <Button
               variant="primary"
               icon={Plus}
@@ -780,9 +784,9 @@ export default function TasksScreen({
               onClick={() => setManagingCategories(true)}
               className="shrink-0"
             />
-          </div>
-        </div>
-      </StickyFadeHeader>
+          </>
+        }
+      />
 
       <div className="space-y-5">
         {ordered.length === 0 ? (

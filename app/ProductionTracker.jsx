@@ -9,7 +9,7 @@ import {
   Store,
 } from "lucide-react";
 
-import { SlotProvider, SlotTarget, ToastProvider, useToast } from "./components/ui";
+import { SlotProvider, SlotTarget, ToastProvider, useToast, scrollAppToToolbar } from "./components/ui";
 import AppShell from "./components/AppShell";
 import { LocationPicker, LocationSwitchDialog } from "./components/LocationSetting";
 import { useDeviceLocation } from "./lib/deviceLocation";
@@ -46,8 +46,11 @@ const NAV = [
    * batch". The screen is now a ledger of them rather than a wall of cards,
    * which is the other half of the same change. */
   { id: "batches", label: "Batches", short: "Batches", icon: Factory },
-  { id: "tasks", label: "Tasks", short: "Tasks", icon: ListTodo },
   { id: "inventory", label: "Inventory", short: "Inventory", icon: Package },
+  /* Third of four, at the user's call. It is the tab that carries a count
+   * badge, and third-of-four sits closest to where a thumb rests on a tablet
+   * held two-handed — the position the badge is asking you to look at. */
+  { id: "tasks", label: "Tasks", short: "Tasks", icon: ListTodo },
   /* The fourth tab is labelled with the SHOP, not "Settings" — see `nav`
    * below, where the label is filled in at render. Naming it after the place
    * is what keeps a mis-set tablet visible now that the top strip that used
@@ -581,7 +584,18 @@ function Application() {
   const current = nav.some((n) => n.id === view) ? view : "batches";
 
   return (
-    <Shell nav={nav} view={current} onNavigate={setView}>
+    <Shell
+      nav={nav}
+      view={current}
+      /* Every screen renders into the SAME scroll container, so without this
+       * you arrive on a screen already scrolled to wherever the last one
+       * left off — or clamped partway, if the new screen is shorter. A
+       * screen you just opened starts at its top. */
+      onNavigate={(v) => {
+        setView(v);
+        scrollAppToToolbar();
+      }}
+    >
       {current === "batches" && (
         <BatchesScreen
           batches={batches}

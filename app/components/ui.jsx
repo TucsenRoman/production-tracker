@@ -31,6 +31,149 @@ import {
 
 export const cx = (...parts) => parts.filter(Boolean).join(" ");
 
+/* ----------------------------------------------------------------- Scroll -- */
+
+/** Send the app's scroll container back to the top.
+ *
+ *  Both targets are hit on purpose: in tabs mode AppShell's `[data-app-scroll]`
+ *  element owns the scroll (see the tablet-chrome notes), while in rail mode at
+ *  phone width the page itself scrolls. Whichever one is actually scrolling is
+ *  the one that moves; the other is already at 0 and ignores it.
+ *
+ *  `behavior` defaults to instant, which is right for a **tab change**: the
+ *  list underneath has already been replaced, so animating to it just plays a
+ *  scroll through content that is no longer there. Pass "smooth" for a
+ *  deliberate "back to top" control, where the travel is the feedback.
+ *
+ *  Why this exists at all: the scroll container is ONE persistent element that
+ *  every screen renders into, so switching to a shorter list leaves scrollTop
+ *  past the new maximum and the browser silently clamps it — Tasks measured
+ *  365 → 150 → 0 walking Open → Due today → Overdue, and coming back to Open
+ *  landed at 0 with the position gone. That reads as the app throwing you to an
+ *  arbitrary offset. Landing at the top of the new list is the deterministic
+ *  answer — decided with the user Sept 9 2026. */
+export function scrollAppToTop(behavior = "auto") {
+  document.querySelector("[data-app-scroll]")?.scrollTo({ top: 0, behavior });
+  window.scrollTo({ top: 0, behavior });
+}
+
+/** Where a sticky `anchor` comes to rest inside scroller `sc`, and whether it
+ *  is resting there right now.
+ *
+ *  `offset` is the scroll position at which the anchor pins — the resting
+ *  place a tab change wants. It is only trustworthy while the anchor is
+ *  LOOSE: once pinned, its rect IS the pinned position and every way of
+ *  asking degenerates to "wherever you are now" (`offsetTop` included —
+ *  Blink folds the sticky shift into it, so a bar reading 76 at rest reads
+ *  361 when scrolled). `pinned` is how a caller knows which it got.
+ *
+ *  The stuck position is the sticky inset PLUS the scroller's own start
+ *  padding, not the inset alone. Getting that wrong is subtle and expensive:
+ *  the test for "is it pinned" then never fires, a scrolled bar looks loose,
+ *  and whatever cached its offset caches nonsense.
+ *
+ *  One function because two callers must agree — `scrollAppToToolbar` aims
+ *  at this point and ScrollArea's `void` reserves the range to reach it. If
+ *  they compute it differently the void is the wrong size by exactly the
+ *  disagreement, which is a 20px mystery nobody enjoys finding twice. */
+function stickPoint(sc, anchor, vertical = true) {
+  const edge = vertical ? "top" : "left";
+  const pad = vertical ? "paddingTop" : "paddingLeft";
+  const inset = parseFloat(getComputedStyle(anchor)[edge]) || 0;
+  const stuckRel = inset + (parseFloat(getComputedStyle(sc)[pad]) || 0);
+  const rel =
+    anchor.getBoundingClientRect()[edge] - sc.getBoundingClientRect()[edge];
+  const pos = vertical ? sc.scrollTop : sc.scrollLeft;
+  return {
+    offset: Math.max(0, Math.round(pos + rel - stuckRel)),
+    pinned: rel <= stuckRel + 1,
+  };
+}
+
+/** Scroll back to the point where the screen's toolbar STICKS — not to 0.
+ *
+ *  This is what a tab change wants. Going to 0 throws the page title and
+ *  anything above the bar back onto the screen, so every tab change replays
+ *  the header you already scrolled past; the useful resting place is the one
+ *  where the toolbar is pinned and the first row sits directly under it.
+ *
+ *  Never scrolls DOWN. If you are already above the stick point the header is
+ *  genuinely on screen and belongs there, so the target is `min(current,
+ *  stick)` and switching tabs near the top of the page moves nothing.
+ *
+ *  Measuring it: a stuck element's rect IS its stuck position, so you cannot
+ *  read its natural offset while it is stuck. Parking the container at 0
+ *  first puts it back at its layout position, and both writes land in one
+ *  task, so the browser paints only the final result — no flicker. The
+ *  toolbar sits ABOVE the list, so its offset does not depend on which tab's
+ *  rows are rendered below and this stays correct even when React has not
+ *  committed the new list yet.
+ *
+ *  `top` on the bar is the sticky inset (`--app-mobile-header-h`, or the
+ *  negative `lg:` pull that seats it flush with the container's own padding),
+ *  and it has to come out of the offset — that inset is exactly how far past
+ *  its own position the bar has travelled once stuck. */
+export function scrollAppToToolbar(behavior = "auto") {
+  const bar = document.querySelector("[data-screen-toolbar]");
+  const sc = document.querySelector("[data-app-scroll]");
+  if (!bar) return scrollAppToTop(behavior);
+
+  // Rail mode at phone width: the page scrolls, and nothing below applies.
+  if (!sc || sc.scrollHeight <= sc.clientHeight) {
+    const inset = parseFloat(getComputedStyle(bar).top) || 0;
+    const was = window.scrollY;
+    window.scrollTo({ top: 0, behavior: "auto" });
+    const stick = bar.getBoundingClientRect().top - inset;
+    window.scrollTo({ top: Math.max(0, Math.min(was, stick)), behavior });
+    return;
+  }
+
+  /* Capture the position we are LEAVING, once.
+   *
+   * This runs inside the click handler, so the old tab's rows are still in
+   * the DOM and the new tab's scroll range does not exist yet — and if the
+   * new tab is short, ScrollArea's `void` has not been measured or applied
+   * either. Setting the scroll now therefore gets clamped to a range that is
+   * about to change twice: once when React commits the new list, and again
+   * when the void lands a frame or two later.
+   *
+   * So the target is computed from the position we started at and then
+   * re-applied across the next few frames until it takes. Re-reading
+   * `scrollTop` each pass instead would be self-defeating — after the first
+   * clamp it reads 0, and `min(0, stick)` is 0 forever. */
+  const from = sc.scrollTop;
+  const settle = () => {
+    // `stickPoint` can only be read while the bar is loose, so park at 0 —
+    // where it always is — and put the scroll straight back. Both writes land
+    // in one task, so only the final result is painted.
+    const at = sc.scrollTop;
+    sc.scrollTop = 0;
+    const { offset } = stickPoint(sc, bar, true);
+    sc.scrollTop = at;
+    return Math.max(0, Math.min(from, offset));
+  };
+
+  const target = settle();
+  const apply = (t) => {
+    if (behavior === "smooth") sc.scrollTo({ top: t, behavior });
+    else sc.scrollTop = t;
+  };
+  apply(target);
+
+  /* Chase it for a few frames. Each pass recomputes the target (the stick
+   * point can only be read once the new content is laid out) and stops as
+   * soon as the container actually holds it — which is the frame the void
+   * finished growing. Five frames is generous for a render → measure →
+   * setState → render round trip and costs nothing once it lands. */
+  let frames = 5;
+  const chase = () => {
+    const t = settle();
+    if (Math.abs(sc.scrollTop - t) > 1) apply(t);
+    if (--frames > 0 && Math.abs(sc.scrollTop - t) > 1) requestAnimationFrame(chase);
+  };
+  requestAnimationFrame(chase);
+}
+
 /* ------------------------------------------------------------------ Slots -- */
 
 /**
@@ -276,9 +419,15 @@ export function StickyFadeHeader({
    * renders identically. */
   padTop = 12,
   z = 10,
+  /* Anything else lands on the STICKY element itself — which matters for
+   * `data-screen-toolbar`: `scrollAppToToolbar` reads this element's
+   * computed `top` as the sticky inset, and an inner child reports `auto`
+   * for that and sits at its parent's padding rather than at the pin. */
+  ...rest
 }) {
   return (
     <div
+      {...rest}
       className={cx("relative sticky", top, bg, className)}
       style={{
         zIndex: z,
@@ -290,6 +439,58 @@ export function StickyFadeHeader({
     >
       {children}
     </div>
+  );
+}
+
+/**
+ * The one composition every floor screen's toolbar uses.
+ *
+ * `StickyFadeHeader` above owns the sticky positioning and the mask fade —
+ * but it never owned the LAYOUT, so each screen re-inlined its own row and
+ * they drifted: Tasks wrapped its rail in `justify-between` and passed
+ * padTop 24, Batches deliberately passed no wrapper at all, Inventory used
+ * the default padTop of 12 and grew a second line. Three treatments of one
+ * bar. This component is that row, so there is one place to change it.
+ *
+ * Slots, in the order they render:
+ *   `tabs`    the Segmented rail. Gets `flex-1 min-w-0` — with no `actions`
+ *             beside it that resolves to the FULL row, which is what
+ *             BatchesScreen's station rail needs. Boxing that rail to its
+ *             own content width is the bug its long comment describes:
+ *             463px inside an 1100px column left it permanently 6px too
+ *             narrow for its own chips, a width that can never arm
+ *             ScrollArea's scroller, so the chips spilled and the mask
+ *             clipped them. Never give this slot a shrink-to-fit parent.
+ *   `actions` the screen's own controls, pinned right, never shrinking.
+ *   `refine`  optional SECOND line: the narrowing that applies WITHIN the
+ *             selected tab. It reads as a refinement of the lit chip above
+ *             it, which is what it is — on one row with the tabs it read as
+ *             a set of peer controls competing for the same job.
+ *   `status`  what the filters did to the list, sitting with `refine`.
+ *
+ * `data-screen-toolbar` is what `scrollAppToToolbar` looks for; see that
+ * function for why the bar has to be findable from outside the screen.
+ */
+export function ScreenToolbar({ tabs, actions, refine, status, className }) {
+  const hasSecondLine = refine != null || status != null;
+  return (
+    <StickyFadeHeader padTop={24} className={className} data-screen-toolbar>
+      <div className={hasSecondLine ? "space-y-2" : undefined}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">{tabs}</div>
+          {actions && (
+            <div className="flex items-center gap-1.5 shrink-0">{actions}</div>
+          )}
+        </div>
+
+        {hasSecondLine && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
+            {refine}
+            {status}
+          </div>
+        )}
+      </div>
+    </StickyFadeHeader>
   );
 }
 
@@ -1158,92 +1359,239 @@ export function Popover({
   );
 }
 
-/* ------------------------------------------------------------ ScrollRail -- */
+/* ------------------------------------------------------------- ScrollArea -- */
+
+/** Per-axis property names, so the logic below is written once.
+ *
+ *  `cross` is the OTHER axis, which matters more than it looks: setting
+ *  `overflow` on one axis drags the other out of `visible` (the spec forces
+ *  it to `auto`), so an armed scroller always clips across its own grain.
+ *  That is what `clipRoom` exists to hold open. */
+const AXIS = {
+  x: {
+    pos: "scrollLeft",
+    size: "scrollWidth",
+    client: "clientWidth",
+    offset: "offsetLeft",
+    extent: "offsetWidth",
+    padEnd: "paddingRight",
+    overflow: "overflow-x-auto",
+    toward: "to right",
+    next: "nextElementSibling",
+  },
+  y: {
+    pos: "scrollTop",
+    size: "scrollHeight",
+    client: "clientHeight",
+    offset: "offsetTop",
+    extent: "offsetHeight",
+    padEnd: "paddingBottom",
+    overflow: "overflow-y-auto",
+    toward: "to bottom",
+    next: "nextElementSibling",
+  },
+};
 
 /**
- * A horizontal row that only becomes a scroller when it has to.
+ * One scroll container, either axis, with edge fades and optional end slack.
  *
- * With room to spare it renders as a plain row: no scroll container, no
- * fade, nothing that can clip a child. Once the content genuinely outgrows
- * its space the rail arms itself — overflow scrolling, an edge fade on
- * whichever side still has something to reveal, and a tapped child gliding
- * into frame — and disarms again when the space comes back.
+ * This replaces `ScrollRail`, which was the same thing hard-coded to the
+ * horizontal case. Everything ScrollRail learned the hard way is still here
+ * — see the six constraints below — it is just written against an axis table
+ * instead of against `scrollLeft` and `clientWidth` directly.
  *
- * `clipRoom` reserves px at the top and right for decorations that poke
- * outside a child's own box, a corner badge being the usual one. It is not
- * optional dressing: overflow-x can't be set without dragging overflow-y
- * out of `visible` too, so an armed rail always clips vertically, and the
- * reserved room is the only thing keeping that badge whole. The cancelling
- * negative margin means reserving it costs no layout.
+ * Props:
+ *   `axis`      "x" (default) or "y".
+ *   `arm`       "auto" (default) becomes a scroll container only once the
+ *               content genuinely outgrows the box, and goes back to a plain
+ *               row when the room returns — nothing can clip a child while it
+ *               fits. `true` is always a scroll container, which is what a
+ *               page-level scroller wants. `false` never arms itself: the
+ *               caller owns the overflow property (AppShell's rail mode turns
+ *               it on only at `lg:`, so ScrollArea must keep its hands off).
+ *   `fade`      Fade whichever edge still has content behind it.
+ *   `band`      Width of that fade. 16px was invisible; 40 reads properly.
+ *   `clipRoom`  px held open across the grain for a decoration that pokes
+ *               outside a child's own box — a corner badge is the usual one.
+ *               **`axis="x"` only**, and that asymmetry is real, not an
+ *               oversight: the reservation is padding plus a cancelling
+ *               negative margin, which grows a box without costing layout,
+ *               and only HEIGHT behaves that way. A block's auto WIDTH is
+ *               already its container's content box, so the same trick can
+ *               never widen it (see the `void`/spacer note below).
+ *   `void`      Hold open enough slack at the far end that the scroll range
+ *               always reaches the resting point — the stick point of a
+ *               sticky child inside, `[data-scroll-anchor]` or the screen
+ *               toolbar. Without it a two-row tab has no scroll range at
+ *               all, so returning to it after a forty-row tab drops you at
+ *               the top while the long one rests at the pin, and the header
+ *               jumps in and out as you tab. Measured, not a constant, so
+ *               both tabs come to rest in the same place.
+ *   `centerOnClick`  Glide a tapped child toward the middle.
+ *
+ * Six CSS constraints shaped this. Each was a bug first — don't "simplify"
+ * any of them away:
+ *
+ * 1. Overflow on one axis drags the other out of `visible`, so an armed
+ *    scroller always clips across its grain. `clipRoom` reserves that room.
+ * 2. `mask-image` clips its element to its own border box (masking paints
+ *    into an isolated layer sized to that box), so the fade wrapper needs
+ *    the SAME reservation as the rail or it re-clips what the rail just
+ *    freed. This, not the rail's overflow, was the "badges still cut off".
+ * 3. Reserved padding counts toward `scrollWidth`, so overflow detection
+ *    must not see its own reservation as content — hence measuring the last
+ *    child's border box rather than `scrollWidth`.
+ * 4. `max-w-full` (`max-h-full`) must always be on the rail, or it grows
+ *    past its container instead of being clamped by it and nothing ever
+ *    reads as overflowing.
+ * 5. The armed state must not manufacture its own overflow. `max-w-full`
+ *    clamps the BORDER box, so padding added by arming comes out of CONTENT
+ *    width — which is exactly the overflow that keeps it armed. Armed state
+ *    also sets `maxWidth: calc(100% + clipRoom)` so both states measure the
+ *    same content width.
+ * 6. It must not sit in a shrinkable flex item, or it gets squeezed to
+ *    precisely its content width — the one place the reservation tips the
+ *    test over — and the reading oscillates. `shrink-0`, and let the
+ *    container wrap.
+ *
+ * And the cheapest rule of all: a row that cannot overflow should not be a
+ * scroller. Passing `fade` to three short tabs in a wide header buys nothing
+ * but a chance to arm on a transient and clip a badge.
  */
-export function ScrollRail({
+export function ScrollArea({
   as: Tag = "div",
+  axis = "x",
+  arm = "auto",
   className,
   style,
   onScroll,
   onClick,
-  /** px reserved top/right so a child's overflowing decoration isn't clipped. */
   clipRoom = 0,
-  /** Fade the edge that still has content behind it. */
   fade = true,
-  /** Width of that fade. */
   band = 40,
-  /** Glide a tapped child toward the middle, when the rail scrolls at all. */
+  void: voidEnd = false,
   centerOnClick = false,
   children,
   ...rest
 }) {
+  const A = AXIS[axis] || AXIS.x;
+  const vertical = axis === "y";
+  // clipRoom is a horizontal-axis affordance only; see the prop note above.
+  const room = vertical ? 0 : clipRoom;
+
   const railRef = useRef(null);
   const [edges, setEdges] = useState({
     overflowing: false,
     atStart: true,
     atEnd: true,
   });
+  const [slack, setSlack] = useState(0);
+  // The applied slack, read back during measurement without waiting for a
+  // re-render — measuring against a stale value is what makes a void grow by
+  // its own size every pass.
+  const slackRef = useRef(0);
+  // The anchor's resting offset, remembered across frames — see `measure`
+  // for why it can only be read while the anchor is loose.
+  const restRef = useRef(null);
 
   const measure = useCallback(() => {
     const el = railRef.current;
     if (!el) return;
-    /* The chips' own extent, NOT `scrollWidth`.
-     *
-     * `scrollWidth` counts a corner badge's overhang: TabDot is pinned at
-     * `-right-1.5`, so it hangs 6px past the last chip and reads as 6px of
-     * content the rail does not have. That is enough to arm a rail whose
-     * chips fit — and arming is what reserves `clipRoom`, which absorbs the
-     * overhang and makes the next reading say "fits". Arm, fit, arm, fit:
-     * the two states disagree about the same rail, so which one it lands in
-     * comes down to which measurement happened last. Landing armed is the
-     * bad one, and it is stable: `overflow-x: auto` with scrollWidth equal
-     * to clientWidth is a fade painted across a last tab that fits, with
-     * zero scroll range to move it out from under.
-     *
-     * A child's own `offsetLeft + offsetWidth` is its border box, and an
-     * absolutely-positioned badge is not in it, so this reads the same
-     * whether the rail is armed or not — no reservation to subtract, and
-     * nothing for the two states to disagree about. */
-    let last = el.lastElementChild;
-    // The trailing spacer is reserved room, not a chip — walk past it, or it
-    // adds its own width to the content and re-arms a rail that fits.
-    while (last && last.hasAttribute("data-rail-spacer"))
-      last = last.previousElementSibling;
-    const contentWidth = last
-      ? last.offsetLeft + last.offsetWidth
-      : el.scrollWidth - (parseFloat(getComputedStyle(el).paddingRight) || 0);
-    const overflowing = contentWidth > el.clientWidth + 1;
 
-    /* The ENDS are a different question from whether to arm, and have to be
-     * measured against a different number.
+    /* The children's own extent, NOT `scrollSize`.
      *
-     * Arming asks "is there more chip than box", which is why it ignores the
-     * badge and the reserved room above. But "have we reached the end" is
-     * only ever about how far the thing can actually scroll — and that range
-     * includes the reservation, because the reservation is what the trailing
-     * badge lives in. Measuring the ends against the chip extent instead
-     * declares the rail finished `clipRoom` px early: the fade lifts, the
-     * rail looks arrived, and the last badge is still sitting outside the
-     * box with nothing to say it can be scrolled into view. */
-    const maxScroll = el.scrollWidth - el.clientWidth;
-    const atStart = el.scrollLeft <= 1;
-    const atEnd = el.scrollLeft >= maxScroll - 1;
+     * `scrollSize` counts a corner badge's overhang: TabDot hangs a few px
+     * past the last chip and reads as content the rail does not have. That
+     * is enough to arm a rail whose chips fit — and arming is what reserves
+     * `clipRoom`, which absorbs the overhang and makes the next reading say
+     * "fits". Arm, fit, arm, fit: which state it lands in comes down to
+     * which measurement happened last, and landing armed is both the bad
+     * one and the stable one — a fade painted across a last tab that fits,
+     * with zero scroll range to move it out from under.
+     *
+     * A child's own offset + extent is its border box, and an absolutely
+     * positioned badge is not in it, so this reads the same armed or not. */
+    let last = el.lastElementChild;
+    // Walk past our own spacers — they are reserved room, not content, and
+    // counting them re-arms a rail that fits and grows a void every pass.
+    while (last && (last.hasAttribute("data-rail-spacer") || last.hasAttribute("data-scroll-void")))
+      last = last.previousElementSibling;
+    /* The slack that is actually RENDERED, read off the spacer itself —
+     * never `slackRef`. State lands a frame before the DOM does, so on the
+     * pass right after applying a void, `slackRef` says N while `scrollSize`
+     * still says 0, `baseMax` comes out N too small, and the next void is N
+     * too big. That is a void that feeds on itself. The element is the only
+     * honest answer to "how much slack is in the box right now". */
+    const voidEl = el.querySelector(":scope > [data-scroll-void]");
+    const appliedSlack = voidEl
+      ? Math.round(voidEl.getBoundingClientRect()[vertical ? "height" : "width"])
+      : 0;
+
+    const contentExtent = last
+      ? last[A.offset] + last[A.extent]
+      : el[A.size] - (parseFloat(getComputedStyle(el)[A.padEnd]) || 0) - appliedSlack;
+    const overflowing = contentExtent > el[A.client] + 1;
+
+    /* The ENDS are a different question from whether to arm, measured
+     * against a different number. Arming asks "is there more content than
+     * box", which is why it ignores the badge and the reserved room. "Have
+     * we reached the end" is only about how far the thing can actually
+     * scroll, and that range INCLUDES the reservation, because the
+     * reservation is where the trailing badge lives. Measuring the ends
+     * against the content extent instead declares the rail finished
+     * `clipRoom` px early: the fade lifts, and the last badge is still
+     * outside the box with nothing to say it can be scrolled into view. */
+    const maxScroll = el[A.size] - el[A.client];
+    const atStart = el[A.pos] <= 1;
+    const atEnd = el[A.pos] >= maxScroll - 1;
+
+    /* The void, measured.
+     *
+     * Only when this element really is a scroll container — "if applicable".
+     * In AppShell's rail mode at phone width the PAGE scrolls and this box
+     * does not, and padding the bottom of a box that isn't scrolling just
+     * adds dead space to the document. */
+    let want = 0;
+    if (voidEnd) {
+      const cs = getComputedStyle(el);
+      const scrolls = /auto|scroll/.test(vertical ? cs.overflowY : cs.overflowX);
+      const anchor =
+        el.querySelector("[data-scroll-anchor]") ||
+        el.querySelector("[data-screen-toolbar]");
+      if (scrolls && anchor) {
+        /* Read the resting point only while the anchor is loose, and keep
+         * it. It is a layout constant, not a per-frame quantity, and the
+         * container is at 0 on mount and again on every `settle()`, so a good
+         * value always arrives. Until one does, `want` stays 0 and no void is
+         * applied — the safe direction to be wrong in. */
+        const { offset, pinned } = stickPoint(el, anchor, vertical);
+        if (!pinned) restRef.current = offset;
+
+        if (restRef.current != null) {
+          /* Correct the range we can SEE, rather than reconstructing the
+           * content height we cannot.
+           *
+           *     want = applied + (restPoint - currentRange)
+           *
+           * If the range falls short of the resting point, add the shortfall;
+           * if it overshoots, give the surplus back, never below zero. It
+           * converges in a single pass and it is immune to both traps that
+           * bit the arithmetic this replaces: `scrollHeight` is floored at
+           * `clientHeight`, so a short list reports a range of exactly 0 —
+           * which is the truth here rather than a number to be unpicked —
+           * and no child offset is consulted, so a pinned sticky bar (whose
+           * used position Blink folds into `offsetTop`) cannot skew it. */
+          const range = el[A.size] - el[A.client];
+          want = Math.max(0, Math.round(appliedSlack + restRef.current - range));
+        }
+      }
+    }
+
+    if (want !== slackRef.current) {
+      slackRef.current = want;
+      setSlack(want);
+    }
+
     // Bail on an unchanged reading: arming changes the rail's own padding,
     // which trips the observer again, and a fresh object every time would
     // re-render on each lap of that loop for nothing.
@@ -1254,52 +1602,33 @@ export function ScrollRail({
         ? prev
         : { overflowing, atStart, atEnd },
     );
-  }, []);
+  }, [A, vertical, voidEnd]);
 
   useEffect(() => {
     const el = railRef.current;
     if (!el) return;
     measure();
-    // The rail is clamped by its container, so its own box stops growing the
-    // moment the content overflows. Watching the children too is what
-    // catches a relabelled chip or a late-loading font.
-    /* One more reading after the first paint has actually landed. The
-     * observers below catch every LATER change, but the very first measure
-     * runs against a layout that is still settling — web fonts, a sidebar
-     * finishing its transition — and a rail that armed on that reading can
-     * sit armed with nothing left to fire an observer, fading a trailing
-     * badge that fits perfectly well. Cheap, once, and self-cancelling. */
+    /* One more reading after the first paint has landed. The observers catch
+     * every LATER change, but the first measure runs against a layout that
+     * is still settling — web fonts, a sidebar finishing its transition —
+     * and a rail that armed on that reading can sit armed with nothing left
+     * to fire an observer. Cheap, once, self-cancelling. */
     const raf = requestAnimationFrame(measure);
     const ro = new ResizeObserver(measure);
     const watch = () => {
       ro.disconnect();
       ro.observe(el);
-      /* The parent, which is the only one of the three that can report a
-       * change in the space AVAILABLE — and without it the rail latches.
-       *
-       * A ResizeObserver reports the box an element lays out into, and the
-       * rail's barely moves: it is an inline-flex sized to its own content
-       * and merely clamped by `max-w-full`, so it reads its container's
-       * width through `clientWidth` while its observed box stays at the
-       * chips' intrinsic width. The children never move either, being
-       * `shrink-0`. So neither observation fires when the container alone
-       * changes, and `window.resize` was left as the only signal.
-       *
-       * Rotating the tablet therefore re-measured, but nothing else did —
-       * and the failure that leaves is not a rail that fails to arm, it is
-       * one that arms on a first reading taken before the layout has
-       * settled (a late font, badge counts arriving with hydration) and
-       * then has nothing left to fire an observer, exactly the latch the
-       * `raf` above is meant to break and cannot always reach. A latched
-       * rail is scrollWidth === clientWidth with `overflow-x: auto` on: a
-       * fade painted over a last tab that fits perfectly well, and zero
-       * scroll range to move it out from under.
-       *
-       * The parent is a block box that fills its container, so its box does
-       * change, and one observation covers every case the window event
-       * misses. Loop-safe: arming puts padding on the wrapper, which fires
-       * this observer once more, and that pass re-reads the rail, gets the
-       * same answer, and is dropped by the bail-out in `measure`. */
+      /* The parent is the only one of the three that can report a change in
+       * the space AVAILABLE, and without it the rail latches. A
+       * ResizeObserver reports the box an element lays out into, and an
+       * inline-flex rail's barely moves: it is sized to its own content and
+       * merely clamped by `max-w-full`, so it reads its container's width
+       * through `clientWidth` while its observed box stays at the chips'
+       * intrinsic width. The children never move either, being `shrink-0`.
+       * The parent is a block that fills its container, so its box does
+       * change. Loop-safe: arming pads the wrapper, which fires this once
+       * more, and that pass re-reads, gets the same answer, and is dropped
+       * by the bail-out in `measure`. */
       if (el.parentElement) ro.observe(el.parentElement);
       for (const child of el.children) ro.observe(child);
     };
@@ -1308,7 +1637,10 @@ export function ScrollRail({
       watch();
       measure();
     });
-    mo.observe(el, { childList: true });
+    // `subtree` on the vertical case: a page scroller's length is decided by
+    // rows several levels down, and childList on the container alone never
+    // sees a tab swap its list out.
+    mo.observe(el, { childList: true, subtree: vertical });
     window.addEventListener("resize", measure);
     return () => {
       cancelAnimationFrame(raf);
@@ -1316,45 +1648,45 @@ export function ScrollRail({
       mo.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [measure]);
+  }, [measure, vertical]);
 
-  const armed = edges.overflowing;
-  const fadeLeft = fade && armed && !edges.atStart;
-  const fadeRight = fade && armed && !edges.atEnd;
+  const armed = arm === true || (arm === "auto" && edges.overflowing);
+  const fadeStart = fade && armed && !edges.atStart;
+  const fadeEnd = fade && armed && !edges.atEnd;
 
-  /* Vertical only — the horizontal half of this reservation could never
-   * work, and that asymmetry is why the trailing badge kept getting sliced.
-   *
-   * Padding plus a cancelling negative margin grows a box without costing
-   * layout, and for HEIGHT that holds: a block grows upward when asked.
-   * Width does not behave the same way. The wrapper below is a block with
-   * auto width, and auto width IS its container's content box — `max-width`
-   * can only constrain that, never expand it. So the wrapper never took the
-   * extra px, its mask went on clipping at the original edge, and the last
-   * chip's badge (6px outside its chip, plus a 2px ring) was cut in half at
-   * the end of the scroll. Raising `clipRoom` did nothing, because the box
-   * it widened was not the box doing the clipping.
-   *
-   * The horizontal room is a real spacer child instead. Content sits inside
-   * `scrollWidth` and inside every clipping box on the way up, so the
-   * overhanging badge simply lands on top of it. */
-  const room = armed ? { paddingTop: clipRoom, marginTop: -clipRoom } : null;
+  /* Across the grain only — the along-the-grain half of this reservation
+   * could never work, and that asymmetry is why the trailing badge kept
+   * getting sliced. Padding plus a cancelling negative margin grows a box
+   * without costing layout, and for HEIGHT that holds: a block grows upward
+   * when asked. Width does not. A block's auto width IS its container's
+   * content box, and `max-width` can only constrain that, never expand it —
+   * so the wrapper never took the extra px, its mask went on clipping at the
+   * original edge, and raising `clipRoom` did nothing because the box it
+   * widened was not the box doing the clipping. The along-the-grain room is
+   * a real spacer child instead: content sits inside `scrollWidth` and
+   * inside every clipping box on the way up, so the overhanging badge simply
+   * lands on top of it. */
+  const crossRoom =
+    armed && room ? { paddingTop: room, marginTop: -room } : null;
 
   const center = (e) => {
     const el = railRef.current;
-    if (!el || el.scrollWidth <= el.clientWidth + 1) return;
+    if (!el || el[A.size] <= el[A.client] + 1) return;
     // Whatever was tapped, scroll the direct child holding it.
     let item = e.target;
     while (item && item.parentElement !== el) item = item.parentElement;
     if (!item) return;
     const railBox = el.getBoundingClientRect();
     const itemBox = item.getBoundingClientRect();
-    const left = itemBox.left - railBox.left - el.clientLeft + el.scrollLeft;
+    const start = vertical
+      ? itemBox.top - railBox.top - el.clientTop + el.scrollTop
+      : itemBox.left - railBox.left - el.clientLeft + el.scrollLeft;
+    const size = vertical ? itemBox.height : itemBox.width;
     // scrollTo, not scrollIntoView: the latter walks every scrollable
     // ancestor and takes the page with it. Out-of-range targets clamp, so an
     // item near either end that can't reach the middle still lands in frame.
     el.scrollTo({
-      left: left + itemBox.width / 2 - el.clientWidth / 2,
+      [vertical ? "top" : "left"]: start + size / 2 - el[A.client] / 2,
       behavior: "smooth",
     });
   };
@@ -1372,21 +1704,35 @@ export function ScrollRail({
         onClick?.(e);
       }}
       className={cx(
-        // max-w-full is not optional: without it the rail grows past its
-        // container instead of being clamped by it, and nothing ever reads
-        // as overflowing in the first place.
-        "inline-flex max-w-full",
-        armed && "overflow-x-auto no-scrollbar",
+        // Not optional: without the clamp the rail grows past its container
+        // instead of being clamped by it, and nothing ever reads as
+        // overflowing in the first place. `relative` is what makes the
+        // offsetParent walk in `measure` terminate here.
+        "relative",
+        vertical ? "max-h-full" : "inline-flex max-w-full",
+        armed && A.overflow,
+        armed && "no-scrollbar",
         className,
       )}
-      style={{ ...room, ...style }}
+      style={{ ...crossRoom, ...style }}
     >
       {children}
-      {armed && clipRoom > 0 && (
+      {armed && room > 0 && (
         <span
           data-rail-spacer=""
           aria-hidden="true"
-          style={{ flex: `0 0 ${clipRoom}px` }}
+          style={{ flex: `0 0 ${room}px` }}
+        />
+      )}
+      {slack > 0 && (
+        <span
+          data-scroll-void=""
+          aria-hidden="true"
+          style={
+            vertical
+              ? { display: "block", height: slack }
+              : { flex: `0 0 ${slack}px` }
+          }
         />
       )}
     </Tag>
@@ -1394,29 +1740,28 @@ export function ScrollRail({
 
   if (!fade) return rail;
 
-  /* The right band ends at the edge now, not short of it. It used to stop
+  /* The end band stops at the edge now, not short of it. It used to stop
    * `clipRoom` px early because those px were trailing PADDING — an empty
    * strip with nothing in it to fade. The reserved room is a spacer at the
-   * end of the content instead, and it is only ever on screen when the rail
-   * is scrolled fully right, where there is no right fade to draw at all. */
+   * end of the content instead, and it is only on screen when the rail is
+   * scrolled fully to the end, where there is no end fade to draw at all. */
   const maskStops = [
-    fadeLeft ? "transparent" : "black",
-    fadeLeft ? `black ${band}px` : "black 0px",
-    fadeRight ? `black calc(100% - ${band}px)` : "black 100%",
-    fadeRight ? "transparent" : "black",
+    fadeStart ? "transparent" : "black",
+    fadeStart ? `black ${band}px` : "black 0px",
+    fadeEnd ? `black calc(100% - ${band}px)` : "black 100%",
+    fadeEnd ? "transparent" : "black",
   ].join(", ");
-  const mask = `linear-gradient(to right, ${maskStops})`;
+  const mask = `linear-gradient(${A.toward}, ${maskStops})`;
 
-  // A mask forces its element to clip to its own border box — masking paints
-  // into an isolated layer sized to that box — so the wrapper would clip the
-  // very badges the rail's reserved room just freed. Same reservation, same
-  // cancelling margin, one level up, and the mask has room to spare.
+  // A mask forces its element to clip to its own border box, so the wrapper
+  // would clip the very badges the rail's reserved room just freed. Same
+  // reservation, same cancelling margin, one level up.
   return (
     <div
-      className="relative min-w-0"
+      className={cx("relative min-w-0", vertical && "h-full")}
       style={{
-        ...room,
-        ...(fadeLeft || fadeRight
+        ...crossRoom,
+        ...(fadeStart || fadeEnd
           ? { WebkitMaskImage: mask, maskImage: mask }
           : null),
       }}
@@ -1453,9 +1798,15 @@ export function TabDot({ count, variant = "corner" }) {
         // of sliding. A plain top/right pair, matched in kind with
         // "corner"'s, is what lets `transition-[top,right]` actually
         // animate the move.
+        // "glyph": anchored to a ~19px ICON rather than a row. At that size
+        // the corner offsets below bury half the glyph — the dot is nearly
+        // as big as the thing it is counting. Pushed out so it kisses the
+        // corner instead, roughly a quarter of the dot overlapping.
         variant === "trailing"
           ? "top-[calc((var(--ctl-h)-1rem)/2)] right-2"
-          : "-top-1.5 -right-1.5",
+          : variant === "glyph"
+            ? "-top-2.5 -right-3"
+            : "-top-1.5 -right-1.5",
       )}
     >
       {count > 99 ? "99+" : count}
@@ -1527,7 +1878,8 @@ export function Segmented({
   }
 
   return (
-    <ScrollRail
+    <ScrollArea
+      axis="x"
       role="tablist"
       fade={fade}
       centerOnClick
@@ -1536,7 +1888,7 @@ export function Segmented({
       className={cx("gap-1", className)}
     >
       {chips}
-    </ScrollRail>
+    </ScrollArea>
   );
 }
 

@@ -3,7 +3,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
-import { cx, SlotProvider, SlotTarget, TabDot, Tooltip } from "./ui";
+import { cx, ScrollArea, SlotProvider, SlotTarget, TabDot, Tooltip } from "./ui";
 import { useDoubleTapHotkey } from "../lib/useDoubleTapHotkey";
 import { TabletFrameContext } from "./TabletFrame";
 
@@ -565,7 +565,25 @@ export default function AppShell({
 
         <main className={cx("flex-1", tabs ? "min-h-0 overflow-hidden" : lgOnly("lg:overflow-hidden"))}>
           <div className={tabs ? "h-full" : lgOnly("lg:h-full")}>
-            <div
+            <ScrollArea
+              axis="y"
+              // Tabs mode owns its scroll and always wants to BE the scroll
+              // container, overflowing or not — self-arming is a horizontal
+              // affordance for rails that would otherwise clip a badge.
+              // Rail mode turns overflow on only at `lg:` through the classes
+              // below, so ScrollArea must keep its hands off it entirely.
+              arm={tabs ? true : false}
+              // Enough slack at the bottom that every tab can reach the point
+              // where the toolbar pins. Without it a two-row tab has no scroll
+              // range, so `scrollAppToToolbar` has nowhere to land and the page
+              // header pops back in on exactly the short tabs. Measured against
+              // the toolbar, and it computes to 0 when a screen has none or when
+              // this box is not the thing scrolling.
+              void
+              // No mask here. The fade belongs to StickyFadeHeader, which
+              // already fades what scrolls up behind the toolbar; a second one
+              // on the container would darken the last row of every list.
+              fade={false}
               // Named so a page (see TasksScreen's "back to top" control) can
               // find and scroll *this* element specifically — on mobile the
               // page itself scrolls instead, so callers should still fall
@@ -573,7 +591,7 @@ export default function AppShell({
               data-app-scroll
               className={cx(
                 "mx-auto w-full px-4 pt-5 pb-28 sm:px-6",
-                tabs && "h-full overflow-y-auto thin-scrollbar",
+                tabs && "h-full thin-scrollbar",
                 /* Tabs mode runs edge to edge: a production board wants the
                    width, and with the rail gone there is plenty. Rail mode
                    keeps its reading-width cap and its floating card. */
@@ -611,7 +629,7 @@ export default function AppShell({
                 {pageSubtitle}
               </div>
               {children}
-            </div>
+            </ScrollArea>
           </div>
         </main>
 
@@ -640,13 +658,19 @@ export default function AppShell({
                     on ? "text-ink" : "text-ink-3"
                   )}
                 >
-                  <n.icon size={19} className="shrink-0" />
+                  {/* The dot hangs off the ICON, not off the button.
+                      The button here is a full grid column — on a 1194pt
+                      tablet that is ~300px wide with a 19px glyph centered
+                      in it, so pinning the dot to the button's own corner
+                      parked it in empty space nearer the next tab than to
+                      the icon it was counting. Wrapping the glyph gives the
+                      dot the tight box "corner" assumes it has, which is
+                      what the collapsed rail already gives it. */}
+                  <span className="relative flex shrink-0">
+                    <n.icon size={19} className="shrink-0" />
+                    <TabDot count={n.count} variant="glyph" />
+                  </span>
                   <span className="truncate max-w-full">{n.short}</span>
-                  {/* Compact icon-first cell, same as the collapsed
-                      rail — "corner" (pinned to the cell's own top-right)
-                      reads right where "trailing" would float off toward
-                      the cell's far edge, away from the centered icon. */}
-                  <TabDot count={n.count} variant="corner" />
                 </button>
               );
             })}

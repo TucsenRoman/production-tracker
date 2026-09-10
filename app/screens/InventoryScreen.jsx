@@ -41,12 +41,11 @@ import {
   SectionHeading,
   Segmented,
   SkeletonRows,
+  ScreenToolbar,
   Slot,
-  StatCard,
-  StatGrid,
-  StickyFadeHeader,
   Tooltip,
   cx,
+  scrollAppToToolbar,
 } from "../components/ui";
 import ItemModal from "../components/ItemModal";
 import {
@@ -413,7 +412,6 @@ export default function InventoryScreen({
 
   const hasVelocity = Object.keys(velocity).length > 0;
 
-  const activeFocus = FOCUS.find((f) => f.id === filters.focus) || null;
 
   // Held by name, not by object: the row it came from is replaced on every
   // edit, and a captured copy would keep showing stale counts.
@@ -488,27 +486,42 @@ export default function InventoryScreen({
     setFilters(EMPTY_FILTERS);
   };
 
+  /* The focus tabs. These four WERE a StatGrid of tiles sitting above the
+   * toolbar — the last place on the floor still drawing its tabs as tiles.
+   * BatchesScreen already made this exact conversion (see the note on its
+   * Completed tab) and named the convention: a count you can click is a tab,
+   * because the number and the way to act on it should be one target. Tasks'
+   * tabs ARE its tiles; these are Inventory's.
+   *
+   * What the tiles cost, measured at iPad landscape: the header stack ran to
+   * 286px before the first product row — 43% of the 671px the tab bar leaves,
+   * past the 40% that justified the whole tablet-chrome redesign. As a tab row
+   * inside the toolbar that already exists, the band costs nothing.
+   *
+   * The per-tile `hint` copy goes with them, deliberately: "Low stock" and
+   * "Out of stock" say what they are, and the status line below already reports
+   * what the filter did to the list. `tone` goes too — TabDot is always the
+   * brand colour on purpose, so a count reads as a count and not a severity.
+   * Severity still shows where it discriminates: on the row. */
+  const focusOptions = [
+    /* No badge, same as Batches' "All stations" and Tasks' Completed: the
+     * overview is not a queue with a number demanding attention. */
+    { value: "all", label: "All products", icon: Package },
+    ...FOCUS.map((f) => ({
+      value: f.id,
+      label: f.label,
+      icon: f.icon,
+      count: counts[f.id],
+    })),
+  ];
+
+  const changeFocus = (v) => {
+    set({ focus: v === "all" ? null : v });
+    scrollAppToToolbar();
+  };
+
   return (
     <div>
-      <StatGrid>
-        {FOCUS.map((f) => (
-          <StatCard
-            key={f.id}
-            icon={f.icon}
-            label={f.label}
-            value={counts[f.id]}
-            tone={counts[f.id] ? f.tone : "neutral"}
-            hint={
-              f.id === "putOut" && counts.low
-                ? `${counts.putOut} of the ${counts.low} low`
-                : f.hint
-            }
-            active={filters.focus === f.id}
-            onClick={() => set({ focus: filters.focus === f.id ? null : f.id })}
-          />
-        ))}
-      </StatGrid>
-
       {/* Search sits beside the title; it is the one control that belongs
           up there because it acts on the whole page, not just the list. */}
       <Slot name="page-actions">
@@ -541,101 +554,112 @@ export default function InventoryScreen({
        *  and fades its own trailing edge, so a half-scrolled row doesn't cut
        *  off on a hard line. StickyFadeHeader's defaults already match this
        *  spot in the layout, so there is nothing to override here. */}
-      <StickyFadeHeader>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Dropdown
-                value={filters.type}
-                on={filters.type !== "all"}
-                onChange={(v) => set({ type: v })}
-                aria-label="Family"
-                pinned={
-                  <Tooltip label={`Sorted ${FAMILY_SORTS[familySort].label.toLowerCase()} — tap to cycle`}>
-                    <button
-                      type="button"
-                      aria-label={`Sort families: ${FAMILY_SORTS[familySort].label}`}
-                      onClick={() => setFamilySort((i) => (i + 1) % FAMILY_SORTS.length)}
-                      className="w-full flex items-center justify-center h-[var(--row-h)] rounded-md text-ink-3 hover:text-ink-2 hover:bg-faint transition-colors duration-100"
-                    >
-                      {React.createElement(FAMILY_SORTS[familySort].icon, { size: 16 })}
-                    </button>
-                  </Tooltip>
-                }
-                options={[
-                  { value: "all", label: "All families" },
-                  ...families
-                    .slice()
-                    .sort(FAMILY_SORTS[familySort].compare)
-                    .map((f) => ({
-                      value: f.type,
-                      label: f.need ? `${f.type} (${f.need})` : f.type,
-                    })),
-                ]}
-              />
-
-              <Dropdown
-                value={filters.state}
-                on={filters.state !== "all"}
-                onChange={(v) => set({ state: v })}
-                aria-label="Stock location"
-                options={[
-                  { value: "all", label: "All locations" },
-                  ...STOCK_STATES.map((st) => ({ value: st.id, label: st.short })),
-                ]}
-              />
-
-              {/* The hover explains WHEN this turns on, not what it computes —
-                  that's the thing a greyed-out control actually leaves you
-                  wondering. */}
-              <Tooltip
-                label={
-                  hasVelocity
-                    ? `Shows items with less than ${COVER_WARN_DAYS} days of cover — updates nightly from Clover sales`
-                    : "Turns on once Clover has about 4 weeks of sales history"
-                }
-              >
-                <Dropdown
-                  icon={Timer}
-                  value={filters.tightCover ? "tight" : "any"}
-                  on={filters.tightCover}
-                  disabled={!hasVelocity}
-                  onChange={(v) => set({ tightCover: v === "tight" })}
-                  aria-label="Cover"
-                  options={[
-                    { value: "any", label: "Any cover" },
-                    { value: "tight", label: `Under ${COVER_WARN_DAYS}d cover` },
-                  ]}
-                />
-              </Tooltip>
-            </div>
-
-            <span className="text-xs text-ink-3 truncate">
-              {visible.length === inventory.length
-                ? `${inventory.length} products`
-                : `${visible.length} of ${inventory.length} products`}
-              {activeFocus && <> · {activeFocus.label.toLowerCase()}</>}
-              {(activeCount > 0 || query) && (
-                <>
-                  {" · "}
+      <ScreenToolbar
+        tabs={
+          /* `fade` not `scroll` for the reason both other screens use it —
+           *  scroll mode arms itself when the row actually overflows. */
+          <Segmented
+            fade
+            value={filters.focus ?? "all"}
+            onChange={changeFocus}
+            className="min-w-0"
+            options={focusOptions}
+          />
+        }
+        actions={
+          <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
+            Add product
+          </Button>
+        }
+        refine={
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Dropdown
+              value={filters.type}
+              on={filters.type !== "all"}
+              onChange={(v) => set({ type: v })}
+              aria-label="Family"
+              pinned={
+                <Tooltip label={`Sorted ${FAMILY_SORTS[familySort].label.toLowerCase()} — tap to cycle`}>
                   <button
-                    type="button" onClick={clearAll}
-                    className="font-medium text-ink-2 hover:text-ink hover:underline"
+                    type="button"
+                    aria-label={`Sort families: ${FAMILY_SORTS[familySort].label}`}
+                    onClick={() => setFamilySort((i) => (i + 1) % FAMILY_SORTS.length)}
+                    className="w-full flex items-center justify-center h-[var(--row-h)] rounded-md text-ink-3 hover:text-ink-2 hover:bg-faint transition-colors duration-100"
                   >
-                    Clear all
+                    {React.createElement(FAMILY_SORTS[familySort].icon, { size: 16 })}
                   </button>
-                </>
-              )}
-            </span>
-          </div>
+                </Tooltip>
+              }
+              options={[
+                { value: "all", label: "All families" },
+                ...families
+                  .slice()
+                  .sort(FAMILY_SORTS[familySort].compare)
+                  .map((f) => ({
+                    value: f.type,
+                    label: f.need ? `${f.type} (${f.need})` : f.type,
+                  })),
+              ]}
+            />
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
-              Add product
-            </Button>
+            <Dropdown
+              value={filters.state}
+              on={filters.state !== "all"}
+              onChange={(v) => set({ state: v })}
+              aria-label="Stock location"
+              options={[
+                { value: "all", label: "All locations" },
+                ...STOCK_STATES.map((st) => ({ value: st.id, label: st.short })),
+              ]}
+            />
+
+            {/* The hover explains WHEN this turns on, not what it computes —
+                that's the thing a greyed-out control actually leaves you
+                wondering. */}
+            <Tooltip
+              label={
+                hasVelocity
+                  ? `Shows items with less than ${COVER_WARN_DAYS} days of cover — updates nightly from Clover sales`
+                  : "Turns on once Clover has about 4 weeks of sales history"
+              }
+            >
+              <Dropdown
+                icon={Timer}
+                value={filters.tightCover ? "tight" : "any"}
+                on={filters.tightCover}
+                disabled={!hasVelocity}
+                onChange={(v) => set({ tightCover: v === "tight" })}
+                aria-label="Cover"
+                options={[
+                  { value: "any", label: "Any cover" },
+                  { value: "tight", label: `Under ${COVER_WARN_DAYS}d cover` },
+                ]}
+              />
+            </Tooltip>
           </div>
-        </div>
-      </StickyFadeHeader>
+        }
+        status={
+          /* The active focus used to be named again here. The tab above is
+           *  lit and carries the same word — this was the one fact said
+           *  twice on one toolbar. */
+          <span className="text-xs text-ink-3 truncate">
+            {visible.length === inventory.length
+              ? `${inventory.length} products`
+              : `${visible.length} of ${inventory.length} products`}
+            {(activeCount > 0 || query) && (
+              <>
+                {" · "}
+                <button
+                  type="button" onClick={clearAll}
+                  className="font-medium text-ink-2 hover:text-ink hover:underline"
+                >
+                  Clear all
+                </button>
+              </>
+            )}
+          </span>
+        }
+      />
 
       <div className="space-y-5">
         {status === "loading" ? (

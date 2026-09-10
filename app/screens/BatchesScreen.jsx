@@ -28,11 +28,12 @@ import {
   IconButton,
   Input,
   Modal,
+  ScreenToolbar,
   Segmented,
   Slot,
-  StickyFadeHeader,
   Tooltip,
   cx,
+  scrollAppToToolbar,
 } from "../components/ui";
 import { formatDay, weighsInAt, yieldPct, yieldTone } from "../lib/domain";
 import { useStations } from "../lib/stations";
@@ -346,7 +347,7 @@ function QuickAddToStation({ station, products, onAdd }) {
         *
         * Everything downstream of that followed: the content column scrolled
         * sideways, the toolbar's `max-w-full` resolved against the inflated
-        * width so ScrollRail never saw an overflow to arm against, its chips
+        * width so ScrollArea never saw an overflow to arm against, its chips
         * spilled and StickyFadeHeader's mask clipped them — and a batch card
         * disappearing when it advanced looked like "nothing happened",
         * because the column it left was off-screen.
@@ -645,6 +646,14 @@ export default function BatchesScreen({
    * matters. See app/lib/approval.jsx. */
   const { stations, stages, iconFor, finalStage } = useStations();
   const [view, setView] = useState("all");
+
+  // Station tabs are a filter over one persistent scroll container, so a
+  // shorter station would otherwise leave scrollTop clamped at an arbitrary
+  // offset. Land at the top of the station you picked. See scrollAppToTop.
+  const changeView = (v) => {
+    setView(v);
+    scrollAppToToolbar();
+  };
   const [moving, setMoving] = useState(null);
 
   const stats = useMemo(() => {
@@ -794,29 +803,23 @@ export default function BatchesScreen({
         {stats.avgYield != null && <YieldTicker stats={stats} />}
       </Slot>
 
-      {/* Tasks' sticky sub-toolbar, applied here: StickyFadeHeader owns the
-        *  sticky positioning and the mask-fade on its own trailing edge, and
-        *  its defaults already match this spot in the layout, so there is
-        *  nothing to override. `fade` rather than `scroll` for the same
-        *  reason Tasks uses it — scroll mode arms itself when the row
-        *  actually overflows, and forcing it on leaves the rail a few px
-        *  scrollable (its reserved badge room) even with space to spare. */}
-      <StickyFadeHeader padTop={24}>
-        {/* No `flex justify-between` wrapper. Tasks has one because it has a
-          * SECOND child (New task) to push to the far end; here the rail was
-          * the only child, and wrapping it boxed the rail to its own content
-          * width — 463px inside an 1100px column. That left it permanently
-          * 6px too narrow for its own chips, which is a width that can never
-          * arm ScrollRail's scroller: arming reserves 14px of badge room and
-          * subtracts it again on the next measure, so a 6px overflow reads as
-          * "fits". Unarmed means `overflow-x: visible`, so the chips spilled
-          * out of the box and StickyFadeHeader's mask clipped the spill —
-          * "All stations" cut off, unreachable, and unclickable.
-          *
-          * Given the full row the rail simply fits at tablet widths, and when
-          * it genuinely does not it overflows by enough to arm properly. */}
-        <Segmented fade scroll options={options} value={view} onChange={setView} />
-      </StickyFadeHeader>
+      {/* The shared toolbar. This screen passes `tabs` and nothing else, so
+        * the rail gets the FULL row — which it must. Boxing it to its own
+        * content width put 463px of chips in an 1100px column, leaving it
+        * permanently 6px too narrow for itself: a width that can never arm
+        * ScrollArea's scroller, since arming reserves 14px of badge room and
+        * subtracts it again on the next measure, so a 6px overflow reads as
+        * "fits". Unarmed means `overflow-x: visible`, so the chips spilled
+        * out and the mask clipped the spill — "All stations" cut off,
+        * unreachable, unclickable. ScreenToolbar's `flex-1 min-w-0` on the
+        * tabs slot is what keeps that from coming back.
+        *
+        * `fade` rather than `scroll` for the reason Tasks uses it — scroll
+        * mode arms itself when the row actually overflows, and forcing it on
+        * leaves the rail a few px scrollable even with space to spare. */}
+      <ScreenToolbar
+        tabs={<Segmented fade scroll options={options} value={view} onChange={changeView} />}
+      />
 
       <div className="space-y-5">
       {view === "all" ? (
