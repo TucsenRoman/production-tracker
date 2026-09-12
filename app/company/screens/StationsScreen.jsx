@@ -18,15 +18,9 @@ import { productType } from "../../lib/domain";
 import { isValidStationName } from "../lib/companyDomain";
 import { STATION_ICON_GROUPS, useStations } from "../../lib/stations";
 
-/* The fields, shared by the dialog that adds a station and the one that edits
- * an existing one — same form, two entry points.
- *
- * A station is a PLACE. It has a name, a glyph and a position in the line,
- * and that is the whole of it. How long a batch should spend here is a fact
- * about the batch — bacon and bratwurst can share this smokehouse and want
- * wildly different times — so it belongs to the product, not to the post, and
- * an earlier version of this screen that asked an admin to type one number
- * per station was asking a question with no correct answer. */
+/* Shared by the add and edit dialogs. A station is a PLACE: name, glyph,
+ * position in the line. How long a batch spends here is a fact about the
+ * product, not the post, so no time field lives here. */
 function StationFields({ name, setName, icon, setIcon, duplicate, onEnter }) {
   return (
     <>
@@ -40,16 +34,9 @@ function StationFields({ name, setName, icon, setIcon, duplicate, onEnter }) {
         />
       </Field>
 
-      {/* Cosmetic beyond the default guesses in app/lib/stations.jsx
-       *  (Smokehouse gets a flame, Packaging a box, everything else a plain
-       *  factory) — but "cosmetic" is still the difference between a glance at
-       *  the board telling you what is backed up and a wall of identical
-       *  icons.
-       *
-       *  Thirty-two icons stay a glance rather than a search because they read
-       *  as eight short rows with a named gutter, not one wall. The label sits
-       *  in a left column so each group is a single line; stacked labels made
-       *  this field taller than the rest of the form put together. */}
+      {/* Overrides the default guesses in app/lib/stations.jsx. Group labels
+       *  sit in a left column so each group is one line; stacked labels made
+       *  this field taller than the rest of the form. */}
       <Field label="Icon" hint="Shown here and on the floor's Production board.">
         <div className="space-y-1.5">
           {STATION_ICON_GROUPS.map((group) => (
@@ -87,10 +74,7 @@ function StationFields({ name, setName, icon, setIcon, duplicate, onEnter }) {
   );
 }
 
-/**
- * Adding and renaming both happen in a dialog rather than inline, because the
- * icon picker does not fit in a row.
- */
+/** Add/rename in a dialog rather than inline: the icon picker doesn't fit a row. */
 function StationDialog({ initial, initialConfig, existingNames, onCancel, onSave }) {
   const [name, setName] = useState(initial || "");
   const [icon, setIcon] = useState(initialConfig?.icon || "");
@@ -134,11 +118,7 @@ function StationDialog({ initial, initialConfig, existingNames, onCancel, onSave
   );
 }
 
-/**
- * The station pool: which posts exist, what each is called, and what order a
- * batch moves through them. Nothing about how long anything takes — that is
- * the product's business, and it belongs wherever products get set up.
- */
+/** The station pool: which posts exist, their names, and the order a batch moves through them. */
 export default function StationsScreen({
   stations,
   batches,
@@ -154,45 +134,29 @@ export default function StationsScreen({
   const { iconFor } = useStations();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
-  /* Which row is being dragged, and which gap it is currently over. `overGap`
-   * is an insertion point (0..length), not a row index — that is what makes
-   * "dropped below the last row" expressible. */
+  /* `overGap` is an insertion point (0..length), not a row index, so
+   * "dropped below the last row" is expressible. */
   const [dragFrom, setDragFrom] = useState(null);
   const [overGap, setOverGap] = useState(null);
 
-  /* A batch is only standing somewhere until it is finalised. `destination`
-   * is set exactly once, when a batch goes Shelf-Ready (see BoardScreen), so
-   * a non-null one means the batch has left the line — and without this
-   * filter a finished batch keeps occupying whatever station its old stage
-   * index now points at, which is any station added after it closed. */
+  /* `destination` is set once, when a batch goes Shelf-Ready, so non-null
+   * means it has left the line and no longer occupies a station. */
   const onFloor = (batches || []).filter((b) => !b.destination);
 
-  /* What is standing at this post right this minute. A batch's `stage` is the
-   * station's NAME, so this is a plain match — and it stays correct when the
-   * admin reorders the list, which the old index-based stage did not.
-   *
-   * This is the only thing on the screen that moves during a shift, which is
-   * what makes the pool worth opening twice instead of once — and it shows a
-   * backup without needing a target to compare it against. The console
-   * already keeps `batches` for the Production board; it simply was not
-   * handed to this screen before. */
+  /* What is standing at this post now. A batch's `stage` is the station's
+   * NAME, so this stays correct when the admin reorders the list. */
   const hereNow = (name) => {
     const at = onFloor.filter((b) => b.stage === name);
     return {
       count: at.length,
-      // What the crew would actually lift: the weighed-in figure when there
-      // is one, the estimate before that.
+      // The weighed-in figure when there is one, the estimate before that.
       lb: at.reduce((sum, b) => sum + (b.boxWeight ?? b.estWeight ?? 0), 0),
     };
   };
 
-  /* Which products actually run through a post, by family rather than by SKU
-   * — "Bacon, Sausage, Sticks" fits in a cell and stays true as the case
-   * changes, where six full product names would not.
-   *
-   * Read-only and derived on purpose: nobody maintains this list. It is the
-   * union of what closed batches recorded minutes for here and what is
-   * standing here now, so a station earns its products by running them. */
+  /* Products that run through a post, by family so it fits a cell. Derived,
+   * not maintained: the union of closed batches that recorded minutes here
+   * and what is standing here now. */
   const productsAt = (name) => {
     const closed = Object.values(production || {})
       .flat()
@@ -212,12 +176,8 @@ export default function StationsScreen({
 
   return (
     <div>
-      {/* No toolbar. Every fact a meta line could put here — how many
-       *  stations, which is first, which is last, which takes the final
-       *  weight — is already legible in the rows below it, and a count is the
-       *  least useful of them: the stops are numbered 1..n down the rail. So
-       *  the only thing left is the action, and the shell already has a place
-       *  for a page's own action, next to its title. */}
+      {/* No toolbar: everything a meta line could say is legible in the rows,
+       *  so only the action remains, in the shell's own slot for it. */}
       <Slot name="page-actions">
         <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
           Add station
@@ -265,18 +225,11 @@ export default function StationsScreen({
             />
           </div>
         ) : (
-          /* The sequence rail — the wire and its numbered stops — lives in two
-           * columns to the LEFT of every rule in the table. The header
-           * underline and each row divider start at Station, so the numbers
-           * read as an annotation running alongside the list rather than a
-           * column inside it, which is the difference between "1, 2, 3, 4"
-           * being a datum about each row and being the shape of the list.
-           *
-           * That is also why the borders are on the CELLS and not the row: a
-           * border on <tr> would span the rail too, and there is no way to
-           * exempt part of it. Cell borders additionally solve the stacking
-           * the row borders caused — every gap between two rows is one line
-           * (the upper row's bottom border), never two competing ones. */
+          /* The sequence rail (wire + numbered stops) sits LEFT of every rule
+           * so it reads as an annotation alongside the list, not a column in
+           * it. That is why borders are on the CELLS, not the row: a <tr>
+           * border would span the rail too. Cell borders also mean each gap
+           * is one line (the upper row's bottom border), never two. */
           <div className="overflow-x-auto -mx-1 px-1">
             <table className="w-full border-collapse min-w-[520px]">
               <colgroup>
@@ -300,8 +253,7 @@ export default function StationsScreen({
                   <th className="text-left text-xs font-normal text-ink-2 pb-2.5 pt-3 border-b border-line">
                     Products
                   </th>
-                  {/* "Here now", not "on the floor now" — the floor is the
-                   *  whole building, and the number is about this one post. */}
+                  {/* "Here now": the number is about this one post, not the whole floor. */}
                   <th className="text-right text-xs font-normal text-ink-2 pb-2.5 pt-3 border-b border-line">
                     Here now
                   </th>
@@ -317,10 +269,9 @@ export default function StationsScreen({
                   const here = hereNow(name);
                   const products = productsAt(name);
 
-                  /* One divider per gap, drawn by the row above it. The drop
-                   * indicator recolours that divider and thickens it with a
-                   * 1px shadow rather than adding a second border, so nothing
-                   * shifts by a pixel when a drag starts. (box-shadow is
+                  /* The drop indicator recolours the existing divider and
+                   * thickens it with a 1px shadow rather than adding a border,
+                   * so nothing shifts when a drag starts. (box-shadow is
                    * ignored on <tr> under border-collapse; on <td> it paints.) */
                   const rule =
                     overGap === index + 1
@@ -355,15 +306,11 @@ export default function StationsScreen({
                       onDragEnd={drop}
                       className={cx("group transition-colors", dragging && "opacity-40")}
                     >
-                      {/* The grab handle, in its own lane outside the wire. It
-                       *  sits BESIDE the stop rather than replacing the number
-                       *  in it, so you can still read which position you are
-                       *  moving while you move it. */}
+                      {/* Grab handle BESIDE the stop, not replacing its number,
+                       *  so you can still read which position you're moving. */}
                       <td className="h-13 align-middle">
                         {reorderable ? (
-                          /* A real control, not a decoration: it drags with a
-                           * pointer and moves with the arrow keys, so the
-                           * sequence is reorderable without one. */
+                          /* Drags with a pointer and moves with arrow keys. */
                           <button
                             type="button"
                             aria-label={`Reorder ${name}. Use arrow keys to move.`}
@@ -389,8 +336,7 @@ export default function StationsScreen({
                         ) : null}
                       </td>
 
-                      {/* The stop, on a wire that runs the height of the list
-                       *  and stops at the first and last stop's centre. */}
+                      {/* The stop, on a wire that ends at the first and last stop's centre. */}
                       <td className="relative h-13 align-middle">
                         <span
                           aria-hidden
@@ -425,9 +371,7 @@ export default function StationsScreen({
                         </div>
                       </td>
 
-                      {/* "Nothing yet" rather than a dash: an empty list here
-                       *  means the post has never run anything, which is the
-                       *  one fact about a pool you cannot get from the names. */}
+                      {/* "Nothing yet" rather than a dash: the post has never run anything. */}
                       <td className={cx(cell, "pr-3 text-sm")}>
                         {products.length ? (
                           <span className="text-ink-1 truncate block" title={products.join(", ")}>
@@ -438,10 +382,8 @@ export default function StationsScreen({
                         )}
                       </td>
 
-                      {/* Weight first, count last: the count is the number you
-                       *  scan down the column, so it sits closest to the edge
-                       *  the eye returns to. "Clear" beats a 0 — an empty post
-                       *  is a state, not a shortfall. */}
+                      {/* Count last, nearest the edge the eye scans down.
+                       *  "Clear" beats a 0 — an empty post is a state, not a shortfall. */}
                       <td className={cx(cell, "text-right text-sm tnum")}>
                         {here.count ? (
                           <span className="inline-flex items-baseline gap-2">

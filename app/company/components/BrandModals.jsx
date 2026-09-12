@@ -7,13 +7,9 @@ import FeedbackModal from "./FeedbackModal";
 import PricingModal from "./PricingModal";
 
 /**
- * Renders whichever of the three brand-dropdown modals is currently open
- * (see useBrandModals.js). Each modal is mounted only while its own flag
- * is true, so its local form state always starts fresh on open — no
- * reset-on-reopen effect needed in any of them.
- *
- * `company`/`canManage`/`onUpdateCompany` feed Settings; `onChangePlan`
- * feeds Plan; Feedback needs neither.
+ * Renders whichever brand-dropdown modal is open (see useBrandModals.js).
+ * Each modal mounts only while its flag is true, so its form state starts
+ * fresh on every open without a reset effect.
  */
 export default function BrandModals({ open, onClose, company, canManage, onUpdateCompany, onChangePlan }) {
   return (

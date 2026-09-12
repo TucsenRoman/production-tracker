@@ -1,23 +1,14 @@
 "use client";
 
 /**
- * The live station list, as a context — same reason PINs stopped being a
- * bare import (see ./staff.jsx's doc comment): the Stations screen in the
- * admin console makes `stations` editable, so every screen that used to
- * read the `STAGES`/`STAGE_ICON` constants from ./domain.js has to read the
- * *current* list instead of a module-level copy of exactly
- * ["Smokehouse", "Packaging"]. Those two constants are now deleted; only
- * `STATIONS` survives there, as the seed this provider falls back to.
+ * The live station list, as a context. The console's Stations screen makes
+ * `stations` editable, so screens read the current list here rather than a
+ * module-level copy; `STATIONS` in ./domain.js is only the seed.
  *
- * Smokehouse keeps its one piece of special-cased business logic (it's the
- * only stage a batch can skip, via `needsSmoke`) — that's a real fact about
- * smoking meat, not an artifact of the old hardcoded pair. Everything else
- * about the list — how many stations, what they're called, what order they
- * run in, which one is last before Shelf-Ready — now comes from `stations`.
- *
- * A station added here with no known icon gets the same generic `Factory`
- * glyph the Stations screen itself uses for every row, rather than being
- * silently invisible or crashing on an undefined icon component.
+ * Smokehouse keeps one piece of special-cased logic: it is the only stage a
+ * batch can skip (`needsSmoke`), a fact about smoking meat. Everything else
+ * about the list comes from `stations`. A station with no known icon gets the
+ * generic `Factory` glyph.
  */
 
 import React, { createContext, useContext, useMemo } from "react";
@@ -66,42 +57,26 @@ const KNOWN_ICON = {
 };
 
 /**
- * The pool a station's `config.icon` is picked from.
+ * The pool a station's `config.icon` is picked from, grouped by what a post
+ * does so the picker is a glance, not a search.
  *
- * Grouped by what a post on the floor actually DOES — prep, heat, cold,
- * pack, move, check, clean — rather than offered as one undifferentiated
- * wall. That is what lets the pool be thirty-two without turning the picker
- * from a glance into a search: you scan eight short labels, then three to
- * five icons, instead of thirty-two icons at once.
+ * Two rules decide what is in here:
  *
- * Two filters decide what is in here, and the second one is the one that is
- * easy to forget:
+ * 1. It must still read at 15px, the only size a station icon is drawn at.
+ *    Strokes that merge at that size (a fan, a spray can's dots) are out, and
+ *    so is anything that resolves into a different shape (`vault` is an X in
+ *    a box, which reads as an error).
  *
- * 1. It has to still read at 15px. That is the only size a station icon is
- *    ever drawn at — in the table here, and in the glyph on the floor's
- *    Production board. Anything whose strokes merge at that size (a fan, a
- *    stack of boxes, a spray can's dots) is out no matter how apt it is,
- *    and so is anything that resolves into a DIFFERENT shape: `vault` is an
- *    X in a box, which on a status board reads as an error.
+ * 2. The glyph must not already carry another meaning in ProTrack:
+ *    `Beef`/`Ham`/`Layers`/`CookingPot` are Inventory categories, `Scale` is
+ *    weigh-in, `ShieldCheck` is Permissions, `ClipboardList` is Tasks,
+ *    `PackageCheck` is the "made" state, `Route` is Connections, and
+ *    `Tag`/`Wrench`/`Truck`/`Thermometer` are task categories in
+ *    TASK_CATEGORY_ICONS. Six glyphs are deliberately shared because they
+ *    mean the same thing in both places: Flame, Snowflake, Package, Truck,
+ *    Thermometer, Factory.
  *
- * 2. The glyph must not already carry another meaning somewhere in ProTrack.
- *    An icon is only worth anything if it means one thing, and this app
- *    already spends a lot of them: `Beef`/`Ham`/`Layers`/`CookingPot` are
- *    Inventory's product categories, `Scale` is weigh-in and Avg yield on
- *    the floor board, `ShieldCheck` is Permissions, `ClipboardList` is
- *    Tasks, `PackageCheck` is the "made" inventory state, `Route` is
- *    Connections on Locations, and `Tag`/`Wrench`/`Truck`/`Thermometer`
- *    are all task categories in TASK_CATEGORY_ICONS (app/lib/domain.js).
- *
- *    Six glyphs are deliberately shared, because they mean the SAME thing
- *    in both places: Flame is the smokehouse, Snowflake is cold, Package is
- *    packaging, Truck is shipping, Thermometer is temperature, and Factory
- *    is a station with nothing chosen. Sharing those is what makes the rest
- *    of the pool's uniqueness mean something.
- *
- * Adding to this list is cheap; adding to it without checking rule 2 is how
- * an icon quietly stops being a signal. Grep the glyph name across app/
- * before you add one.
+ * Grep the glyph name across app/ before adding one.
  */
 export const STATION_ICON_GROUPS = [
   {
@@ -178,14 +153,11 @@ export const STATION_ICON_GROUPS = [
   },
 ];
 
-/** Flat view of the same pool — for anything that just needs "is this a
- *  known key" or to map a key back to a component. */
-export const STATION_ICON_CHOICES = STATION_ICON_GROUPS.flatMap((g) => g.icons);
+/** Flat view of the same pool, for key → component lookups. */
+const STATION_ICON_CHOICES = STATION_ICON_GROUPS.flatMap((g) => g.icons);
 
-/** Keys that used to be offered and no longer are. A station configured
- *  with one keeps the glyph it was given rather than silently reverting to
- *  a generic factory — retiring a choice from the picker is not the same as
- *  taking it away from the people who already made it. */
+/** Keys no longer offered in the picker. A station configured with one keeps
+ *  a sensible glyph rather than reverting to a generic factory. */
 const RETIRED_ICON = {
   boxes: Package,
   container: Package,
@@ -214,13 +186,9 @@ const ICON_BY_KEY = {
 
 /**
  * Reads a batch whose `stage` may still be an index from an older build's
- * localStorage. Exported as a plain function because the company console
- * renders the provider and so cannot call the hook above it.
- *
- * Best effort: the station list may have changed since the index was written
- * and there is no recovering what it meant then — but a name that no longer
- * exists is at least visible, where a stale index silently pointed at
- * whatever now sits in that slot.
+ * localStorage. A plain function because the console renders the provider
+ * and cannot call the hook above it. Best effort: a name that no longer
+ * exists is at least visible, where a stale index silently points elsewhere.
  */
 export function migrateStage(batch, stages) {
   if (typeof batch?.stage !== "number") return batch;
@@ -236,9 +204,8 @@ export function useStations() {
 }
 
 export function StationsProvider({ stations, config = {}, children }) {
-  // An empty or not-yet-hydrated list would otherwise mean a board with
-  // nothing on it — fall back to the shipped default rather than showing a
-  // blank floor.
+  // An empty or not-yet-hydrated list falls back to the shipped default
+  // rather than a blank board.
   const list = stations && stations.length > 0 ? stations : DEFAULT_STATIONS;
 
   const value = useMemo(() => {
@@ -246,13 +213,12 @@ export function StationsProvider({ stations, config = {}, children }) {
     const lastProductionStage = list[list.length - 1] || null;
 
     return {
-      /** Stations a person can be signed in to — the admin's live list. */
+      /** The admin's live station list. */
       stations: list,
       /** Every stage a batch moves through, list order + the terminal outcome. */
       stages,
-      /** Icon for any stage name — a station's own chosen icon (set on the
-       *  Stations screen) wins, then the built-in default for that name,
-       *  then a plain factory glyph for anything else. */
+      /** A station's own chosen icon wins, then the built-in default for that
+       *  name, then a plain factory glyph. */
       iconFor: (name) => ICON_BY_KEY[config[name]?.icon] || KNOWN_ICON[name] || Factory,
       /** The stage a batch finalizes out of, onto the shelf. */
       lastProductionStage,
@@ -260,35 +226,21 @@ export function StationsProvider({ stations, config = {}, children }) {
       /** The terminal stage every batch ends at. */
       finalStage: "Shelf-Ready",
       /**
-       * The next stage a batch moves to, BY NAME.
-       *
-       * `batch.stage` used to be an index into `stages`, which quietly tied
-       * every batch on the floor to the shape of the admin's station list:
-       * reorder the list, or insert a station anywhere but the end, and every
-       * live batch silently moved to a different post. Nothing in the app
-       * wanted the index — almost every read was `stages[b.stage]`, turning it
-       * straight back into a name — so the name is what gets stored.
+       * The next stage a batch moves to, BY NAME. A stage is stored as a name,
+       * not an index: an index would tie every live batch to the shape of the
+       * admin's list, so reordering it would silently move batches.
        */
       nextStage: (batch) => {
         const at = stages.indexOf(batch.stage);
-        /* A stage that is not in the list belongs to a station that has been
-         * deleted. Leave the batch where it is rather than advancing it: the
-         * old index model could not express this at all, and sending it to
-         * whatever stage happens to be first would silently re-run it through
-         * the whole line. Stuck and visible beats moved and wrong. */
+        /* A stage not in the list belongs to a deleted station. Leave the
+         * batch where it is: stuck and visible beats moved and wrong. */
         if (at === -1) return batch.stage;
         let i = at + 1;
         // A batch that skips the smokehouse starts life one stage later.
         if (stages[i] === "Smokehouse" && !batch.needsSmoke) i += 1;
         return stages[Math.min(i, stages.length - 1)];
       },
-      /**
-       * Reads a batch whose `stage` may still be an index from an older
-       * build's localStorage. Best effort: the station list may have changed
-       * since it was written, and there is no way to recover what it meant
-       * then — but a name that no longer exists is at least visible, where a
-       * stale index silently pointed at whatever now sits in that slot.
-       */
+      /** See `migrateStage`. */
       normalizeStage: (batch) => migrateStage(batch, stages),
     };
   }, [list, config]);

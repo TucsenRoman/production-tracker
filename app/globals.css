@@ -1,18 +1,14 @@
 @import "tailwindcss";
 
 /* =============================================================================
-   ProTrack — Notion DNA
+   ProTrack — Notion DNA (see .claude/skills/notion)
    -----------------------------------------------------------------------------
-   Restyled from .claude/skills/notion (measured from app.notion.com, 2026-08-31).
-   Token NAMES are unchanged so every screen inherits the new look without edits;
-   only the values moved. The three decisions that carry the style:
+   The three decisions that carry the style:
 
-     1. No webfont. The interface is the reader's OS font. Notion ships none and
-        that is precisely why it reads as a working surface rather than a product.
+     1. No webfont. The interface is the reader's OS font.
      2. Every neutral is warm-biased (R >= G >= B). No slate, no cool grey.
      3. Elevation is a warm 1px ring. Nothing at rest carries a drop shadow;
-        --shadow-xs and --shadow-sm resolve to the ring, so existing `shadow-xs`
-        call sites became correct without being touched.
+        --shadow-xs and --shadow-sm resolve to the ring.
 
    Run `python3 .claude/skills/notion/tools/check.py app/globals.css` after edits.
    ========================================================================== */
@@ -34,12 +30,8 @@
 
   /* ---- Ink. Never #000. ---- */
   --color-ink: #2c2c2b;
-  /* The step this ramp was missing. Re-measuring Notion (2026-09-07,
-   * .claude/skills/notion/CARDS.md) found #5f5e59 is the single most frequent
-   * text colour in the whole app — sidebar labels, page links, every secondary
-   * line — and this system jumped straight from #2c2c2b to #7d7a75. Without a
-   * mid-tone, half the words on a dense surface fall to #a19e99 at 2.66:1 and
-   * read washed out. 6.4:1. */
+  /* Secondary text. 6.4:1 — the mid-tone that keeps dense surfaces from
+     falling to ink-3 (2.66:1) and reading washed out. */
   --color-ink-1: #5f5e59;
   --color-ink-2: #7d7a75;
   --color-ink-3: #a19e99;
@@ -66,9 +58,7 @@
   --color-ok-soft: rgba(74, 123, 82, 0.12);
   --color-ok-line: rgba(74, 123, 82, 0.28);
 
-  /* 5.05:1 on --color-sunken. The old #9a6a12 measured 4.45:1 there — the
-   * only value on the location card outside AA, on its second-most-important
-   * line. Two hex digits; the soft/line alphas below are unchanged. */
+  /* 5.05:1 on --color-sunken (AA). The soft/line alphas are a lighter tint on purpose. */
   --color-warn: #8f6210;
   --color-warn-soft: rgba(154, 106, 18, 0.12);
   --color-warn-line: rgba(154, 106, 18, 0.28);
@@ -80,38 +70,15 @@
   --color-cold: #2f79a6;
   --color-cold-soft: rgba(47, 121, 166, 0.12);
 
-  /* For the Targets family chart only. Earlier attempts all tried to tell
-   * the pipeline's stages apart with ONE hue -- alpha steps of blue, then a
-   * tint ramp of the same blue, and a neutral grey left over for "on
-   * floor" alongside it -- and every version asked the eye to do the same
-   * impossible thing: judge adjacent SHADES apart with no reference point
-   * to compare them against, and a flat grey doesn't even give the eye
-   * that much. A ramp (or a lone neutral) is the right tool when there's a
-   * single number to compare against a scale; it is the wrong tool for
-   * "which of these five things is this", which is what the bar is
-   * actually asking. That's a job for genuinely different colors, full
-   * stop -- grey included.
-   *
-   * So every stage gets its own hue -- on floor, on hand (back stock, no
-   * work left), in packing, in production, planned (booked, not started)
-   * -- spaced around the wheel so no two sit closer than about 60 degrees
-   * apart, and kept to the same muted, medium-saturation register as the
-   * rest of this palette so five distinct colors still read as one calm
-   * row rather than a chart in loud clothes. None of the five borrows a
-   * hue that already means something elsewhere (ok/warn/danger's green/
-   * amber/red, --color-identity's own reserved set) so nothing on this bar
-   * can be misread as a status pill. "Needs a plan" still isn't a sixth
-   * swatch -- it's the plain track colour showing through, because
-   * "nothing has been arranged" should look like nothing, not compete for
-   * a hue of its own. */
+  /* Targets family chart only. Each pipeline stage gets its OWN hue (about 60°
+     apart, same muted register as the rest of the palette) rather than shades
+     of one colour: the bar asks "which of these is this", and adjacent shades
+     can't answer that. None borrows a status hue (ok/warn/danger) or an
+     identity hue. "Needs a plan" is the bare track showing through, not a
+     swatch. */
   --color-stage-floor: #4f9163;
-  /* One band for everything behind the floor. The made pile and the freezer
-     ARE tracked apart — they are different places to walk to — but that
-     belongs in the delegation modal, where somebody is deciding a trip, not
-     on a bar being scanned twenty rows at a time for shape. Splitting it
-     here bought a fifth hue and a fifth legend entry to answer a question
-     the list is not asking. (Formerly also `--color-stage-packing`, from
-     when the bar split packing from production.) */
+  /* One band for everything behind the floor. Made vs freezer matters when
+     deciding a trip (the delegation modal), not on a bar scanned for shape. */
   --color-stage-onhand: #2f79a6;
   --color-stage-production: #7a5ea8;
   --color-stage-planned: #b8935a;
@@ -161,18 +128,12 @@
     0 20px 24px rgba(25, 25, 25, 0.05), 0 5px 8px rgba(25, 25, 25, 0.027),
     0 0 0 1px rgba(42, 28, 0, 0.07);
 
-  /* ---- Radii: 4, 6, 12, 16, pill. Nothing else.
-     Notion runs a ladder by object size, not one value: 4 page icon,
-     6 rows and controls, 8 fields, 12 cards, 16 tiles. This system had no
-     rung for a card, so cards were drawn at the row radius. `--radius-card`
-     is that rung. `--radius-lg` stays a 6px alias for the segmented controls
-     that already use it. ---- */
-  /* The one gradient in the system, and a recorded fork of the "never a
-   * gradient" ban: white type on a photograph needs a value floor, and the
-   * two flat alternatives both lose. A uniform veil muddies the whole image
-   * and still measured 3.45:1; a hard-edged plate cuts a band across the
-   * middle of it. Measured 15.8:1 typical, 7.2:1 worst case.
-   * Scoped to entity-card covers — see .claude/skills/entity-card/. */
+  /* ---- Radii: 4, 6, 12, 16, pill. Nothing else. A ladder by object size:
+     4 page icon, 6 rows and controls, 12 cards, 16 tiles. `--radius-lg` is a
+     6px alias kept for the segmented controls. ---- */
+  /* The one gradient in the system (a deliberate fork of the no-gradient
+     rule): white type on a photo needs a value floor, and a flat veil or plate
+     both fail. 15.8:1 typical, 7.2:1 worst case. Entity-card covers only. */
   --scrim-cover: linear-gradient(
     to top,
     rgba(24, 20, 17, 0.95) 0%,
@@ -190,10 +151,9 @@
 /* =============================================================================
    Density
    -----------------------------------------------------------------------------
-   Notion's rows are 2.1-2.6x their text size — desktop reading density. ProTrack
-   also runs on station tablets where a row that tight is a missed tap. So the
-   density is a variable, and the coarse-pointer branch is the only place the
-   DNA is deliberately overridden. Recorded as an approved fork of signature 8.
+   Desktop reading density by default (rows 2.1-2.6x their text size). On a
+   coarse-pointer tablet a row that tight is a missed tap, so density is a
+   variable and the touch branch below is the one deliberate override.
    ========================================================================== */
 :root {
   --row-h: 30px; /* nav and list rows      — 2.14x at 14px */
@@ -263,10 +223,8 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Notion's gap ring: a ground-coloured halo, then the accent. Keyboard only.
-     No border-radius here — a non-inset box-shadow already follows whatever
-     radius the focused element itself carries, so a pill stays a pill and a
-     6px control stays 6px. The old fixed radius squared off every pill. */
+  /* Gap ring: a ground-coloured halo, then the accent. Keyboard only. No
+     border-radius — a non-inset box-shadow follows the element's own radius. */
   :focus-visible {
     outline: none;
     box-shadow:

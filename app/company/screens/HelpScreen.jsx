@@ -36,13 +36,7 @@ const FAQS = [
   },
 ];
 
-/**
- * The one item in the brand-title dropdown that's a real page
- * (`/company/help`) rather than a modal (Sept 2026) — reference
- * material worth deep-linking or leaving open in another tab, unlike
- * Settings/Feedback/Plan's quick in-place actions. See HelpPageClient.jsx
- * and ConsoleShell.jsx's BrandMenu doc comment.
- */
+/** Help page body, rendered by HelpPageClient.jsx at `/company/help`. */
 export default function HelpScreen({ onSendFeedback }) {
   return (
     <div className="space-y-6">
@@ -70,7 +64,7 @@ export default function HelpScreen({ onSendFeedback }) {
 
       <div className="pt-3 border-t border-line">
         <p className="text-sm text-ink-2">Still stuck?</p>
-        <p className="mt-0.5 text-xs text-ink-3">Send us a note and we'll take a look.</p>
+        <p className="mt-0.5 text-xs text-ink-3">Send us a note and we&apos;ll take a look.</p>
         <Button variant="secondary" icon={MessageSquareText} className="mt-2" onClick={onSendFeedback}>
           Send feedback
         </Button>

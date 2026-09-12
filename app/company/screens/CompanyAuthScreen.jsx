@@ -7,10 +7,8 @@ import { Button, Field, Input, Segmented, cx } from "../../components/ui";
 import { isValidEmail } from "../lib/companyDomain";
 
 /**
- * Owner/admin account entry — email + password, unlike the shared-terminal
- * PIN pad. This is a demo: no password is ever actually checked against a
- * server, so sign-in matches on email alone and any 6+ character password
- * is accepted. That's called out on-screen rather than hidden.
+ * Admin account entry. Demo auth: sign-in matches on email alone and any
+ * 6+ character password is accepted, which the screen says outright.
  */
 export default function CompanyAuthScreen({ users, onSignIn, onCreateCompany }) {
   const [mode, setMode] = useState("signin");

@@ -1,21 +1,12 @@
 "use client";
 
 /**
- * One localStorage-backed `usePersistentState`, built per namespace.
- *
- * There used to be two hand-copied versions of this hook — one in ./store.js
- * for the shop floor, one in ../company/lib/companyStore.js for the console —
- * byte-identical apart from the namespace string, right down to the comment
- * explaining the hydration fix. Duplication like that is what let the two
- * halves of this app drift apart in the first place (the station bridge spent
- * a release reading `milaca.company.v2` after the console had moved to v4),
- * so the hook is built once here and the namespace is the only thing a caller
- * supplies.
+ * One localStorage-backed `usePersistentState`, built per namespace, shared
+ * by the floor store and the console store.
  *
  * Dev switch: NEXT_PUBLIC_PERSIST=off in .env.local makes every read miss and
- * every write no-op, so a refresh always re-seeds from SEED instead of serving
- * whatever is already sitting in localStorage. Restart the dev server after
- * changing it — NEXT_PUBLIC_* is inlined at build time.
+ * every write no-op, so a refresh always re-seeds from SEED. Restart the dev
+ * server after changing it — NEXT_PUBLIC_* is inlined at build time.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -56,37 +47,24 @@ export function createStore(namespace) {
 
   /**
    * Like useState, but hydrated from localStorage after mount so server and
-   * client render the same markup on the first pass — and kept in step with
-   * the OTHER tab, which is the whole point here: the office runs the console
-   * and the shop floor runs the tablet, at the same time, against the same
-   * keys. Without the `storage` listener below, a station renamed or a batch
-   * scheduled in one of them reached the other only on its next page load.
+   * client render the same first pass, and kept in step with the OTHER tab
+   * (the console and the tablet run at the same time against the same keys)
+   * via the `storage` listener below.
    */
   function usePersistentState(name, initial) {
     const [value, setValue] = useState(initial);
-    // A reactive flag, not a ref (Sept 2026 fix — was `useRef(false)`). With a
-    // ref, flipping `hydrated.current = true` inside the hydrate effect below
-    // is visible to the write effect in the SAME commit, before the
-    // `setValue(stored)` scheduled two lines up has actually landed — so on
-    // first mount the write effect fired immediately with the still-stale
-    // `initial` value and (since hydrated was now "true") persisted THAT over
-    // whatever was really in localStorage. It self-corrects a render later in
-    // most cases, but anything that unmounts this hook's owner in that
-    // one-render window (a redirect effect elsewhere in the same component,
-    // e.g.) commits the stale write permanently — observed live: a page that
-    // checked `session` on mount and redirected away when it read as
-    // logged-out (before hydration) clobbered the real session, and
-    // company/users/locations right along with it, signing the whole demo
-    // out. Making this state instead of a ref means its own update batches
-    // together with `setValue(stored)`, so the write effect only ever
-    // observes hydrated=true on a render where `value` is already the real,
-    // hydrated one — no stale write, ever.
+    // Must be state, not a ref. A ref flipped inside the hydrate effect is
+    // visible to the write effect in the same commit, before `setValue(stored)`
+    // has landed, so the write effect persists the stale `initial` over the
+    // real stored value. That usually self-corrects a render later, but if the
+    // owner unmounts in that window (a redirect effect, e.g.) the stale write
+    // is permanent. As state, this update batches with `setValue(stored)`, so
+    // the write effect only sees hydrated=true once `value` is the real one.
     const [hydrated, setHydrated] = useState(false);
 
-    /* The last JSON this hook knows is in storage. It is what stops the
-     * write effect and the storage listener from chasing each other: a value
-     * that arrived FROM another tab must not be written straight back out,
-     * or two open tabs ping-pong the same object forever. */
+    /* The last JSON this hook knows is in storage. Stops the write effect and
+     * the storage listener chasing each other: a value that arrived FROM
+     * another tab must not be written straight back out. */
     const persisted = useRef(null);
 
     useEffect(() => {
@@ -114,10 +92,8 @@ export function createStore(namespace) {
       writeRaw(name, raw);
     }, [name, value, hydrated]);
 
-    /* The other half of the bridge. `storage` fires only in the OTHER
-     * documents on this origin, which is exactly the case that matters: the
-     * console writes, the tablet is already open. A null `e.key` is a
-     * `localStorage.clear()` and means re-read everything. */
+    /* `storage` fires only in OTHER documents on this origin, which is the
+     * case that matters. A null `e.key` is a `localStorage.clear()`. */
     useEffect(() => {
       if (!PERSIST) return undefined;
       if (typeof window === "undefined") return undefined;
@@ -153,4 +129,3 @@ export function createStore(namespace) {
   return { namespace, key, usePersistentState, useHydrated, clearAll };
 }
 
-export { PERSIST };

@@ -1,27 +1,15 @@
 "use client";
 
 /**
- * Persistence for the company/admin console.
+ * Persistence for the admin console: the shared persistence hook under its
+ * own namespace. Unlike the floor's approval PINs, the admin session is
+ * persisted — an admin on their laptop expects to stay signed in.
  *
- * Same hook as the shop floor (../../lib/persistence) under its own
- * namespace, but — unlike the shared-terminal approval PINs — the admin
- * session IS persisted. An owner/admin signing in on their laptop expects to
- * stay signed in, unlike a shared tablet on the floor.
- *
- * The namespace carries a version suffix on purpose: bump it (v3 -> v4, Sept
- * 2026) whenever COMPANY_SEED/PRODUCTION_SEED change shape or shrink (e.g.
- * the single-location demo cut). Without the bump, every browser that had
- * already hydrated from localStorage keeps serving its old stored copy
- * forever — the seed constants only apply the very first time a browser has
- * nothing stored yet, so editing them silently does nothing for anyone who
- * has already opened the console.
- *
- * WHEN YOU BUMP IT, bump only this constant. Everything that reads company
- * state from outside the console — the floor's roster, its station list, its
- * permission checks — imports `COMPANY_NS` or this hook rather than spelling
- * the key out, precisely because a hand-copied `milaca.company.v2...` string
- * in app/lib/sharedStations.js survived the last bump and quietly cut the
- * floor off from every station the console had.
+ * Bump the namespace version whenever COMPANY_SEED/PRODUCTION_SEED change
+ * shape: seeds only apply when a browser has nothing stored, so editing them
+ * does nothing for anyone who has already opened the console. Everything
+ * outside the console must import `COMPANY_NS` rather than spell the key out,
+ * or it silently detaches on the next bump.
  */
 
 import { useCallback } from "react";
@@ -34,11 +22,7 @@ const store = createStore(COMPANY_NS);
 
 export const { usePersistentState, useHydrated, clearAll } = store;
 
-/**
- * Admin/owner session — persisted, since this is an account login rather than
- * a shared-terminal PIN. No password is ever actually verified against a
- * server; this is simulated auth.
- */
+/** Persisted admin session. Simulated auth — no password is verified. */
 export function useCompanySession() {
   const [session, setSession] = usePersistentState("session", null);
 

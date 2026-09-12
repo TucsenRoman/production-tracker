@@ -1,20 +1,13 @@
 "use client";
 
 /**
- * Company-wide insight generation — the enterprise-scope counterpart to the
- * shop floor's InsightsScreen. Same underlying math (yieldPct, isOverTarget,
- * the same LOW_YIELD_PCT / STAGE_TARGET_MINUTES thresholds the floor uses),
- * but instead of one location's flat batch list, this compares locations
- * and stations against each other — a capability a single floor screen
- * structurally can't have, and the actual point of rolling this up.
+ * Company-wide insight generation: the floor's yield/target math, applied to
+ * compare locations and stations against each other.
  *
- * Card text is template-generated from real computed numbers, not a live
- * model call — there's no LLM wired into this project yet. Every card
- * carries a `context` bundle with the numbers behind it, so a follow-up
- * question can be answered on demand (see answerInsightQuestion /
- * answerCompanyQuestion below) without inventing anything. Swapping either
- * responder for a real model call later — same signature, same context
- * bundle as the prompt — wouldn't require touching anything upstream.
+ * Card text is template-generated from computed numbers — no LLM is wired in.
+ * Every card carries a `context` bundle with the numbers behind it, so
+ * answerInsightQuestion can answer follow-ups without inventing anything, and
+ * a real model call could replace it later with the same signature.
  */
 
 import { LOW_YIELD_PCT, STAGE_TARGET_MINUTES, isOverTarget, yieldPct } from "../../lib/domain";
@@ -23,10 +16,9 @@ const round1 = (n) => Math.round(n * 10) / 10;
 const fmtPct = (n) => (n == null ? "—" : `${n}%`);
 
 /**
- * A closed batch worth flagging: low yield, or any station that ran over
- * target. Exported so the Insights screen's yield-trend chart can colour a
- * point by the exact same definition `locationStats` counts here as
- * "flagged" — one predicate, not two drifting copies of it.
+ * A closed batch worth flagging: low yield, or any station over target.
+ * Exported so the Insights chart colours points by the same predicate
+ * `locationStats` counts with.
  */
 export function isFlaggedBatch(h, targets = {}) {
   const y = yieldPct(h.boxWeight, h.finalWeight);
@@ -100,13 +92,9 @@ export function buildCompanyInsights({ locations, stations, production, targets 
     });
   }
 
-  // Only locations that actually deviate from the company average — not
-  // every location, every time, which would just be noise. Compared against
-  // every OTHER location's average, not the company blend — a location's
-  // own numbers are part of that blend, which dilutes exactly the gap
-  // we're trying to surface (worse the fewer locations there are: with
-  // just two, comparing to a blended average only ever shows half the real
-  // gap between them).
+  // Only locations that deviate, and compared against the OTHER locations'
+  // average, not the company blend: a location's own numbers dilute the
+  // blend (with two locations, only half the real gap would show).
   byLocation.forEach((loc) => {
     if (loc.avgYield == null || loc.batches < 2) return;
     const peers = byLocation.filter((l) => l.locationId !== loc.locationId && l.avgYield != null && l.batches >= 2);
@@ -124,8 +112,7 @@ export function buildCompanyInsights({ locations, stations, production, targets 
     });
   });
 
-  // A station running over target often enough, company-wide, to be worth
-  // flagging — and naming where it's concentrated when it's uneven.
+  // Stations over target often enough to flag, naming where it's concentrated.
   byStation.forEach((st) => {
     if (st.runs < 3 || st.overPct < 0.4) return;
     const active = st.perLocation.filter((l) => l.runs > 0);
@@ -229,47 +216,3 @@ export function answerInsightQuestion(card, question) {
     : `${company.batches} batches closed company-wide, ${fmtPct(company.avgYield)} average yield, ${company.flagged} flagged. I don't have a specific answer for that yet, but that's everything behind this card.`;
 }
 
-/** Deterministic Q&A over the whole company — locations, team, POS, PINs, and the insights bundle. */
-export function answerCompanyQuestion({ company, locations, users, integrations, insights }, question) {
-  const q = (question || "").toLowerCase();
-  const activeUsers = users.filter((u) => u.status === "active");
-  const invited = users.filter((u) => u.status === "invited");
-  const connected = new Set(integrations.filter((i) => i.status === "connected").map((i) => i.locationId));
-
-  if (/yield|perform/.test(q)) {
-    return `Company-wide average yield is ${fmtPct(insights.company.avgYield)} across ${insights.company.batches} closed batches, with ${insights.company.flagged} flagged for low yield or slow time.`;
-  }
-  if (/pos|clover|connect/.test(q)) {
-    const missing = locations.filter((l) => !connected.has(l.id));
-    return missing.length === 0
-      ? "Every location is connected to a POS."
-      : `${connected.size} of ${locations.length} locations are connected. Missing: ${missing.map((l) => l.name).join(", ")}.`;
-  }
-  if (/worst|behind|trail/.test(q)) {
-    const worst = [...insights.byLocation].filter((l) => l.avgYield != null).sort((a, b) => (a.avgYield ?? 0) - (b.avgYield ?? 0))[0];
-    return worst ? `${worst.name} is trailing at ${fmtPct(worst.avgYield)} average yield.` : "Not enough closed batches yet to say.";
-  }
-  if (/best|top|ahead|lead/.test(q)) {
-    const best = [...insights.byLocation].filter((l) => l.avgYield != null).sort((a, b) => (b.avgYield ?? 0) - (a.avgYield ?? 0))[0];
-    return best ? `${best.name} is leading at ${fmtPct(best.avgYield)} average yield.` : "Not enough closed batches yet to say.";
-  }
-  if (/location/.test(q)) {
-    return `${company.name} runs ${locations.length} location${locations.length === 1 ? "" : "s"}${
-      locations.length ? `: ${locations.map((l) => l.name).join(", ")}` : ""
-    }.`;
-  }
-  if (/team|staff|admin|manager|invit/.test(q)) {
-    return `${activeUsers.length} active team member${activeUsers.length === 1 ? "" : "s"}${
-      invited.length ? `, ${invited.length} pending invite${invited.length === 1 ? "" : "s"}` : ""
-    }.`;
-  }
-  if (/pin|code|station/.test(q)) {
-    /* Every PIN left in the system hangs off a person's own record, issued on
-     * the Team screen. Station device codes went once nothing authenticated
-     * against them — stations are a filter on the board, not a property of a
-     * tablet, and the tablet itself has no sign-in to hold a code for. */
-    const withPin = users.filter((u) => u.pin).length;
-    return `${withPin} ${withPin === 1 ? "person holds a PIN" : "people hold a PIN"} for approving gated actions. Stations are a view on the board, not a device — a tablet needs no code of its own.`;
-  }
-  return "I can answer questions about yield, POS connections, locations, team, and PINs from what's set up so far — try rephrasing, or ask about one of those.";
-}

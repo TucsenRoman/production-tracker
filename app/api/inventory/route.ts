@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchInventory } from "@/lib/clover";
+import { fetchInventory } from "../../lib/clover";
 
 export async function GET() {
   try {

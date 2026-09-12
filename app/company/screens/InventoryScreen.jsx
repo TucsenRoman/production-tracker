@@ -38,8 +38,7 @@ import {
 
 const FLOOR_TONE = { out: "text-danger", low: "text-warn", ok: "text-ok" };
 
-/* One icon per product family, so a section is identifiable at a glance and
- * not just a word. Families the catalogue invents later fall back to a box. */
+/* One icon per product family; unknown families fall back to a box. */
 const FAMILY_ICON = {
   Bacon: Beef,
   Brats: Beef,
@@ -85,11 +84,8 @@ function buildCsv(items) {
 }
 
 /**
- * A one-shot "export what I'm looking at" menu — deliberately not the shared
- * `Dropdown` (that's built for picking a persistent value; this fires an
- * action and closes). Exports `items` exactly as given, so a search filter
- * narrows the export too — this hands back what's on screen, not a silent
- * full-catalog dump the search box implied you'd left behind.
+ * Action menu, not the shared `Dropdown` (which picks a persistent value).
+ * Exports `items` as given, so a search filter narrows the export too.
  */
 function ExportMenu({ items }) {
   const [open, setOpen] = useState(false);
@@ -186,20 +182,10 @@ function ExportMenu({ items }) {
 }
 
 /**
- * Console-side inventory — a read-only, company-wide stock overview.
- *
- * Deliberately not the floor terminal's own InventoryScreen: that screen's
- * whole reason to exist is physical action (move stock, put product out to
- * the case, edit the catalog) that only makes sense standing in the shop.
- * This one has no `onMove`/`onPutOut`/`onAddProduct` handlers at all — it
- * exists so a manager or admin can see what's low without walking the floor,
- * same spirit as the Insights page rolling up batch history. The `Read-only`
- * badge next to the scope line is a deliberate reminder of that, not just
- * decoration — this screen has no way to change any of the numbers it
- * shows, only to look at and export them. If a future version needs
- * per-location numbers, this is where that split belongs — `inventory` is
- * one flat company-wide list today, same as `schedule` on the Targets
- * screen.
+ * Read-only, company-wide stock overview. Deliberately not the floor's
+ * InventoryScreen: physical actions (move, put out, edit catalog) only make
+ * sense standing in the shop, so this has no mutation handlers at all.
+ * `inventory` is one flat company-wide list today.
  */
 export default function InventoryScreen({ scopeLabel, inventory }) {
   const [query, setQuery] = useState("");
@@ -224,10 +210,9 @@ export default function InventoryScreen({ scopeLabel, inventory }) {
       .sort((a, b) => a.product.localeCompare(b.product));
   }, [items, query]);
 
-  /* Sectioned by product family (`item.type`), in the catalogue's own family
-   * order rather than alphabetically — the case is scanned family by family.
-   * A family with nothing in it gets no heading; one holding a single product
-   * still gets one, even when a search has narrowed the list down to it. */
+  /* Sectioned by product family in the catalogue's own order, not
+   * alphabetically — the case is scanned family by family. Empty families
+   * get no heading; a family of one still does. */
   const groups = useMemo(() => {
     const byFamily = new Map();
     for (const item of visible) {
@@ -243,9 +228,7 @@ export default function InventoryScreen({ scopeLabel, inventory }) {
 
   return (
     <div>
-      {/* The three numbers worth knowing before any row is read — kept above
-       *  the toolbar, so what sticks while the case scrolls is the line that
-       *  says what you're looking at, not the tiles. */}
+      {/* Above the sticky toolbar on purpose: the scope line sticks, not the tiles. */}
       <StatGrid>
         <StatCard icon={Package} label="Products" value={stats.total} />
         <StatCard
@@ -262,10 +245,7 @@ export default function InventoryScreen({ scopeLabel, inventory }) {
         />
       </StatGrid>
 
-      {/* The same sticky toolbar Tasks and Team use. This screen is read-only,
-       *  so there's no primary action to sit on the right — scope, count and
-       *  the read-only reminder on the left, search and export (which act on
-       *  the whole screen, not on one row) on the right. */}
+      {/* Same sticky toolbar as Tasks and Team; read-only, so no primary action. */}
       <StickyFadeHeader>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -306,9 +286,7 @@ export default function InventoryScreen({ scopeLabel, inventory }) {
               <div key={family}>
                 <SectionHeading icon={Icon} label={family} count={familyItems.length} />
 
-                {/* Nested under its heading rather than flush with it — with
-                 *  no box or divider around the list, the indent is what
-                 *  reads as "these belong to that heading". */}
+                {/* With no box around the list, the indent is what ties rows to the heading. */}
                 <ul className="pl-6">
                   {familyItems.map((item) => {
                     const status = stockStatus(item);
@@ -321,8 +299,7 @@ export default function InventoryScreen({ scopeLabel, inventory }) {
                         key={item.product}
                         className="group flex items-center gap-3 py-3 px-1 rounded-md transition-colors hover:bg-faint"
                       >
-                        {/* No family line under the name any more — the
-                         *  section heading above already said it. */}
+                        {/* Family is already in the section heading. */}
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-ink truncate">{item.product}</p>
                         </div>

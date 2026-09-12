@@ -29,46 +29,19 @@ import { PROVIDERS, maskKey } from "../lib/companyDomain";
 import { relativeTime } from "../../lib/domain";
 
 /**
- * A location's POS connection, as a section of that location's own detail
- * page (LocationsScreen) rather than a screen of its own.
- *
- * Integrations used to be a console screen: a grid of cards, one per
- * location, each a self-contained tile carrying identity, credentials, a
- * usage meter, an activity log and its own action footer. That grid was the
- * *same list of locations* the Locations screen already renders — two homes
- * for one object, and the tile had to re-state which location it belonged to
- * on every card because nothing else on that page said so.
- *
- * Folded in here, the location's name is already the page title and the
- * connection is simply another thing the location HAS, sitting beside its
- * team. That also puts the grain back: the tile
- * was a deliberate departure from "rule a grouped list, box a flat one",
- * justified by each entry having grown its own settings panel. One location's
- * connection on one location's page isn't a list at all — it's a section, so
- * it takes `SectionHeading` + `Card` (border-y rules, page showing through)
- * exactly like the team section above it.
- *
- * What that loses is the cross-location scan — "which of my locations is
- * failing to sync." The Locations list row carries that now, as a status line
- * in its MetaRow (see `connectionMetaFor`), which is a better place for it:
- * you see it while looking at the locations, not on a page you had to
- * remember to visit.
+ * A location's POS connection, rendered as a section of that location's
+ * detail page (LocationsScreen): `SectionHeading` + `Card`, like the team
+ * section above it. The cross-location "which one is failing" scan lives in
+ * the Locations list row's status line instead.
  */
 
 /* ---------------------------------------------------------- Connect dialog -- */
 
 /**
- * Credentials are a short data-entry task — the one thing here that still
- * breaks out to a modal.
- *
- * `existing` is whatever record the location has, live or stale, and it does
- * two jobs. It pre-fills the merchant ID, which survives a disconnect (see
- * `handleDisconnectIntegration`) precisely so reconnecting doesn't send an
- * admin back to the Clover dashboard for a number they already gave us. And
- * its `status` — not the mere presence of a merchant ID — decides whether this
- * is an "Update" or a "Connect": with the ID now outliving the connection,
- * keying the title off the ID would have every reconnect claiming to be an
- * update of something that isn't currently connected.
+ * `existing` is the location's record, live or stale. It pre-fills the
+ * merchant ID (which survives a disconnect so reconnecting doesn't require
+ * looking it up again), and its `status` — not the presence of an ID —
+ * decides whether this is an "Update" or a "Connect".
  */
 export function ConnectDialog({ location, provider, existing, onCancel, onConnect }) {
   const [merchantId, setMerchantId] = useState(existing?.merchantId || "");
@@ -124,15 +97,11 @@ export function ConnectDialog({ location, provider, existing, onCancel, onConnec
 /* ------------------------------------------------------------ Shared derivation -- */
 
 /**
- * The one place a location's raw integration records become the two things
- * anyone renders: the live pairing (if the provider is still one we ship) and
- * the record worth holding on to either way — disconnecting wipes the API key
- * but keeps the row, its history, and its merchant ID, so reconnecting picks
- * up where it left off.
- *
+ * Resolves a location's integration records to the live pairing (if the
+ * provider is one we ship) plus the record worth keeping either way —
+ * disconnecting wipes the API key but keeps the row, history and merchant ID.
  * Both the list row and the detail section call this, so they can't disagree
- * about whether a location is connected — the same trick `teamAtLocation` and
- * `deviceCodesAtLocation` pull in LocationsScreen.
+ * about whether a location is connected.
  */
 export function connectionFor(integrations, locationId) {
   const here = integrations.filter((i) => i.locationId === locationId);
@@ -143,30 +112,9 @@ export function connectionFor(integrations, locationId) {
     : { provider: null, record: here[0] || null, connected: false };
 }
 
-/**
- * The location list row's one-line connection status — the cross-location
- * scan the Integrations screen used to be. Returns null when there's nothing
- * worth saying, so an unconnected location doesn't shout about it in a list
- * where most rows may legitimately be unconnected.
- */
-export function connectionMetaFor(conn) {
-  if (!conn.connected) return null;
-  if (conn.record.lastResult === "error") {
-    return { tone: "danger", icon: AlertTriangle, text: `${conn.provider.name} — sync failed` };
-  }
-  return {
-    tone: "muted",
-    icon: CheckCircle2,
-    text: `${conn.provider.name} · ${conn.record.lastSynced ? `synced ${relativeTime(conn.record.lastSynced)}` : "never synced"}`,
-  };
-}
-
 /* ------------------------------------------------------------- Activity log -- */
 
-/* Each entry gets an icon and a tone keyed by what happened rather than by
- * success/failure alone — connecting, disconnecting, an automatic webhook
- * update and a manual sync all read differently even when every one of them
- * "succeeded". */
+/* Icon and tone keyed by what happened, not just success/failure. */
 const HISTORY_META = {
   connected: { icon: PlugZap, tone: "ok" },
   disconnected: { icon: Unplug, tone: "neutral" },
@@ -212,7 +160,7 @@ function ActivityLog({ history }) {
 
 /* ------------------------------------------------------------- The section -- */
 
-/** One ruled row of the Connections card — the shape every band takes now. */
+/** One ruled row of the Connections card. */
 function Row({ className, children }) {
   return <div className={cx("px-4 py-3", className)}>{children}</div>;
 }
@@ -233,9 +181,8 @@ export default function LocationConnections({
   const failing = connected && record?.lastResult === "error";
   const history = record?.history || [];
 
-  // Clover's own per-account call cap, not something ProTrack imposes — the
-  // record carries it so an old, pre-metering connection still renders (0 of
-  // a 5,000 default) instead of breaking.
+  // Clover's own per-account call cap, not something ProTrack imposes; the
+  // defaults keep a record without metering fields rendering.
   const callLimit = record?.apiCallLimit ?? 5000;
   const callsUsed = record?.apiCallsUsed ?? 0;
   const usagePct = Math.min(100, (callsUsed / callLimit) * 100);
@@ -265,10 +212,7 @@ export default function LocationConnections({
                       variant="primary" icon={PlugZap}
                       onClick={() => onRequestConnect(p.id)}
                     >
-                      {/* Each provider names itself rather than a bare
-                       *  "Connect" — with one available today that reads as
-                       *  "Connect Clover", which is the plainest thing it
-                       *  could say, and it still works when a second ships. */}
+                      {/* Named per provider so it still reads right once a second ships. */}
                       Connect {p.name}
                     </Button>
                   ))}
@@ -280,11 +224,8 @@ export default function LocationConnections({
       ) : (
         <Card className="mt-1">
           <div className="divide-y divide-line">
-            {/* Identity: which provider, what state it's in, and the two acts
-             *  you can perform on it. These stay visible rather than living in
-             *  `RowActions` — Sync now / Disconnect are the only way to act on
-             *  a connection at all, and hiding a section's sole affordance
-             *  behind hover makes it undiscoverable. */}
+            {/* Sync now / Disconnect stay visible rather than in hover-only
+             *  `RowActions`: they're the section's sole affordances. */}
             <Row className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2.5 min-w-0">
                 <span
@@ -324,9 +265,7 @@ export default function LocationConnections({
               )}
             </Row>
 
-            {/* What the connection actually is. On a detail page there's width
-             *  to spare, so the label/value pairs sit side by side rather than
-             *  stacked the way the old portrait tile forced. */}
+            {/* Credentials and last sync. */}
             <Row>
               <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-2">
                 <div className="flex items-center justify-between gap-3 text-xs sm:flex-col sm:items-start sm:gap-0.5">
@@ -345,12 +284,7 @@ export default function LocationConnections({
                 </div>
               </dl>
 
-              {/* Colour only where it discriminates. On the old tile this line
-               *  also carried "Real-time sync on", because the webhook toggle
-               *  was hidden inside a collapsed panel and nothing else said so.
-               *  Here the toggle itself is two rows down, in the open — so the
-               *  failure is the only thing left that this line alone can
-               *  tell you. */}
+              {/* Colour only where it discriminates. */}
               {failing && (
                 <p className="text-xs text-danger flex items-start gap-1 mt-2.5">
                   <AlertTriangle size={11} className="shrink-0 mt-0.5" /> Last sync failed — {record.lastError}
@@ -358,8 +292,7 @@ export default function LocationConnections({
               )}
             </Row>
 
-            {/* A number that creeps rather than flips — same split as the line
-             *  above, coloured only once it needs attention. */}
+            {/* Coloured only once it needs attention. */}
             <Row>
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <span className="text-xs text-ink-3">API usage</span>
@@ -396,9 +329,7 @@ export default function LocationConnections({
               </Row>
             )}
 
-            {/* No expand/collapse toggle any more. That existed because a grid
-             *  of location tiles would otherwise have become a wall of open
-             *  panels — one location per page, one log, so it just shows. */}
+            {/* One location, one log — always open. */}
             <Row>
               <p className="text-xs font-medium text-ink-3 mb-2.5">Recent activity</p>
               <ActivityLog history={history} />

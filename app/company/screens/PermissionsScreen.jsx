@@ -1,72 +1,98 @@
 "use client";
 
 import React, { useState } from "react";
-import { Pencil, ShieldCheck, ShieldPlus, Trash2, Wrench } from "lucide-react";
+import {
+  ListChecks,
+  ShieldCheck,
+  ShieldOff,
+  ShieldPlus,
+  Trash2,
+  Users,
+  Wrench,
+} from "lucide-react";
 
 import {
   Button,
   Card,
+  EmptyState,
   IconButton,
   Modal,
   RowActions,
+  ScreenToolbar,
+  SearchInput,
   SectionHeading,
   Segmented,
-  StickyFadeHeader,
+  Slot,
+  Tooltip,
   cx,
 } from "../../components/ui";
 import { GATED_ACTIONS, ROLE_LABEL } from "../lib/companyDomain";
 import { useActionAccess } from "../lib/actionAccess";
 
-/* The two PIN modes as one labelled control. They were a Badge plus a
- * Switch: the badge said the state and the switch said it again, and the
- * switch's polarity ran backwards from convention — blue/on meant *more*
- * restricted, while the looser "any station PIN" state rendered grey/off,
- * which reads as inactive rather than as permissive. You had to go back up
- * to the intro paragraph to decode it. As two named options the label is
- * the state: nothing to decode, nothing said twice. */
-/* "Any station PIN" was vocabulary from a world that no longer exists —
- * station codes are gone, and crew have no PINs at all, so the loose option
- * does not mean "a lesser credential", it means nobody is asked anything.
- * Say that. The strict option is "Manager PIN" for the same reason: there is
- * one kind of person-PIN now, and a lead tier that isn't a tier reads as a
- * distinction the floor cannot see. */
+/* Two named options rather than a Switch, so the label IS the state. The
+ * loose option means nobody is asked anything, not a lesser credential. */
 const PIN_MODES = [
   { value: "lead", label: "Manager PIN" },
   { value: "any", label: "No approval" },
 ];
 
 /**
- * Who may do one targeted action.
- *
- * The row's "Change people" button used to open a toast explaining it was a
- * mock. It is a real picker now, because the first targeted permission that
- * actually matters — moving a tablet between shops — is not something you can
- * express as a company-wide lead/any toggle.
- *
- * Everyone on the roster is listed, admins included: seniority is not the
- * question here. "Who is trusted to re-point a terminal" is a different
- * question from "who is senior", and a rule that answers the second while
- * pretending to answer the first is how a permission screen ends up lying.
+ * Which bucket an action is in. `targeted` is a different question ("which
+ * named people") with its own control; every action lands in exactly one
+ * bucket so the view counts add up to the whole list.
+ */
+const modeOf = (action, permissions) =>
+  action.targeted ? "targeted" : permissions[action.id] ? "lead" : "any";
+
+/* Named views with counted badges, same shape as Tasks and Team. Flipping a
+ * row's mode while a mode view is active drops it out of the list on
+ * purpose — the row goes where it now belongs and both counts move. */
+const VIEWS = [
+  { id: "all", label: "All", icon: ListChecks },
+  { id: "lead", label: "Manager PIN", icon: ShieldCheck },
+  { id: "any", label: "No approval", icon: ShieldOff },
+  { id: "targeted", label: "By person", icon: Users },
+];
+
+/** How the named people on a targeted action read on the row's control. */
+function accessSummary(people) {
+  if (!people.length) return "No one";
+  if (people.length <= 2) return people.map((p) => p.name).join(", ");
+  return `${people.length} people`;
+}
+
+/**
+ * Picker for who may do one targeted action. Everyone on the roster is
+ * listed, admins included: "who is trusted to do this" is a different
+ * question from "who is senior".
  */
 function AccessDialog({ action, users, selected, onCancel, onSave }) {
   const [ids, setIds] = useState(selected);
+  const [query, setQuery] = useState("");
   const toggle = (id) =>
     setIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const q = query.trim().toLowerCase();
+  const visible = users.filter((u) => !q || u.name.toLowerCase().includes(q));
+  const allOn = users.length > 0 && ids.length === users.length;
+
+  /* Search only once the list is long enough to hunt through. */
+  const searchable = users.length > 8;
 
   return (
     <Modal
       open
       onClose={onCancel}
       title={action.label}
-      icon={ShieldCheck}
+      icon={Users}
       footer={
         <>
-          {/* Named plainly rather than left to be inferred from an empty list.
-            * Nobody selected is a real, and sometimes correct, answer — but it
-            * should never be one you arrived at by accident. */}
-          {ids.length === 0 && (
-            <p className="mr-auto text-xs text-danger">No one will be able to do this.</p>
-          )}
+          {/* Nobody selected is a valid answer, but never one reached by accident. */}
+          <p className={cx("mr-auto text-xs", ids.length === 0 ? "text-danger" : "text-ink-3")}>
+            {ids.length === 0
+              ? "No one will be able to do this."
+              : `${ids.length} of ${users.length} ${users.length === 1 ? "person" : "people"}.`}
+          </p>
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
@@ -76,108 +102,108 @@ function AccessDialog({ action, users, selected, onCancel, onSave }) {
         </>
       }
     >
-      <p className="text-xs text-ink-3 leading-relaxed mb-3">{action.detail}</p>
+      <p className="text-xs text-ink-3 leading-relaxed">{action.detail}</p>
+
+      <div className="flex items-center gap-2 mt-3 mb-2">
+        {searchable && (
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search people…"
+            className="flex-1 min-w-0"
+          />
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          onClick={() => setIds(allOn ? [] : users.map((u) => u.id))}
+        >
+          {allOn ? "Clear" : "Select everyone"}
+        </Button>
+      </div>
+
+      {/* Same checklist idiom as the location pickers on Team. */}
       <div className="space-y-1.5">
-        {users.map((u) => {
+        {visible.map((u) => {
           const on = ids.includes(u.id);
+          /* A person with no PIN can't approve anything on a tablet, so
+           * ticking them buys nothing until they claim one. */
+          const note = u.status !== "active" ? "invite pending" : !u.pin ? "no PIN yet" : null;
           return (
             <label
               key={u.id}
               className={cx(
                 "flex items-center gap-2.5 px-3 py-2 rounded-md border cursor-pointer text-sm",
-                on ? "border-line-strong bg-hover text-ink" : "border-line text-ink-2 hover:bg-hover"
+                on ? "border-line-strong bg-hover text-ink" : "border-line text-ink-2 hover:bg-hover",
               )}
             >
-              <input type="checkbox" checked={on} onChange={() => toggle(u.id)} className="accent-current" />
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => toggle(u.id)}
+                className="accent-current"
+              />
               <span className="min-w-0 flex-1 truncate">{u.name}</span>
+              {note && <span className="text-xs text-warn shrink-0">{note}</span>}
               <span className="text-xs text-ink-4 shrink-0">{ROLE_LABEL[u.role]}</span>
             </label>
           );
         })}
+        {visible.length === 0 && (
+          <p className="text-xs text-ink-4 px-3 py-2">Nobody matches “{query}”.</p>
+        )}
       </div>
     </Modal>
   );
 }
 
-/** How the named people on a targeted action read in the value slot. */
-function accessSummary(people) {
-  if (!people.length) return "No one yet";
-  if (people.length <= 2) return people.map((p) => p.name).join(", ");
-  return `${people.length} people`;
-}
-
-/* Rows are list items in a flat, un-boxed list now. `group` on the row is
- * what RowActions below hangs its hover/focus reveal off; the Custom chip
- * that used to ride along on each row is gone, since the section heading
- * above already says which half of the list you're in — when there are two
- * halves to be in.
- *
- * No left-gutter icon on either row shape any more. The lock/unlock glyph
- * was a third encoding of the very binary the control below now spells out
- * in words, and once it went the targeted row's people glyph was the only
- * icon left on the list — which is exactly the odd-one-out shape that row
- * was already being read as. Both rows are now: name, detail, value. */
-function PermissionRow({ action, requiresLead, people, onToggle, onManageAccess, onRemove }) {
-  if (action.targeted) {
-    return (
-      <li className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-faint">
-        <span
-          aria-hidden="true"
-          className="flex items-center justify-center w-7 h-7 rounded-md bg-sunken text-icon-2 shrink-0"
-        >
-          <ShieldCheck size={14} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-ink truncate">{action.label}</p>
-          {action.detail && <p className="text-xs text-ink-3 leading-relaxed">{action.detail}</p>}
-        </div>
-        {/* Same grammar as every other row: a readable value in the value
-         *  slot, then a labelled way to change it. It used to be overlapping
-         *  avatars and a bare pencil with no words on it, which next to its
-         *  neighbours read as a row still loading. */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <p className="text-sm text-ink-2 truncate max-w-[16rem]" title={people.map((p) => p.name).join(", ")}>
-            {accessSummary(people)}
-          </p>
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={Pencil}
-            onClick={() => onManageAccess(action)}
-          >
-            Change people
-          </Button>
-        </div>
-      </li>
-    );
-  }
+/**
+ * One gated action. Both shapes are name, detail, then ONE control at
+ * `--ctl-h` in the value slot. No left-gutter icon: one that renders the same
+ * on every row encodes nothing.
+ */
+function PermissionRow({ action, permissions, people, onToggle, onManageAccess, onRemove, reserveActions }) {
+  const requiresLead = Boolean(permissions[action.id]);
+  const names = people?.map((p) => p.name).join(", ");
 
   return (
-    <li className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-faint">
-      <span
-        aria-hidden="true"
-        className="flex items-center justify-center w-7 h-7 rounded-md bg-sunken text-icon-2 shrink-0"
-      >
-        <ShieldCheck size={14} />
-      </span>
+    <li className="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-faint">
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-ink truncate">{action.label}</p>
         {action.detail && <p className="text-xs text-ink-3 leading-relaxed">{action.detail}</p>}
       </div>
-      {/* The mode is the row's content, not one of its actions — it stays
-       *  visible. Only the destructive control hides. Same `onToggle(id)`
-       *  behind it as before: the handler flips the boolean, so we only
-       *  call it when the picked option differs from the current one. */}
-      <Segmented
-        size="sm"
-        className="shrink-0"
-        value={requiresLead ? "lead" : "any"}
-        options={PIN_MODES}
-        onChange={(next) => {
-          if ((next === "lead") !== requiresLead) onToggle(action.id);
-        }}
-      />
-      {action.custom && (
+
+      {action.targeted ? (
+        /* The names are the control. Empty takes the danger variant: an
+         * unassigned targeted action is a locked door. */
+        <Tooltip label={names || "Nobody can do this yet — pick who"}>
+          <Button
+            size="sm"
+            variant={people.length === 0 ? "danger" : "secondary"}
+            icon={Users}
+            className="shrink-0 max-w-[15rem]"
+            onClick={() => onManageAccess(action)}
+          >
+            <span className="truncate min-w-0">{accessSummary(people)}</span>
+          </Button>
+        </Tooltip>
+      ) : (
+        /* The mode is the row's content, so it stays visible; only the
+         *  destructive control hides. `onToggle` flips the boolean, so only
+         *  call it when the picked option differs. */
+        <Segmented
+          size="sm"
+          className="shrink-0"
+          value={requiresLead ? "lead" : "any"}
+          options={PIN_MODES}
+          onChange={(next) => {
+            if ((next === "lead") !== requiresLead) onToggle(action.id);
+          }}
+        />
+      )}
+
+      {action.custom ? (
         <RowActions>
           <IconButton
             label={`Remove ${action.label}`}
@@ -187,118 +213,164 @@ function PermissionRow({ action, requiresLead, people, onToggle, onManageAccess,
             className="hover:text-danger"
           />
         </RowActions>
+      ) : (
+        /* Spacer so built-in rows line up with custom rows' trash button. */
+        reserveActions && <span aria-hidden="true" className="w-[var(--ctl-h)] shrink-0" />
       )}
     </li>
   );
 }
 
-export default function PermissionsScreen({ permissions, onToggle, customActions, onRemoveCustom, onRequest, users = [] }) {
+export default function PermissionsScreen({
+  permissions,
+  onToggle,
+  customActions,
+  onRemoveCustom,
+  onRequest,
+  users = [],
+}) {
+  const [view, setView] = useState("all");
+  const [query, setQuery] = useState("");
+
   const actions = [...GATED_ACTIONS, ...customActions];
 
-  /* Read straight from the shared store rather than through props: the shop
-   * floor needs the same answer, and it lives in a different React tree, so
-   * threading this one down through the console would only ever supply half
-   * the readers. */
+  /* From the shared store, not props: the shop floor reads the same answer
+   * from a different React tree. */
   const { idsFor, setIdsFor } = useActionAccess();
   const [managing, setManaging] = useState(null);
 
-  /* Two sections: what ships with the product, and what this company added
-   * itself. */
+  const peopleFor = (action) =>
+    idsFor(action.id)
+      .map((id) => users.find((u) => u.id === id))
+      .filter(Boolean);
+
+  const counts = Object.fromEntries(
+    VIEWS.slice(1).map((v) => [v.id, actions.filter((a) => modeOf(a, permissions) === v.id).length]),
+  );
+
+  const q = query.trim().toLowerCase();
+  const matches = (a) =>
+    (view === "all" || modeOf(a, permissions) === view) &&
+    (!q || a.label.toLowerCase().includes(q) || (a.detail || "").toLowerCase().includes(q));
+
+  /* Subtitle names a door that is shut and shouldn't be. Neither sentence
+   * fires in the resting state — a subtitle that always speaks stops being
+   * read. */
+  const orphaned = actions.filter((a) => a.targeted && peopleFor(a).length === 0);
+  const leadCount = actions.filter((a) => modeOf(a, permissions) === "lead").length;
+  const noPins = users.length > 0 && users.every((u) => !u.pin);
+  const subtitle = orphaned.length ? (
+    <span>
+      <span className="font-medium text-ink">{orphaned[0].label}</span> has nobody assigned, so
+      nobody can do it
+      {orphaned.length > 1 ? ` — and ${orphaned.length - 1} more like it.` : "."}
+    </span>
+  ) : noPins && leadCount > 0 ? (
+    <span>
+      Nobody has claimed a PIN yet, so the{" "}
+      <span className="font-medium text-ink">{leadCount}</span>{" "}
+      {leadCount === 1 ? "action" : "actions"} below that need one can&rsquo;t be approved on the
+      floor.
+    </span>
+  ) : null;
+
+  /* Built-in vs custom. Headings only once there are genuinely two groups —
+   * a lone "BUILT IN 7" just restates the toolbar. */
   const groups = [
-    { id: "built-in", label: "Built in", icon: ShieldCheck, actions: GATED_ACTIONS },
+    { id: "built-in", label: "Built in", icon: ShieldCheck, actions: GATED_ACTIONS.filter(matches) },
     ...(customActions.length
-      ? [{ id: "custom", label: "Custom", icon: Wrench, actions: customActions }]
+      ? [{ id: "custom", label: "Custom", icon: Wrench, actions: customActions.filter(matches) }]
       : []),
   ];
-
-  /* Headings only once there are genuinely two groups — don't add an
-   * always-on heading back.
-   *
-   * The style spec's "always render a section heading, even for one group"
-   * rule is about a list whose grouping is real but happens to narrow to one
-   * category: there the heading still names *which* group you're in, so
-   * dropping it would read as broken. Here, with no custom actions, there is
-   * no second group to be told apart from — a lone "BUILT IN 6" only restates
-   * the toolbar's "6 gated actions" a row above it. So one group renders as a
-   * plain list, and the headings appear the moment a custom action creates a
-   * real distinction to draw. */
   const sectioned = groups.length > 1;
+  const shown = groups.reduce((n, g) => n + g.actions.length, 0);
 
   const renderRow = (action) => (
     <PermissionRow
       key={action.id}
       action={action}
-      requiresLead={Boolean(permissions[action.id])}
-      people={
-        action.targeted
-          ? idsFor(action.id).map((id) => users.find((u) => u.id === id)).filter(Boolean)
-          : undefined
-      }
+      permissions={permissions}
+      people={action.targeted ? peopleFor(action) : undefined}
       onToggle={onToggle}
       onManageAccess={setManaging}
       onRemove={() => onRemoveCustom(action.id)}
+      reserveActions={customActions.length > 0}
     />
   );
 
   return (
     <div>
-      {/* Read once, then scrolls away — so it sits above the sticky
-       *  toolbar rather than riding along inside it. */}
-      <p className={cx("flex items-start gap-1.5 text-xs text-ink-3 leading-relaxed", "px-3 py-2.5 rounded-md bg-sunken")}>
-        <ShieldCheck size={13} className="shrink-0 mt-0.5 text-icon-2" />
-        Each action either needs a Lead&rsquo;s personal PIN or can be done with any station PIN on the floor — pick
-        one per row. A few are scoped to specific people instead. These rules apply company-wide, across every
-        location.
-      </p>
+      <Slot name="page-subtitle">{subtitle}</Slot>
 
-      {/* Request-a-permission was a bare text link stranded under the list;
-       *  it's this screen's one real action, so it takes the toolbar slot
-       *  every other screen's primary action sits in. */}
-      <StickyFadeHeader pad={28}>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-sm text-ink-3">
-            {actions.length} gated action{actions.length === 1 ? "" : "s"}
-          </p>
-
-          {/* secondary, not primary: the accent budget on this screen is
-           *  already spent by the mode column, which is the actual
-           *  interaction here. Requesting a new gated action is a utility,
-           *  not the one next thing a person came to this screen to do. */}
-          <div className="flex items-center gap-1.5 shrink-0">
+      {/* Same toolbar shape as Tasks and Team. "Request a permission" stays
+       *  secondary: the badges already spend the accent budget, and it's a
+       *  utility, not what a person came here to do. */}
+      <ScreenToolbar
+        tabs={
+          <Segmented
+            value={view}
+            onChange={setView}
+            className="min-w-0"
+            options={VIEWS.map((v) => ({
+              value: v.id,
+              label: v.label,
+              icon: v.icon,
+              /* All is the resting state, not a queue with a number. */
+              count: v.id === "all" ? undefined : counts[v.id],
+            }))}
+          />
+        }
+        actions={
+          <>
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Search actions…"
+              className="w-52"
+            />
             <Button variant="secondary" icon={ShieldPlus} onClick={onRequest}>
               Request a permission
             </Button>
-          </div>
-        </div>
-      </StickyFadeHeader>
+          </>
+        }
+        /* Non-obvious and inferable from nowhere else on screen. */
+        status={<p className="text-xs text-ink-4">These rules apply at every location.</p>}
+      />
 
-      {/* Rule a grouped list; box a flat one.
-       *
-       *  Tasks can drop the container because its section headings ARE the
-       *  containing device — each ruled heading opens a group and the indent
-       *  closes it. This screen has no real grouping dimension, so dropping
-       *  the container AND the heading left six rows floating on an open
-       *  white field with no edge anywhere: unmoored, not clean. `Card` here
-       *  is still not a box — it's `border-y` only, a rule above and a rule
-       *  below with the page showing through — so the group gets edges
-       *  without breaking the ban on wrapping a group in a box. */}
       <div className="space-y-5">
-        {sectioned ? (
-          groups.map(({ id, label, icon: Icon, actions: groupActions }) => (
-            <div key={id}>
-              <SectionHeading icon={Icon} label={label} count={groupActions.length} />
-              <Card>
-                <ul className="divide-y divide-line">
-                  {groupActions.map(renderRow)}
-                </ul>
-              </Card>
-            </div>
-          ))
+        {shown === 0 ? (
+          <div className="border-b border-line">
+            <EmptyState
+              icon={ShieldCheck}
+              title={q ? "No actions match that" : "Nothing in this view"}
+              description={
+                q
+                  ? `Nothing here is called “${query}”.`
+                  : view === "targeted"
+                    ? "No action is scoped to named people yet."
+                    : "Every action is set the other way right now."
+              }
+              action={
+                <Button variant="ghost" onClick={() => { setQuery(""); setView("all"); }}>
+                  Show all actions
+                </Button>
+              }
+            />
+          </div>
+        ) : sectioned ? (
+          groups
+            .filter((g) => g.actions.length > 0)
+            .map(({ id, label, icon: Icon, actions: groupActions }) => (
+              <div key={id}>
+                <SectionHeading icon={Icon} label={label} count={groupActions.length} />
+                <Card>
+                  <ul className="divide-y divide-line">{groupActions.map(renderRow)}</ul>
+                </Card>
+              </div>
+            ))
         ) : (
           <Card>
-            <ul className="divide-y divide-line">
-              {groups[0].actions.map(renderRow)}
-            </ul>
+            <ul className="divide-y divide-line">{groups[0].actions.map(renderRow)}</ul>
           </Card>
         )}
       </div>

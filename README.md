@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ProTrack — Milaca Meats production tracker
 
-## Getting Started
+Two apps in one Next.js project, sharing a domain model and a UI kit:
 
-First, run the development server:
+- **Shop floor** (`/`) — a tablet terminal for the production floor: batches moving through stations, inventory in three states (made / freezer / floor), the day's task list, and a settings tab for the shop the tablet is set to. No sign-in; gated actions ask for a manager PIN at the moment they happen.
+- **Company console** (`/company/milaca-meats`) — the office side: insights, production targets, assignments, inventory, team, permissions, locations and stations. Simulated account sign-in with an account switcher for demos.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Both run against `localStorage` (one namespace each), and stay in sync across tabs through the `storage` event — the console plans, the floor runs.
+
+## Layout
+
+```
+app/
+  page.tsx / layout.tsx / globals.css     root route (floor, inside an iPad mock), theme tokens
+  api/inventory, api/sales                Clover proxy routes (server only)
+  lib/                                    SHARED: domain.js (model + seed), persistence.js
+                                          (localStorage hook factory), stations.jsx, clover.ts
+  components/                             SHARED UI: ui.jsx (the design-system primitives),
+                                          AppShell.jsx (rail/tabs chrome), TabletFrame.jsx
+  floor/                                  the tablet app
+    ProductionTracker.jsx                 state + handlers, wires the screens
+    screens/                              Batches, Inventory, Tasks, Settings
+    components/                           ItemModal, LocationSetting
+    lib/                                  store (floor namespace), approval (PIN gate),
+                                          companyRoster / sharedStations / deviceLocation
+                                          (the floor's read-only windows onto console state)
+  company/                                the console
+    page.tsx, milaca-meats/page.tsx, help/ routes
+    CompanyConsole.jsx                    state + handlers, wires the screens
+    screens/  components/  lib/           console screens, chrome + modals, domain/store/nav
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The floor's `TasksScreen` is also embedded in the console as "Assignments".
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Running
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run dev
+```
 
-## Learn More
+Create `.env.local` in the project root:
 
-To learn more about Next.js, take a look at the following resources:
+```
+CLOVER_ENV=sandbox            # or production
+CLOVER_MERCHANT_ID=...
+CLOVER_API_TOKEN=...
+NEXT_PUBLIC_PERSIST=on        # "off" disables localStorage so every refresh re-seeds
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Without Clover credentials the floor falls back to the seeded catalogue and shows Clover as unreachable.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`npm run build` and `npm run lint` are the checks.
 
-## Deploy on Vercel
+## Demo accounts
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Sign in on the console as any seeded user (no password). Floor PINs for approvals: Dana `1357`, Maria `2468`. The console's account menu has a "Two locations" toggle that folds a second shop into the demo at runtime.

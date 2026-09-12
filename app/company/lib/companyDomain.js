@@ -1,30 +1,20 @@
 "use client";
 
 /**
- * Enterprise/company domain model.
- *
- * This is the account layer that sits above a shop floor: a company owns one
- * or more locations, a roster of admin/manager users (distinct from the PIN-
- * based shop-floor staff), and the integrations each location connects to
- * its POS. Kept in its own module — separate from ../../lib/domain.js — so
- * the shop-floor terminal and the admin console can evolve independently.
+ * Company domain model: the account layer above a shop floor. A company owns
+ * locations, a roster of admin/manager users, and each location's POS
+ * integration. Separate from ../../lib/domain.js so the floor terminal and
+ * the console can evolve independently.
  */
 
 import { Boxes, ShoppingBag, Store } from "lucide-react";
 
+import { STATIONS } from "../../lib/domain";
+
 /**
- * Two tiers, as of now — Admin (full company access) and Floor manager
- * (their own location's Production planning + Tasks; day-to-day floor
- * work). There used to be a separate "Owner" above Admin; it was dissolved
- * into Admin since nothing in this build actually needed a role only one
- * person could hold. If that's ever needed again — or a third custom tier,
- * or per-permission toggles instead of fixed tiers — this is the array to
- * extend; PermissionsScreen's GATED_ACTIONS is already action-scoped rather
- * than role-scoped, so it wouldn't need to change.
- *
- * Deliberately no "staff" tier here. That's what floor PINs are for:
- * floor-level people churn too fast for named email accounts to make sense,
- * so a station gets a code instead of a login (see PIN_KINDS below).
+ * Two roles: admin (full company access) and floor manager (their own
+ * location's day-to-day work). No "staff" tier — floor-level people don't
+ * get named accounts; approvals on a tablet use a person's PIN instead.
  */
 export const ROLES = ["admin", "manager"];
 
@@ -33,44 +23,10 @@ export const ROLE_LABEL = {
   manager: "Floor manager",
 };
 
-/**
- * Floor PINs come in two kinds that behave nothing alike, which is why they
- * live in two different places in the console rather than one "Crew PINs"
- * screen:
- *
- * A "station" code belongs to the STATION, not a person — Smokehouse,
- * Packaging, or whatever else a company sets up on the Stations screen.
- * Punching it into a tablet isn't a login, it's telling that tablet what to
- * track for the rest of the shift — long-lived terminal context. Nobody's
- * name is attached, so nothing changes when floor crew turns over. Managed
- * from a location's detail view, since the same station needs a different
- * code at every location (two buildings can't share one tablet identity).
- *
- * A "lead" PIN is the deliberate exception: it's tied to a real person by
- * `userId`, since a lead carries personal accountability a station doesn't.
- * It's momentary, not a context switch — a lead punches it in to authorize
- * one gated action (see GATED_ACTIONS below) without taking over the
- * tablet's station. Managed from the Team screen, generated off an actual
- * account rather than a free-typed name, so it can't drift out of sync with
- * who that person actually is.
- */
-export const PIN_KINDS = ["station", "lead"];
-export const PIN_KIND_LABEL = { station: "Station", lead: "Lead" };
-
-/**
- * Starting stations for a fresh company — editable from here on out via the
- * Stations screen. Not hardcoded past this seed: `stations` lives in company
- * state (see COMPANY_SEED.stations below) so an admin can rename, add, or
- * remove them per business. It's a shared taxonomy across every location, and
- * a view on the production board rather than a property of any device — a
- * tablet is not bound to a station, so there is nothing per-location to issue.
- */
-export const DEFAULT_STATIONS = ["Smokehouse", "Packaging"];
-
 /** A station name just needs to be non-empty — trimmed, no other rules. */
 export const isValidStationName = (v) => String(v || "").trim().length > 0;
 
-/** A floor PIN is exactly 4 digits, unique across the whole company. */
+/** A PIN is exactly 4 digits, unique across the whole company. */
 export const isValidPin = (v) => /^\d{4}$/.test(String(v || ""));
 
 export function generatePin(existingPins) {
@@ -82,12 +38,6 @@ export function generatePin(existingPins) {
   return pin;
 }
 
-/** A person's lead PIN at a given location, if one's been issued. Lead PINs
- *  are the only non-person PIN in the system: they approve the actions
- *  Permissions has gated, they are not an identity. */
-export const leadPinFor = (crewPins, userId, locationId) =>
-  crewPins.find((p) => p.role === "lead" && p.userId === userId && p.locationId === locationId) || null;
-
 export const PROVIDERS = [
   { id: "clover", name: "Clover", icon: Store, available: true, blurb: "POS & inventory" },
   { id: "square", name: "Square", icon: ShoppingBag, available: false, blurb: "POS + payments" },
@@ -95,11 +45,10 @@ export const PROVIDERS = [
 ];
 
 /**
- * Shop-floor actions an enterprise admin can gate behind a Lead-tier PIN.
- * Toggled off (the default for routine steps), any station PIN can perform
- * the action. Toggled on, only a Lead PIN — or a Team account with
- * manager-or-above scope — can. Company-wide, not per location: the whole
- * point is one consistent rule set an enterprise admin sets once.
+ * Floor actions an admin can require a manager PIN for. Company-wide, not
+ * per location: one rule set, set once. `targeted` actions are instead
+ * granted to a named list of people (`accessUserIds`, editable via
+ * actionAccess.js) rather than an on/off toggle.
  */
 export const GATED_ACTIONS = [
   {
@@ -138,11 +87,8 @@ export const GATED_ACTIONS = [
     detail:
       "Re-points a floor tablet at a different location. Everything logged after it — batches, stock moves, tasks — files against the new shop.",
     defaultRequiresLead: true,
-    /* Assignment rather than a company-wide toggle, for the same reason the
-     * row below is: this is not "does it need a lead", it is "which named
-     * people are trusted to move a terminal between buildings". Getting it
-     * wrong is silent — the tablet keeps working, it just files everything
-     * against the wrong shop until somebody notices. */
+    /* Named people rather than a toggle: getting this wrong is silent — the
+     * tablet keeps working, just filing against the wrong shop. */
     targeted: true,
     accessUserIds: ["U-1", "U-2"],
   },
@@ -151,12 +97,6 @@ export const GATED_ACTIONS = [
     label: "Manage assignment categories",
     detail: "Adds, renames, or removes the task categories in Assignments — the Settings button beside New task.",
     defaultRequiresLead: true,
-    // This one's a mock of a different, more granular control than the rest
-    // of this list: instead of a company-wide Lead-PIN toggle, it's scoped
-    // to specific named people (`accessUserIds`, into COMPANY_SEED.users).
-    // PermissionsScreen renders it as an overlapping-avatars-plus-pencil
-    // control rather than the Switch — a stand-in for what a real
-    // per-person permissions UI would look like, not a wired-up one.
     targeted: true,
     accessUserIds: ["U-1", "U-2"],
   },
@@ -183,11 +123,7 @@ export function maskKey(value) {
   return `•••• •••• ${s.slice(-4)}`;
 }
 
-/**
- * A handful of realistic-sounding ways a POS sync can fail, so "Sync now"
- * doesn't just always succeed — an admin needs to see what a broken
- * connection actually looks like before they'll trust the healthy one.
- */
+/** Realistic failure messages so a demo "Sync now" doesn't always succeed. */
 const SYNC_FAILURES = [
   "401 Unauthorized — the API key was rejected. It may have been revoked in Clover.",
   "Timed out waiting for Clover — the location's internet connection may be down.",
@@ -195,16 +131,12 @@ const SYNC_FAILURES = [
   "404 Not Found — the merchant ID no longer matches a Clover account.",
 ];
 
-/**
- * One simulated sync attempt: mostly succeeds, the way a real integration
- * mostly does, and occasionally fails with a message worth reading. Both
- * branches return a shape the caller turns straight into a history entry.
- */
+/** One simulated sync attempt; both branches return a history-entry shape. */
 export function simulateSync() {
   if (Math.random() < 0.82) {
     const itemCount = 40 + Math.floor(Math.random() * 55);
-    // A successful pull walks the whole catalog page by page — several API
-    // calls, not one — while a fast-failing auth error barely spends any.
+    // A successful pull pages through the catalog (several calls); a
+    // fast-failing error barely spends any.
     const callsUsed = 8 + Math.floor(Math.random() * 18);
     return { ok: true, itemCount, callsUsed, message: `Synced ${itemCount} items from Clover.` };
   }
@@ -216,14 +148,9 @@ export function simulateSync() {
 /* --------------------------------------------------------- Opening hours -- */
 
 /**
- * A location's week, as seven slots indexed the way `Date`/`Intl` index them —
- * 0 is Sunday. A slot is either null (shut that day) or {open, close} in 24h
- * "HH:MM" local-to-that-location time.
- *
- * Stored per location rather than per company because two buildings genuinely
- * keep different hours, and derived against the location's OWN timezone rather
- * than the admin's: the whole point of the status is telling someone in another
- * state whether the door is open right now.
+ * A location's week: seven slots indexed like `Date` (0 is Sunday), each null
+ * (shut) or {open, close} in 24h "HH:MM" local to that location. Open state is
+ * derived in the location's own timezone, not the admin's.
  */
 export const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export const DEFAULT_DAY_HOURS = { open: "08:00", close: "17:00" };
@@ -235,7 +162,7 @@ const toMinutes = (v) => {
 };
 
 /** "17:30" -> "5:30 PM", "08:00" -> "8 AM". The :00 is noise. */
-export function formatClock(v) {
+function formatClock(v) {
   const [h, m] = String(v || "").split(":").map(Number);
   if (!Number.isFinite(h)) return "";
   const suffix = h >= 12 ? "PM" : "AM";
@@ -244,12 +171,9 @@ export function formatClock(v) {
 }
 
 /**
- * Is this location open right now, and what happens next?
- *
- * Returns null — render nothing — when there are no hours on file. That case
- * matters: a status chip that says "Closed" because nobody has filled the
- * hours in yet is worse than no chip, because it reads as a fact about the
- * building rather than a gap in the record.
+ * Is this location open right now, and what happens next? Returns null when
+ * there are no hours on file: a "Closed" chip for a gap in the record would
+ * read as a fact about the building.
  */
 export function openStateAt(hours, timezone, now = new Date()) {
   if (!Array.isArray(hours) || !hours.some(Boolean)) return null;
@@ -299,19 +223,12 @@ export function openStateAt(hours, timezone, now = new Date()) {
 /* ------------------------------------------------------------ Seed state -- */
 
 /**
- * A SECOND location, deliberately kept out of `COMPANY_SEED`.
- *
- * The demo is single-location on purpose (see the Insights notes in project
- * memory — Foreston/LOC-2 was removed once already), but almost every screen
- * has a shape that only appears with more than one place: Team's location
- * scope, its per-location lead PINs, the Locations grid, a location with no
- * Clover connection. Rather than seed two and make the everyday demo lie, the
- * console's account-switcher menu carries a dev toggle that folds this in and
- * out at runtime — `handleToggleLocations` in CompanyConsole.jsx.
- *
- * Everything here is removable by id, which is what lets the toggle be a
- * toggle rather than a one-way door. Deliberately NO integration record: an
- * unconnected location is a state the Locations screen otherwise never shows.
+ * A second location, kept out of `COMPANY_SEED`: the everyday demo is one
+ * shop, but many screens only show their real shape with two. The account
+ * switcher's dev toggle folds this in and out at runtime
+ * (`handleToggleLocations` in CompanyConsole.jsx), so everything here must be
+ * removable by id. Deliberately no integration record — an unconnected
+ * location is a state the Locations screen otherwise never shows.
  */
 export const DEMO_SECOND_LOCATION = {
   location: {
@@ -319,13 +236,8 @@ export const DEMO_SECOND_LOCATION = {
     name: "Princeton",
     address: "118 Rum River Dr, Princeton, MN 55371",
     timezone: "America/Chicago",
-    /* Hotlinked from Unsplash's CDN rather than committed to `public/`.
-     * The imgix params do the cropping server-side, so the card gets exactly
-     * the 900x394 it wants without a file in the repo — and it is the same
-     * shape the "Add location" form already accepts, where `photoUrl` is a
-     * URL field with an `https://…` placeholder. Photo by Fitri Ariningrum.
-     * DEMO DATA: swap for the real shop before anyone could mistake it for
-     * one, same caveat the seeded avatars carry. */
+    /* Unsplash CDN, cropped server-side to the card's 900x394. Photo by
+     * Fitri Ariningrum. Demo data — swap for the real shop. */
     photoUrl:
       "https://images.unsplash.com/photo-1722581248341-de9b34c116bb?w=900&h=394&fit=crop&q=70&auto=format",
     hours: [
@@ -338,16 +250,13 @@ export const DEMO_SECOND_LOCATION = {
       { open: "08:00", close: "12:00" },
     ],
   },
-  /* One manager who works only there, one who covers both — the second is
-   * the case that makes a multi-location roster interesting, and the reason
-   * a person's locations had to stop being a comma-joined grey line. */
+  /* One manager who works only there, one who covers both locations. */
   users: [
     {
       id: "U-6",
       name: "Tomás Delgado",
       email: "tomas.delgado@milacameats.com",
-      /* `crop=faces` lets the CDN centre the square on the face, so a 128px
-       * avatar never lands on somebody's forehead. Photo by Vitaly Gariev. */
+      /* `crop=faces` centres the square on the face. Photo by Vitaly Gariev. */
       avatarUrl:
         "https://images.unsplash.com/photo-1758874573822-d6c79fd1b216?w=128&h=128&fit=crop&crop=faces&q=75&auto=format",
       role: "manager",
@@ -368,8 +277,6 @@ export const DEMO_SECOND_LOCATION = {
       invitedAt: "2026-01-08T00:00:00.000Z",
     },
   ],
-  /* Tomás holds a lead PIN at Princeton; Priya deliberately holds none, so
-   * Team's "No lead PIN" view has something to find the moment you switch. */
   crewPins: [
     { id: "PIN-5", pin: "5555", role: "lead", userId: "U-6", locationId: "LOC-2" },
   ],
@@ -383,7 +290,7 @@ export const COMPANY_SEED = {
     createdAt: "2024-03-12T00:00:00.000Z",
   },
 
-  stations: ["Smokehouse", "Packaging"],
+  stations: STATIONS,
 
   locations: [
     {
@@ -405,10 +312,8 @@ export const COMPANY_SEED = {
     },
   ],
 
-  /* `avatarUrl` is demo seed data: placeholder headshots under public/avatars,
-   * standing in for people who don't exist. Swap for real photos or drop the
-   * field — the card falls back to initials on its own — before this is in
-   * front of anyone who might take them for staff. */
+  /* `avatarUrl` is placeholder demo data; drop the field and the card falls
+   * back to initials. */
   users: [
     {
       id: "U-1",
@@ -419,10 +324,7 @@ export const COMPANY_SEED = {
       locationIds: ["LOC-1"],
       status: "active",
       invitedAt: "2024-03-12T00:00:00.000Z",
-      /* An admin holds a floor PIN too — not to sign in anywhere, but because
-       * approving a gated action on a tablet is exactly the thing a PIN is
-       * for, and the person re-pointing a terminal between shops is usually
-       * the one who owns both of them. */
+      /* Admins hold a PIN too: it approves gated actions on a tablet. */
       pin: "1357",
     },
     {
@@ -476,11 +378,10 @@ export const COMPANY_SEED = {
       lastError: null,
       webhookActive: true,
       lastWebhookAt: "2026-08-23T13:40:00.000Z",
-      // Clover's own developer-account cap, not a ProTrack limit — the bar on
-      // the card is reading Clover's meter, which is exactly why it matters.
+      // Clover's own account cap, not a ProTrack limit.
       apiCallsUsed: 3684,
       apiCallLimit: 5000,
-      // Newest first — the same order the detail modal renders it in.
+      // Newest first — the order it renders in.
       history: [
         {
           id: "H-3",

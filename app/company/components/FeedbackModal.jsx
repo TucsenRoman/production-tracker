@@ -17,15 +17,9 @@ const TEXTAREA_BASE =
   "placeholder:text-ink-4 transition-colors duration-100 focus:border-primary outline-none resize-y";
 
 /**
- * Feedback as a modal (Sept 2026) — opened from the brand-title dropdown
- * (ConsoleShell's BrandMenu), same pivot as SettingsModal.jsx: replaced
- * the standalone `/company/feedback` route from earlier the same session.
- * No admin gate — any signed-in user reaches it. No backend behind it
- * yet — "Send" is a mock, same "sort of" placeholder pattern as
- * PermissionsScreen's request-access flow and a location's POS sync.
- *
- * The parent only mounts this while `feedbackOpen` is true, so it always
- * opens on a blank form.
+ * Feedback modal, opened from the brand-title dropdown. No admin gate, and
+ * no backend yet — "Send" is a mock. Mounted only while open, so it always
+ * starts on a blank form.
  */
 export default function FeedbackModal({ onClose }) {
   const toast = useToast();

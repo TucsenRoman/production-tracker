@@ -3,24 +3,17 @@
 import { useEffect, useRef } from "react";
 
 /**
- * Reusable double-tap hotkeys: press a bare key twice within `windowMs` to
- * fire its handler. "0" "0" toggles the sidebar, "2" "2" jumps to a nav item
- * — same gesture everywhere it's used, so it only has to be explained once.
+ * Double-tap hotkeys: press a bare key twice within `windowMs` to fire its
+ * handler. `bindings` is { key: handler }, matched against
+ * `e.key.toLowerCase()`; it is read through a ref, so the listener attaches
+ * once and always calls the latest handler.
  *
- * `bindings` is a plain object of { key: handler }, matched against
- * `e.key.toLowerCase()`. Pass a fresh object every render if you like —
- * bindings are read through a ref, so the listener is attached exactly once
- * and always calls whatever the latest handler is, without re-subscribing.
- *
- * Every consumer gets the same guard for free, which is the point of this
- * hook: it always yields to typing. `isTypingTarget` walks up from the event
- * target with `closest()` rather than checking the exact tag, so it also
- * catches a native <select>, a contentEditable region, and a click that
- * lands on something nested inside a custom input wrapper — not just a
- * literal <input>/<textarea> hit. It also ignores held-down key repeat and
- * any modifier combo (meta/ctrl/alt), so it never fights a browser shortcut.
+ * Always yields to typing: `isTypingTarget` walks up with `closest()` so it
+ * catches a <select>, contentEditable, or a nested custom input, not just a
+ * literal <input>/<textarea>. Ignores key repeat and modifier combos so it
+ * never fights a browser shortcut.
  */
-export function isTypingTarget(el) {
+function isTypingTarget(el) {
   if (!el || typeof el.closest !== "function") return false;
   return el.closest('input, textarea, select, [contenteditable], [contenteditable="true"]') != null;
 }

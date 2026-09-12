@@ -3,23 +3,13 @@
 import React, { useId } from "react";
 
 /**
- * Insights' own icon: a magnifying glass with an AI sparkle tucked into its
- * top-right corner — one glyph, not two icons floating next to each other.
- * A knockout circle clears its own patch out of the glass's stroke so the
- * sparkle reads as sitting ON the glass. That knockout fills with --row-bg,
- * a custom property the nav row itself sets (see AppShell's renderNavItem)
- * to the row's *actual* current background — canvas at rest, the
- * pre-composited hover/selected tint otherwise — so the patch never shows
- * up as a mismatched halo the way a fixed canvas/surface fill did. Falls
- * back to canvas when nothing sets --row-bg (e.g. the mobile tab bar,
- * whose background never changes on selection). Everything else is
- * monochrome currentColor except the sparkle, which carries its own
- * blue-to-violet gradient — the rail's one deliberate spot of color, fixed
- * regardless of hover/selected state. Ported over from the shop floor's own
- * Insights tab — Insights now lives here instead. Moved into its own file
- * (Sept 2026) so it can be shared between the console SPA and the
- * standalone Settings/Feedback pages that reuse the same nav (see
- * ../lib/nav.js).
+ * Insights icon: a magnifying glass with a sparkle in its top-right corner.
+ * A knockout circle clears the glass stroke under the sparkle; it fills with
+ * --row-bg, which the nav row sets to its actual current background (see
+ * AppShell's renderNavItem), so the patch never shows as a mismatched halo.
+ * Falls back to canvas where nothing sets --row-bg (e.g. the mobile tab bar).
+ * Everything is currentColor except the sparkle's fixed gradient — the
+ * rail's one deliberate spot of color.
  */
 export default function InsightsIcon({ size = 16, className }) {
   const gradientId = useId();

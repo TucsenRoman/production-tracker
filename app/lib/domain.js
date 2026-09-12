@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Domain model: stations, staff, batch lifecycle, and the derived numbers the
- * screens read. Kept free of JSX so it can be unit-tested or moved behind an
- * API later without touching the UI.
+ * Domain model: stations, inventory, batch lifecycle, tasks, and the derived
+ * numbers the screens read. Kept free of JSX so it can be unit-tested or moved
+ * behind an API without touching the UI.
  */
 
 import {
@@ -23,15 +23,11 @@ import {
 
 /* ------------------------------------------------------------- Lifecycle -- */
 
-/* `STAGES` and `STAGE_ICON` lived here and are gone: both were module-level
- * copies of a list the admin now edits. Stage order, stage names and the
- * icon for each all come from `useStations()` (./stations.jsx), which reads
- * the console's own station config — see that file for why a batch's stage
- * is a NAME and not an index into this array. What survives is the seed the
- * provider falls back to before anything is configured. */
+/* Stage order, names and icons come from `useStations()` (./stations.jsx);
+ * this is only the seed it falls back to before anything is configured. */
 
 /** The stations a fresh install starts with, and the fallback if the console
- *  has somehow stored an empty list. */
+ *  has stored an empty list. */
 export const STATIONS = ["Smokehouse", "Packaging"];
 
 /** Target minutes in station, used to flag slow batches. */
@@ -42,30 +38,6 @@ export const LOW_YIELD_PCT = 75;
 
 /* ------------------------------------------------------------- Identity -- */
 
-/* There is no role model here any more, and that is the point.
- *
- * This section held ROLES / ROLE_LABEL / ROLE_BLURB / roleRank / isManager /
- * canManageStaff / assignableRoles: a ranked permission system where you
- * could act on anyone below you. It was built for a floor where people
- * signed in. Nobody signs into the floor now — the iPad's passcode is the
- * lock, the terminal is a place rather than a person, and crew have no
- * records at all. So the tablet was passing a hardcoded `role: "manager"`
- * into every one of those checks and getting "yes" every time, which is not
- * a permission model, it is a permission model's shadow. Every screen it
- * gated has been collapsed to what it always actually rendered.
- *
- * What replaced it, and where to look instead:
- *   - Who may do a given thing on the floor → `approve()` in ./approval.jsx,
- *     configured on the console's Permissions screen, answered with a real
- *     person's PIN at the moment it matters, and written to the approval log.
- *   - Who may see which console screens → `navFor()` in
- *     ../company/lib/nav.js, where `adminOnly`/`managerOnly` are EXCLUSIVE
- *     rather than a ladder. The console has its own ROLES/ROLE_LABEL in
- *     companyDomain.js; that is the live role model, and it is deliberately
- *     two roles rather than three ranks.
- *
- * Don't reintroduce a rank here to answer a console question. */
-
 export const initialsOf = (name = "") =>
   name
     .trim()
@@ -75,18 +47,6 @@ export const initialsOf = (name = "") =>
     .join("")
     .toUpperCase() || "?";
 
-/* The floor's own staff roster lived here — SEED_STAFF, STAFF,
- * findStaffByPin, canManageStaff, assignableRoles, and the PIN validator that
- * served them — and it is gone (Sept 2026). Crew are not in the system: no
- * records, no accounts, no PINs. The only shop people with records are floor
- * managers, an admin adds them on the console's Team screen, and the floor
- * reads that one roster through ./companyRoster.jsx. Two rosters meant two
- * answers to "who is this?", and the stale one had started winning — the
- * Board's move dialog was checking PINs against people who no longer exist,
- * and the Tasks assign picker was offering their names. `roleRank` and
- * `isManager` above survive because they answer a question about a role, not
- * about a person. */
-
 /* ------------------------------------------------------------------ Time -- */
 
 export const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -95,25 +55,6 @@ export function shiftDate(key, days) {
   const d = new Date(`${key}T00:00:00`);
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
-}
-
-/** The Sun–Sat week containing `key`, so the strip never shifts mid-view. */
-export function weekOf(key) {
-  const base = new Date(`${key}T00:00:00`);
-  const start = shiftDate(key, -base.getDay());
-  return Array.from({ length: 7 }, (_, i) => {
-    const dayKey = shiftDate(start, i);
-    const d = new Date(`${dayKey}T00:00:00`);
-    const dow = d.getDay();
-    return {
-      key: dayKey,
-      weekday: d.toLocaleDateString("en-US", { weekday: "short" }),
-      dayNum: d.getDate(),
-      label: d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
-      isToday: dayKey === key,
-      isProductionDay: dow >= 1 && dow <= 5,
-    };
-  });
 }
 
 export function formatDay(key) {
@@ -138,14 +79,6 @@ export function dueLabel(key) {
   return `Due ${formatDay(key)}`;
 }
 
-export function dueTone(key) {
-  const d = daysUntil(key);
-  if (d === null) return "neutral";
-  if (d < 0) return "danger";
-  if (d <= 1) return "warn";
-  return "neutral";
-}
-
 export function relativeTime(iso) {
   if (!iso) return null;
   const secs = Math.round((Date.now() - new Date(iso)) / 1000);
@@ -158,9 +91,8 @@ export function relativeTime(iso) {
 /* -------------------------------------------------------------- Inventory -- */
 
 /**
- * Stock lives in one of three places, and the difference matters on the floor:
- * a pallet that has been *made* is not the same as one that is put away, and
- * neither is sellable until it is out front. Clover only ever sees `floor`.
+ * Stock lives in one of three places: made is not yet put away, freezer is not
+ * yet sellable. Clover only ever sees `floor`.
  */
 export const STOCK_STATES = [
   { id: "made", label: "Made", short: "Made", hint: "produced, not put away" },
@@ -168,26 +100,21 @@ export const STOCK_STATES = [
   { id: "floor", label: "On floor", short: "Floor", hint: "sellable in Clover" },
 ];
 
-export const STATE_IDS = STOCK_STATES.map((s) => s.id);
+const STATE_IDS = STOCK_STATES.map((s) => s.id);
 
 export const stateLabel = (id) => STOCK_STATES.find((s) => s.id === id)?.label || id;
 
-/** The short name — the PLACE, not the status. "In stock" is the right label
- *  for a column header and the wrong one for a route: a stocking task telling
- *  somebody to fetch "40 lb in stock" names a fact about the number, where
- *  "40 lb freezer" names where their feet should go. */
+/** The short name is the PLACE, not the status: a stocking task says
+ *  "40 lb freezer" (where to go), not "40 lb in stock". */
 export const stateShort = (id) => STOCK_STATES.find((s) => s.id === id)?.short || id;
 
 /** Icon for each stock state — shared by every screen that shows one. */
 export const STATE_ICON = { made: PackageCheck, freezer: Snowflake, floor: Store };
 
 /**
- * Broad families used by the floor filters — "show me all the sticks".
- *
- * Only families actually present in the catalogue are offered as filters, so a
- * long list here costs nothing on screen; an over-short one, on the other hand,
- * dumps half the case into "Other" and makes the filter useless for exactly the
- * products whose family isn't obvious from the name.
+ * Broad families used by the floor filters. Only families present in the
+ * catalogue are offered, so a long list costs nothing; a short one dumps half
+ * the case into "Other".
  */
 export const PRODUCT_TYPES = [
   "Bacon",
@@ -207,18 +134,15 @@ export const PRODUCT_TYPES = [
 ];
 
 /**
- * Name → family, first rule wins.
- *
- * Order carries the whole design here, because meat names overlap constantly
- * and the obvious keyword is often the wrong one:
- *   "Prime Rib Roast"  — roasts must beat ribs, or every roast becomes a rib
- *   "Ribeye Steak"     — steaks must beat ribs for the same reason
+ * Name → family, first rule wins. Order is the design, because meat names
+ * overlap:
+ *   "Prime Rib Roast"  — roasts must beat ribs
+ *   "Ribeye Steak"     — steaks must beat ribs
  *   "Pork Loin Chop"   — chops must beat the loin/roast rule
  *   "Snack Sticks"     — sticks must beat sausage
  *   "Bratwurst"        — brats must beat sausage
- *   "Pork Belly"       — bellies are bacon before they are anything else
- * Adding a keyword to the wrong rung silently reclassifies half a case, so new
- * words go in the most specific rung that can claim them.
+ *   "Pork Belly"       — bellies are bacon
+ * New keywords go in the most specific rung that can claim them.
  */
 const FAMILY_RULES = [
   ["Jerky", ["jerky"]],
@@ -245,15 +169,11 @@ export function productType(name = "") {
 }
 
 /**
- * Sensible reorder point per family, in lb on the floor.
- *
- * A flat minimum across the whole case made every product equally alarming,
- * which is the same as none of them being alarming. These are starting
- * estimates by how fast a family moves and what it costs to hold — ground and
- * bacon turn over daily, jerky sits for weeks — and are meant to be overridden
- * per product once someone who works the counter disagrees.
+ * Reorder point per family, in lb on the floor. Starting estimates by how fast
+ * a family moves (ground and bacon turn daily, jerky sits for weeks), meant
+ * to be overridden per product.
  */
-export const FAMILY_THRESHOLD = {
+const FAMILY_THRESHOLD = {
   Bacon: 40,
   Brats: 30,
   Sausage: 25,
@@ -276,59 +196,27 @@ export const DEFAULT_THRESHOLD = FAMILY_THRESHOLD.Other;
 export const defaultThreshold = (name) => FAMILY_THRESHOLD[productType(name)] ?? DEFAULT_THRESHOLD;
 
 /**
- * How full the case should be — the number the slash is measured against.
- *
- * The minimum answers "should I worry"; the max answers "how much do I carry
- * out", and they are not the same question. A stocker filling to the minimum
- * would be back at the alert line the moment anything sells, so the fill target
- * has to sit above it. Derived at roughly twice the minimum, rounded to a
- * number a person would actually say out loud, and overridable per product.
+ * How full the case should be. The minimum answers "should I worry"; the max
+ * answers "how much do I carry out", and it must sit above the minimum or a
+ * stocker is back at the alert line the moment anything sells. Roughly twice
+ * the minimum, rounded to 5, overridable per product.
  */
 export const capacityFor = (threshold) =>
   Math.max(threshold + 5, Math.round((threshold * 2.2) / 5) * 5);
 
-export const defaultMax = (name) => capacityFor(defaultThreshold(name));
-
 /** What the stocker should bring out to fill the case. */
 export const refillQty = (item) => Math.max(0, +(item.max - stockIn(item, "floor")).toFixed(1));
 
-/* THE SMALLEST BATCH WORTH RUNNING — the model's answer to "we're not at max,
- * but we don't need to make 5 lb to get there, so we're good."
- *
- * Until this existed the planning screen had only two opinions about a
- * product: it is exactly at max, or it wants work. Nothing in between. So a
- * case sitting at 125 of 130, with a minimum of 60 and no problem in the
- * world, was asked for a 5 lb batch every single morning — and the bulk
- * action cheerfully proposed running the smokehouse for 2 lb of pork bellies.
- *
- * Expressed as a GAP, not a level, and that is the whole trick. A third
- * threshold ("top up to here") would have been a third number to keep current
- * on every product forever, and it would still not know that the last few
- * pounds are not worth a changeover. A minimum batch says the same thing from
- * the other end and says it in the units the decision is actually made in:
- * not "how full is the case" but "is this job big enough to be worth doing".
- *
- * A quarter of the case, rounded to 5, never under 5 — a run smaller than a
- * quarter of what the case holds is not worth the changeover. That is a
- * default, not a law; it is per-product and editable, because a jerky batch
- * and a ground beef batch have nothing in common but the word batch. */
+/* The smallest batch worth running. Expressed as a GAP, not a level: a third
+ * threshold ("top up to here") would still not know that the last few pounds
+ * are not worth a changeover. A quarter of the case, rounded to 5, never
+ * under 5; per-product and editable. */
 export const defaultMinBatch = (max) =>
   Math.max(5, Math.round((Number(max) || 0) / 4 / 5) * 5);
 
-/* Deliberately asymmetric between the two routes, because the two routes
- * have completely different fixed costs.
- *
- * MAKING has a real one: a changeover, a smokehouse cycle, somebody's whole
- * afternoon. Below a certain size the setup costs more than the product is
- * worth, which is what `minBatch` measures.
- *
- * MOVING costs approximately nothing. The stock already exists, it is
- * already made, and somebody is walking past the freezer anyway — carrying
- * out 2 lb is free. Applying a minimum here would invent a reason to leave
- * finished product sitting in the back.
- *
- * One threshold on the product would have gotten this wrong in both
- * directions at once. */
+/* Deliberately asymmetric: MAKING has a fixed cost (changeover, smokehouse
+ * cycle), which `minBatch` measures. MOVING costs nothing, and a minimum there
+ * would invent a reason to leave finished product in the back. */
 export const worthMaking = (item, qty) =>
   qty > 0 && qty >= (item.minBatch ?? defaultMinBatch(item.max));
 export const worthMoving = (qty) => qty > 0;
@@ -336,9 +224,7 @@ export const worthMoving = (qty) => qty > 0;
 /** Older saved records predate `made` and `type`, so fill them in on read. */
 export function normalizeItem(item) {
   const type = item.type || productType(item.product);
-  // A custom minimum should drag the capacity with it, so the max is derived
-  // from whatever threshold this product actually ends up with rather than from
-  // its family's default.
+  // Max derives from the product's actual threshold, not its family default.
   const threshold = item.threshold ?? FAMILY_THRESHOLD[type] ?? DEFAULT_THRESHOLD;
   return {
     made: 0,
@@ -349,9 +235,7 @@ export function normalizeItem(item) {
     type,
     threshold,
     max: item.max ?? capacityFor(threshold),
-    // Derived from whatever max this product ends up with, same as max is
-    // derived from threshold — widen the case and the smallest sensible run
-    // grows with it until somebody says otherwise.
+    // Likewise derived from the product's actual max.
     minBatch: item.minBatch ?? defaultMinBatch(item.max ?? capacityFor(threshold)),
   };
 }
@@ -359,15 +243,10 @@ export function normalizeItem(item) {
 const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
 
 /**
- * Write a product's stock band, with the one invariant that has to hold:
- * the smallest batch worth running can never exceed the whole case.
- *
- * The console clamped it; the floor did not. The floor's item modal wrote
- * `threshold` and `max` and never touched `minBatch`, so dropping a case size
- * from 130 to 20 left a 30 lb minimum batch sitting behind it — a gap that
- * can never be closed, which parks the product in "fine" forever with a
- * permanent hole in it. Two editors for one band, one of which knew the rule.
- * Now there is one writer and both call it.
+ * The one writer for a product's stock band, so the invariant holds
+ * everywhere: the smallest batch worth running can never exceed the whole
+ * case (otherwise the gap can never close and the product reads "fine"
+ * forever).
  */
 export function setStockRange(item, { threshold, max, minBatch }) {
   const base = normalizeItem(item);
@@ -382,7 +261,7 @@ export const stockIn = (item, state) => Number(item?.[state] ?? 0);
 export const totalStock = (item) =>
   +STATE_IDS.reduce((sum, id) => sum + stockIn(item, id), 0).toFixed(1);
 
-export const isLow = (item) => stockIn(item, "floor") < item.threshold;
+const isLow = (item) => stockIn(item, "floor") < item.threshold;
 
 /** Stock standing behind the floor — what could be put out without making any. */
 export const behindStock = (item) => +(stockIn(item, "made") + stockIn(item, "freezer")).toFixed(1);
@@ -395,15 +274,11 @@ export const floorDeficit = (item) =>
 
 /** Under this many days of floor stock is worth acting on today. */
 export const COVER_WARN_DAYS = 5;
-export const COVER_CRITICAL_DAYS = 2;
+const COVER_CRITICAL_DAYS = 2;
 
 /**
- * Days the floor will last at the recent selling pace.
- *
- * This is the only inventory number that answers "will I run out" rather than
- * "how much is there", so it is worth more than every weight on the screen —
- * but it is only as honest as the velocity behind it. No velocity, no number:
- * a made-up cover figure is worse than a blank.
+ * Days the floor will last at the recent selling pace. No velocity, no
+ * number: a made-up cover figure is worse than a blank.
  */
 export function daysOfCover(item, perDay) {
   if (!perDay || perDay <= 0) return null;
@@ -420,14 +295,8 @@ export const coverTone = (days) =>
   days == null ? "muted" : days < COVER_CRITICAL_DAYS ? "danger" : days < COVER_WARN_DAYS ? "warn" : "ok";
 
 /**
- * How a product is doing, as a severity rather than as an action.
- *
- * An earlier version bucketed by the work required — "make this" vs "move
- * that" — which produced the absurd reading of "Make today: 0" while three
- * products sat at zero, because out-of-stock had been split off into its own
- * bucket. Severity avoids that: out is simply the end of the same ladder low
- * sits on, and the ladder warns early enough to prep rather than only once the
- * shelf is bare.
+ * How a product is doing, as a severity rather than an action. Out is the end
+ * of the same ladder low sits on, not a separate bucket.
  *
  *   out  — nothing anywhere.
  *   low  — below par on the floor, but some exists somewhere.
@@ -440,10 +309,8 @@ export function stockStatus(item) {
 
 /**
  * Whether the gap can be closed by moving stock instead of making any.
- *
- * Deliberately overlaps `low`: it is not a fourth severity but the subset of
- * low that costs nothing to fix, which is the cheapest work on the screen and
- * worth surfacing on its own.
+ * Deliberately overlaps `low`: not a fourth severity, but the subset of low
+ * that costs nothing to fix.
  */
 export const canPutOut = (item) =>
   stockStatus(item) === "low" && behindStock(item) > 0;
@@ -461,9 +328,8 @@ export function moveStock(item, from, to, amount) {
 }
 
 /**
- * The one-tap version of `canPutOut`: everything behind the floor (made and
- * freezer both) lands on it in a single step, instead of the from/to/amount
- * picker `moveStock` needs. A no-op when there's nothing behind to put out.
+ * One-tap version of `canPutOut`: everything behind the floor lands on it in
+ * a single step. A no-op when nothing is behind.
  */
 export function putOnFloor(item) {
   const amount = behindStock(item);
@@ -476,43 +342,15 @@ export function putOnFloor(item) {
   };
 }
 
-// Next tier: the mirror action for the made pile — one tap to put everything
-// made away in the freezer, for the "To put away" tile the same way
-// `putOnFloor` backs "Put out now". Not built yet.
-//
-// export function putAway(item) {
-//   const amount = stockIn(item, "made");
-//   if (amount <= 0) return item;
-//   return {
-//     ...item,
-//     made: 0,
-//     freezer: +(stockIn(item, "freezer") + amount).toFixed(1),
-//   };
-// }
-
 /* ---------------------------------------------------------------- Batches -- */
 
-/* `nextStageIndex` lived here and moved to app/lib/stations.jsx as
- * `nextStage`, which returns a stage NAME. A batch's stage is a name now: the
- * index was an alias for a position in the admin's station list, so
- * reordering that list moved every batch on the floor. See the doc comment on
- * `nextStage` for the whole of it. */
-
 /**
- * The two record factories the floor and the console both build through.
+ * The two record factories the floor and the console both build through, so
+ * the shapes cannot drift.
  *
- * These used to be object literals written out five times between
- * ProductionTracker.jsx and CompanyConsole.jsx — byte-for-byte identical in
- * places, quietly different in others (the console dropped the real `unit` on
- * the floor and hardcoded "lb", so a plan for "3 racks" of bacon arrived as
- * "3 lb"). A shape written in one place cannot drift; a shape written in five
- * already had.
- *
- * `batchId` on a schedule entry is the link that makes the two halves of
- * planning legible to each other: null means "planned, nobody has started
- * it", an id means "this is on the floor right now". Before it existed the
- * console had to exclude today from its own arithmetic entirely, because a
- * plan and the batch it spawned were indistinguishable and got counted twice.
+ * `batchId` on a schedule entry links a plan to the batch it spawned: null
+ * means "planned, nobody has started it", an id means "on the floor now".
+ * Without it the two would be counted twice.
  */
 export function makeScheduleEntry({ product, qty, unit = "lb", batchId = null }) {
   return {
@@ -531,8 +369,7 @@ export function makeBatch({ product, qty, station, startedAt }) {
     estWeight: Number(qty) || 0,
     boxWeight: null,
     stage: station,
-    // The one piece of station logic that is a fact about smoking meat rather
-    // than an artifact of the old hardcoded pair — see stations.jsx.
+    // A fact about smoking meat, not about the station list — see stations.jsx.
     needsSmoke: station === "Smokehouse",
     destination: null,
     startedAt,
@@ -555,26 +392,15 @@ export function yieldTone(pct) {
 }
 
 /**
- * What kind of thing a station's clock is measuring.
+ * What kind of thing a station's clock is measuring. When the minutes are the
+ * CREW'S WORK, faster is better. When they belong to the PRODUCT (a cook or
+ * cure), a batch that leaves early is undercooked, not ahead of schedule.
  *
- * The app used to have exactly one rule — faster is better — and applied it
- * everywhere. That is right when the minutes are the CREW'S WORK: packing a
- * box quicker is a better day. It is wrong when the minutes belong to the
- * PRODUCT: a batch that leaves the smokehouse early has not beaten its
- * schedule, it is undercooked, and a green "under" badge on that row is the
- * screen congratulating the floor for a food-safety miss.
- *
- * An admin picking between these two is answering a question they already
- * know the answer to — "what is this station?" — rather than translating it
- * into a rule about badge colours. One answer then sets the tolerance on
- * each side, what the column is called, and how loudly a miss is reported.
- *
- * The two sides are deliberately NOT symmetric. Running long is a
- * scheduling problem and gets the usual 15%. Running short is the dangerous
- * direction, so it is held to 5% — a cook 5% under schedule is already worth
- * looking at, where a cook 5% over is just a slow afternoon.
+ * The kind sets the tolerance on each side, the column's name, and how loudly
+ * a miss is reported. The sides are deliberately asymmetric: running long is
+ * a scheduling problem (15%); running short is the dangerous direction (5%).
  */
-export const STATION_KIND = {
+const STATION_KIND = {
   workstation: {
     label: "Workstation",
     blurb: "The time is the crew's work — cutting, packing, loading. Faster is a better day.",
@@ -593,21 +419,19 @@ export const STATION_KIND = {
   },
 };
 
-export const DEFAULT_STATION_KIND = "workstation";
+const DEFAULT_STATION_KIND = "workstation";
 
-export const kindOf = (config) => {
+const kindOf = (config) => {
   if (STATION_KIND[config?.kind]) return config.kind;
-  /* A build between these two shipped a `flagUnder` checkbox, which meant
-   * exactly "this station is a process stop" — anyone who ticked it has that
-   * in localStorage. Reading it as the kind it stood for means their setting
-   * survives rather than silently switching off. */
+  /* Legacy `flagUnder` checkbox in localStorage meant exactly "process";
+   * honour it so the setting does not silently switch off. */
   if (config?.flagUnder) return "process";
   return DEFAULT_STATION_KIND;
 };
 
 /** The kind supplies the defaults; a station may override either side. A
  *  `null` on a side means that side is never a miss. */
-export const toleranceFor = (config) => {
+const toleranceFor = (config) => {
   const kind = STATION_KIND[kindOf(config)];
   return {
     over: config?.overPct !== undefined ? config.overPct : kind.over,
@@ -617,16 +441,10 @@ export const toleranceFor = (config) => {
 
 /**
  * How a run missed, or null if it did not: "slow" (over) or "short" (under).
- *
- * Two names rather than a boolean because they are not the same event. Slow
- * is a note about the schedule. Short, on a process station, is a batch that
- * may not be shippable — and summing them into one "off target" count, as
- * this used to, threw away the only distinction that matters.
- *
- * `targets` and `configs` are passed in rather than read from a store, so
- * this stays a pure function both consoles can call.
+ * Two names, not a boolean: short on a process station is a batch that may
+ * not be shippable. `targets` and `configs` are passed in so this stays pure.
  */
-export const targetMiss = (station, minutes, targets = {}, configs = {}) => {
+const targetMiss = (station, minutes, targets = {}, configs = {}) => {
   const target = targets[station] ?? STAGE_TARGET_MINUTES[station];
   if (minutes == null || target == null) return null;
   const { over, under } = toleranceFor(configs[station]);
@@ -635,13 +453,8 @@ export const targetMiss = (station, minutes, targets = {}, configs = {}) => {
   return null;
 };
 
-/** `targets` lets a caller override the default per-station minutes (e.g.
- *  a company's own configured target from the Stations screen) without this
- *  function needing to know where that override came from.
- *
- *  Kept as the narrow "is it slow" question, which is all the Insights
- *  screens ask. With no config it is exactly the old behaviour: default kind
- *  is workstation, whose `under` is null, so a short run is never a miss. */
+/** The narrow "is it slow" question, which is all Insights asks. `targets`
+ *  overrides the default per-station minutes. */
 export const isOverTarget = (station, minutes, targets = {}) =>
   targetMiss(station, minutes, targets) === "slow";
 
@@ -655,15 +468,11 @@ export function newId(prefix) {
 /* -------------------------------------------------------------- Tasks ---- */
 
 /**
- * Tasks the floor sees and checks off — stocking call-outs plus whatever else
- * management assigns. Deliberately its own list rather than riding on batches
- * or the schedule: a task can exist with nothing behind it ("wipe the display
- * case") and it outlives a single shift.
- */
-/**
- * Category icons are stored as a string id, not a component — the list below
- * is persisted state (see `usePersistentState("taskCategories", ...)` in
- * ProductionTracker), and a component reference doesn't survive JSON.
+ * Tasks are their own list rather than riding on batches or the schedule: a
+ * task can exist with nothing behind it and outlives a single shift.
+ *
+ * Category icons are stored as a string id, not a component: the category
+ * list is persisted state, and a component reference doesn't survive JSON.
  */
 export const TASK_CATEGORY_ICONS = {
   package: Package,
@@ -697,7 +506,6 @@ export const DEFAULT_TASK_CATEGORIES = [
 ];
 
 export const categoryIcon = (categories, id) => iconFor(categories.find((c) => c.id === id)?.iconId);
-export const categoryLabel = (categories, id) => categories.find((c) => c.id === id)?.label || "Task";
 
 /** A category can't be removed while a task still points at it. */
 export const categoryInUse = (tasks, id) => tasks.some((t) => t.category === id);
@@ -705,7 +513,7 @@ export const categoryInUse = (tasks, id) => tasks.some((t) => t.category === id)
 export const TASK_PRIORITIES = ["low", "normal", "high", "urgent"];
 export const PRIORITY_LABEL = { low: "Low", normal: "Normal", high: "High", urgent: "Urgent" };
 export const PRIORITY_TONE = { low: "neutral", normal: "info", high: "warn", urgent: "danger" };
-export const priorityRank = (p) => Math.max(0, TASK_PRIORITIES.indexOf(p));
+const priorityRank = (p) => Math.max(0, TASK_PRIORITIES.indexOf(p));
 
 /**
  * Open tasks first — highest priority and soonest due date first within that —
@@ -722,15 +530,6 @@ export function sortTasks(tasks) {
     if (b.dueDate) return 1;
     return (a.createdAt || "").localeCompare(b.createdAt || "");
   });
-}
-
-/**
- * Crew see what's assigned to them and anything open to whoever's free;
- * managers see the whole list, same as everywhere else permission is scoped.
- */
-export function visibleTasks(tasks, user) {
-  if (isManager(user)) return tasks;
-  return tasks.filter((t) => !t.assignedTo || t.assignedTo === user.id);
 }
 
 /* ------------------------------------------------- Opening state (seeded) -- */
@@ -774,9 +573,8 @@ export const SEED = {
     { product: "Ground Beef - 80/20", made: 0, freezer: 35, floor: 52, threshold: 50, unit: "lb" },
     { product: "Pork Chops - Center Cut", made: 0, freezer: 12, floor: 26, threshold: 25, unit: "lb" },
     { product: "Prime Rib Roast", made: 0, freezer: 18, floor: 9, threshold: 12, unit: "lb" },
-    // Demo names below match the Clover sandbox catalogue 1:1 so the fallback
-    // numbers show up as this product's floor/freezer stock instead of the
-    // 0 lb Clover reports (no numeric-quantity Inventory app in the sandbox).
+    // Names below match the Clover sandbox catalogue 1:1 so these numbers
+    // stand in for the 0 lb the sandbox reports (it has no numeric inventory).
     { product: "85-15 Ground Beef", made: 0, freezer: 38, floor: 46, threshold: 40, unit: "lb" },
     { product: "Tomahawk Steak", made: 0, freezer: 33, floor: 17, threshold: 25, unit: "lb" },
     { product: "Filet Mignon Steak", made: 0, freezer: 22, floor: 28, threshold: 25, unit: "lb" },
@@ -786,10 +584,6 @@ export const SEED = {
     { product: "Baby Back Ribs", made: 0, freezer: 24, floor: 16, threshold: 20, unit: "lb" },
     { product: "Smoked Ham", made: 0, freezer: 20, floor: 21, threshold: 18, unit: "lb" },
     { product: "Ring Bologna", made: 0, freezer: 6, floor: 7, threshold: 10, unit: "lb" },
-    // Added Sept 2026 once the sandbox catalogue grew past the original 9 —
-    // these four names came back from a live /v3/.../items pull with no
-    // match in this list at all, so they fell through to Clover's own (null)
-    // stock and read as permanently "Out". Same fix, same reason.
     { product: "House Brats", made: 0, freezer: 20, floor: 19, threshold: 30, unit: "lb" },
     { product: "Bone-In Pork Chops", made: 0, freezer: 20, floor: 14, threshold: 25, unit: "lb" },
     { product: "Boneless Chuck Roast", made: 0, freezer: 14, floor: 11, threshold: 15, unit: "lb" },
@@ -808,11 +602,8 @@ export const SEED = {
         { id: "T-05", text: "Bratwurst - Maple", qty: 24, unit: "lb" },
       ],
     },
-    /* Demo only — runs already booked on the days ahead, so the "Planned"
-     * tab on Targets has something in it without having to add one by hand.
-     * Spread across +3..+5 so they land on weekdays whatever day the demo is
-     * opened; the Targets screen scans a rolling week forward and skips
-     * weekends. */
+    /* Demo runs booked ahead so the "Planned" tab has content. Spread across
+     * +3..+5 so at least some land on weekdays; Targets skips weekends. */
     [shiftDate(T, 3)]: {
       Smokehouse: [
         { id: "T-06", text: "Bratwurst - Jalapeño Cheddar", qty: 30, unit: "lb" },
@@ -839,11 +630,8 @@ export const SEED = {
     },
   },
 
-  /**
-   * Floor tasks list. A mix of stocking call-outs and general tasks, some
-   * open to anyone on shift and some assigned to a specific person — the way
-   * Maria and Sam actually hand out work at open and mid-shift.
-   */
+  /** Floor tasks: stocking call-outs and general tasks, some open to anyone
+   *  on shift and some assigned. */
   tasks: [
     {
       id: "TD-1",

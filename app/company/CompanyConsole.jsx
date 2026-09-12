@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
-import { Input, ToastProvider, useToast } from "../components/ui";
+import { ToastProvider, useToast } from "../components/ui";
 import ConsoleShell from "./components/ConsoleShell";
 import BrandModals from "./components/BrandModals";
 import { newId } from "../lib/domain";
@@ -15,64 +15,15 @@ import StationsScreen from "./screens/StationsScreen";
 import PermissionsScreen from "./screens/PermissionsScreen";
 import ProductionScreen from "./screens/ProductionScreen";
 import InventoryScreen from "./screens/InventoryScreen";
-import FloorTasksScreen from "../screens/TasksScreen";
+import FloorTasksScreen from "../floor/screens/TasksScreen";
 import { usePersistentState, useCompanySession } from "./lib/companyStore";
-import { usePersistentState as useFloorPersistentState } from "../lib/store";
+import { usePersistentState as useFloorPersistentState } from "../floor/lib/store";
 import { useBrandModals } from "./lib/useBrandModals";
-import { COMPANY_SEED, DEMO_SECOND_LOCATION, DEFAULT_STATIONS, PROVIDERS, defaultPermissions, isValidStationName, simulateSync } from "./lib/companyDomain";
+import { COMPANY_SEED, DEMO_SECOND_LOCATION, PROVIDERS, defaultPermissions, isValidStationName, simulateSync } from "./lib/companyDomain";
 import { PRODUCTION_SEED } from "./lib/companyProduction";
 import { SEED, DEFAULT_TASK_CATEGORIES, makeScheduleEntry, setStockRange, todayKey, categoryInUse } from "../lib/domain";
-import { answerCompanyQuestion, buildCompanyInsights } from "./lib/insights";
+import { buildCompanyInsights } from "./lib/insights";
 import { navFor } from "./lib/nav";
-
-// NAV now lives in ./lib/nav.js, shared with the standalone Help page
-// that reuses this same rail — see that file's doc comment
-// for why Settings isn't in it anymore.
-
-
-/**
- * Slim, always-available search-bar version of "Ask about your business" —
- * same deterministic responder (answerCompanyQuestion), living inline in
- * the sidebar just under the collapse toggle instead of taking up a
- * whole section, so it's reachable from every screen without much chrome.
- * Enter submits; the latest answer shows as a compact caption underneath.
- * Desktop-only for now, same as the rest of this sidebar.
- *
- * The expand icon is a placeholder for a future dedicated full-page chat —
- * not wired up yet, just staking out where it'll live.
- */
-// function AskBar({ bundle }) {
-//   const [question, setQuestion] = useState("");
-//   const [lastAnswer, setLastAnswer] = useState(null);
-
-//   const ask = () => {
-//     const q = question.trim();
-//     if (!q) return;
-//     setLastAnswer({ q, a: answerCompanyQuestion(bundle, q) });
-//     setQuestion("");
-//   };
-
-//   return (
-//     <div className="min-w-0 flex-1 flex flex-col gap-1">
-//       <div className="flex items-center gap-1.5">
-//         <Input
-//           value={question}
-//           placeholder="Ask about your business…" onChange={(e) => setQuestion(e.target.value)}
-//           onKeyDown={(e) => e.key === "Enter" && ask()}
-//           className="flex-1 min-w-0 h-[var(--ctl-h)] rounded-md text-xs focus-visible:outline-none"
-//         />
-//         {/* SquareArrowOutUpRight "open full chat" button hidden for now — coming with the dedicated chat page. */}
-//       </div>
-//       {lastAnswer && <p className="px-0.5 text-xs text-ink-3 leading-snug line-clamp-2">{lastAnswer.a}</p>}
-//     </div>
-//   );
-// }
-
-// AccountSwitcherMenu, BrandMenu, and the AppShell-wiring Shell component
-// all moved to ./components/ConsoleShell.jsx (Sept 2026) so the standalone
-// Settings and Feedback pages could reuse them too, instead of each
-// duplicating the same AppShell wiring — see that file for the full
-// doc comments preserved from here.
 
 function Application() {
   const toast = useToast();
@@ -83,78 +34,64 @@ function Application() {
   const [users, setUsers] = usePersistentState("users", COMPANY_SEED.users);
   const [integrations, setIntegrations] = usePersistentState("integrations", COMPANY_SEED.integrations);
   const [stations, setStations] = usePersistentState("stations", COMPANY_SEED.stations);
-  /* Per-station extras — just the custom icon — kept separate from the plain
-   * name list so nothing that matches stations by name (crewPins, batches,
-   * permissions) has to change shape.
-   *
-   * Target cycle times briefly lived here and were edited on the Stations
-   * screen. They are gone because they are not a property of a post: bacon
-   * and bratwurst share one smokehouse and want very different times, so the
-   * number belongs to the product. Insights still flags slow runs against
-   * STAGE_TARGET_MINUTES until that lands. */
+  /* Per-station extras, kept separate from the plain name list so nothing
+   * that matches stations by name (crewPins, batches, permissions) has to
+   * change shape. */
   const [stationConfig, setStationConfig] = usePersistentState("stationConfig", {});
   const [crewPins, setCrewPins] = usePersistentState("crewPins", COMPANY_SEED.crewPins);
   const [production, setProduction] = usePersistentState("production", PRODUCTION_SEED);
   const [permissions, setPermissions] = usePersistentState("permissions", defaultPermissions());
   const [customActions, setCustomActions] = usePersistentState("customActions", []);
 
-  // Shared with the floor terminal — same localStorage namespace (see
-  // ../lib/store) — so a plan or task added from the console is waiting on
-  // the shop-floor tablet too, and vice versa. Fast mockup against the
-  // existing single-location demo data; not location-scoped yet.
+  // Shared with the floor terminal (same localStorage namespace, see
+  // ../lib/store) so a plan or task added here shows up on the tablet and
+  // vice versa. Not location-scoped yet.
   const [schedule, setSchedule] = useFloorPersistentState("schedule", SEED.schedule);
   const [tasks, setTasks] = useFloorPersistentState("tasks", SEED.tasks);
   const [taskCategories, setTaskCategories] = useFloorPersistentState("taskCategories", DEFAULT_TASK_CATEGORIES);
   const [inventory, setInventory] = useFloorPersistentState("inventory", SEED.inventory);
-  /* Read-only here: the console tracks production, it doesn't run batches.
-   * Both come from the floor's own persisted state so the goal tracker is
-   * measuring the same batches the shop actually made. */
-  /* The console tracks production; it does not run batches, so this is read
-   * only — with ONE exception, taken deliberately below: renaming a station
-   * has to follow the live batches standing at it, because a batch's stage is
-   * that station's name. Nothing else here writes to it. */
+  /* The console tracks production; it does not run batches, so this is
+   * read-only with one deliberate exception: renaming a station must follow
+   * the live batches standing at it, because a batch's stage is that
+   * station's name. */
   const [storedBatches, setBatches] = useFloorPersistentState("batches", SEED.batches);
   /* Same index→name migration the floor does on read. Uses the exported
-   * helper rather than the context method because this component RENDERS the
-   * provider and so sits above the hook. */
+   * helper rather than the context method because this component renders
+   * the provider and so sits above the hook. */
   const batches = useMemo(
     () => storedBatches.map((b) => migrateStage(b, [...stations, "Shelf-Ready"])),
     [storedBatches, stations]
   );
   const today = todayKey();
 
-  /* Dev-only: fold the second location (and its two managers) in and out at
-   * runtime. The demo ships single-location because that is the honest shape
-   * of the business it is modelled on, but half the console only reveals
-   * itself with two — Team's location scope and per-location lead PINs, the
-   * Locations grid, a location with no Clover connection, and the floor
-   * tablet's own "which shop is this" setting. Persisted so a refresh keeps
-   * whichever shape you were testing. */
+  /* Dev-only: fold the demo's second location (and its managers) in and out
+   * at runtime, since much of the console only shows itself with two.
+   * Persisted so a refresh keeps whichever shape you were testing. */
   const [twoLocations, setTwoLocations] = usePersistentState("demoTwoLocations", false);
 
   const handleToggleLocations = (on) => {
     const { location: extraLoc, users: extraUsers, crewPins: extraPins } = DEMO_SECOND_LOCATION;
     setTwoLocations(on);
     if (on) {
-      /* Additive and id-guarded, so flipping it twice is not two Princetons
-       * and toggling does not clobber edits made while it was on. */
+      /* Additive and id-guarded: flipping twice does not duplicate, and
+       * toggling does not clobber edits made while it was on. */
       setLocations((prev) => (prev.some((l) => l.id === extraLoc.id) ? prev : [...prev, extraLoc]));
       setUsers((prev) => [...prev, ...extraUsers.filter((e) => !prev.some((u) => u.id === e.id))]);
       setCrewPins((prev) => [...prev, ...extraPins.filter((e) => !prev.some((p) => p.id === e.id))]);
       return;
     }
-    /* If you are currently VIEWING AS one of the people about to disappear,
-     * step back to the seed admin first — otherwise `currentUser` resolves to
-     * nothing and the console drops to its sign-in screen mid-toggle. */
+    /* If viewing as one of the people about to disappear, step back to the
+     * seed admin first, or `currentUser` resolves to nothing and the console
+     * drops to sign-in mid-toggle. */
     if (extraUsers.some((e) => e.id === session?.userId)) signIn(COMPANY_SEED.users[0]);
     setLocations((prev) => prev.filter((l) => l.id !== extraLoc.id));
     setCrewPins((prev) => prev.filter((p) => p.locationId !== extraLoc.id));
     setUsers((prev) =>
       prev
         .filter((u) => !extraUsers.some((e) => e.id === u.id))
-        /* Anyone assigned to Princeton in the meantime keeps their other
-         * locations; somebody left with none falls back to the first, since
-         * a teammate belonging nowhere is a worse state than a wrong guess. */
+        /* Anyone assigned to the removed location keeps their others;
+         * somebody left with none falls back to the first, since a teammate
+         * belonging nowhere is worse than a wrong guess. */
         .map((u) => {
           if (!u.locationIds.includes(extraLoc.id)) return u;
           const rest = u.locationIds.filter((id) => id !== extraLoc.id);
@@ -170,19 +107,16 @@ function Application() {
 
   const currentUser = session ? users.find((u) => u.id === session.userId) : null;
 
-  // Insights is scoped by role, not one fixed view: an admin sees every
-  // location, a floor manager only the location(s) on their own account —
-  // same restriction Locations/Team/etc. already apply, just carried into
-  // the numbers here instead of gating a whole screen on/off.
+  // Insights is scoped by role: an admin sees every location, a manager only
+  // the location(s) on their own account.
   const visibleLocations = useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.role === "admin") return locations;
     return locations.filter((l) => currentUser.locationIds?.includes(l.id));
   }, [locations, currentUser]);
 
-  // A genuinely single-location business has nothing to be "company-wide
-  // across" — every role just sees the one location's name. Multi-location
-  // companies keep the role-based phrasing below.
+  // A single-location business has nothing to be "company-wide across", so
+  // every role just sees the one location's name.
   const insightsScopeLabel = !currentUser
     ? ""
     : locations.length === 1
@@ -195,9 +129,8 @@ function Application() {
     ? `Across ${visibleLocations.length} of your locations`
     : "No location assigned yet";
 
-  // Only stations with an admin-set target even enter this map — anything
-  // else falls back to the built-in Smokehouse/Packaging defaults inside
-  // isOverTarget itself, same as before this existed.
+  // Only stations with an admin-set target enter this map; the rest fall
+  // back to the built-in defaults inside isOverTarget.
   const stationTargets = useMemo(
     () =>
       Object.fromEntries(
@@ -241,7 +174,7 @@ function Application() {
     setLocations([]);
     setUsers([admin]);
     setIntegrations([]);
-    setStations(DEFAULT_STATIONS);
+    setStations(COMPANY_SEED.stations);
     setCrewPins([]);
     setProduction({});
     signIn(admin);
@@ -294,9 +227,7 @@ function Application() {
     toast("Team member removed", { tone: "info" });
   };
 
-  /* Chasing a stale invite is the one thing a pending row is FOR, and the
-   * roster had no way to do it. Re-stamping invitedAt is what makes the
-   * row's own "sent 12d ago" line honest again. */
+  /* Re-stamping invitedAt keeps the row's "sent 12d ago" line honest. */
   const handleResendInvite = (user) => {
     setUsers((prev) =>
       prev.map((u) => (u.id === user.id ? { ...u, invitedAt: new Date().toISOString() } : u))
@@ -316,11 +247,9 @@ function Application() {
     if (!isValidStationName(newName)) return;
     setStations((prev) => prev.map((s) => (s === oldName ? newName : s)));
     setCrewPins((prev) => prev.map((p) => (p.station === oldName ? { ...p, station: newName } : p)));
-    /* A batch's stage IS the station's name, so a rename has to carry the
-     * batches standing there with it or they are left pointing at a post that
-     * no longer exists. This is the console's only write to floor state, and
-     * it exists because renaming is the one station edit the name-keyed model
-     * does not make free — reordering and inserting now cost nothing. */
+    /* A batch's stage is the station's name, so a rename must carry the
+     * batches standing there with it. This is the console's only write to
+     * floor batch state. */
     if (oldName !== newName) {
       setBatches((prev) => prev.map((b) => (b.stage === oldName ? { ...b, stage: newName } : b)));
     }
@@ -333,10 +262,7 @@ function Application() {
   };
 
   const handleRemoveStation = (name) => {
-    /* This used to guard on device codes issued for the station. Those are
-     * gone — nothing ever authenticated against them — so the guard now asks
-     * the question that actually matters: has this station run anything? A
-     * station with closed batches behind it is part of the record, and the
+    /* A station with closed batches behind it is part of the record, and the
      * board reads this list as its stage sequence. */
     const runs = Object.values(production).flat().filter((h) => h?.minutes && name in h.minutes).length;
     if (runs > 0) {
@@ -346,11 +272,8 @@ function Application() {
       });
       return;
     }
-    /* And the live half of the same question. A batch's stage is this
-     * station's name, so deleting it out from under one leaves that batch
-     * pointing at a post that no longer exists — stuck on the board with
-     * nowhere to advance to. Cheap to check, and the only way a name-keyed
-     * stage can be orphaned. */
+    /* Live half of the same check: a batch's stage is this station's name,
+     * so deleting it out from under one strands that batch on the board. */
     const standing = batches.filter((b) => b.stage === name && !b.destination).length;
     if (standing > 0) {
       toast("Can't remove this station", {
@@ -362,7 +285,8 @@ function Application() {
     setStations((prev) => prev.filter((s) => s !== name));
     setStationConfig((prev) => {
       if (!(name in prev)) return prev;
-      const { [name]: _dropped, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[name];
       return rest;
     });
     toast("Station removed", { tone: "info" });
@@ -372,13 +296,13 @@ function Application() {
     setStationConfig((prev) => ({ ...prev, [name]: { ...prev[name], ...patch } }));
   };
 
-  /* Order is no longer cosmetic: the Production board reads this same list
-   * as the floor's stage sequence, so the last station here is where a
-   * batch gets its final weight (see app/lib/stations.jsx). A silent swap,
-   * not a toast — the reordered list is its own feedback. */
-  /* Drag-and-drop hands us an insertion point, not a direction. `to` is the
-   * gap the row was dropped into, 0..length, which is why it is corrected by
-   * one when moving down: removing the row first shifts every later index. */
+  /* Order matters: the Production board reads this list as the floor's stage
+   * sequence, so the last station is where a batch gets its final weight
+   * (see app/lib/stations.jsx). No toast; the reordered list is its own
+   * feedback.
+   *
+   * `to` is the gap the row was dropped into (0..length), corrected by one
+   * when moving down because removing the row first shifts later indexes. */
   const handleReorderStations = (from, to) => {
     setStations((prev) => {
       if (from < 0 || from >= prev.length) return prev;
@@ -405,14 +329,10 @@ function Application() {
   /* ---- PINs — the approval PINs Permissions gates actions behind ---- */
 
   /**
-   * A PIN lives on the person's own record, so this is an ordinary user
-   * patch — `null` clears it. It gets its own handler rather than riding
-   * handleUpdateUser because "Team member updated" is the wrong thing to say
-   * about the one field the floor authenticates against.
-   *
-   * The toast deliberately does NOT repeat the digits, unlike the lead-PIN
-   * one it replaces: the dialog showed them once on purpose, and a toast
-   * outlives the modal it came from — including on a screenshare.
+   * A PIN lives on the person's record; `null` clears it. Separate from
+   * handleUpdateUser so the toast can say what actually happened. The toast
+   * deliberately does not repeat the digits: the dialog showed them once,
+   * and a toast outlives the modal, including on a screenshare.
    */
   const handleSetUserPin = (user, pin) => {
     setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, pin: pin || null } : u)));
@@ -432,12 +352,6 @@ function Application() {
 
   const handleRequestPermission = () => {
     toast("Request received — sort of", { detail: "This is a placeholder for now; the real request flow comes with the full build." });
-  };
-
-  const handleManageAccess = (action) => {
-    toast(`Editing who can ${action.label.toLowerCase()} — sort of`, {
-      detail: "This is a mock of a per-person permissions control; the real picker comes with the full build.",
-    });
   };
 
   const handleRemoveCustomAction = (id) => {
@@ -464,11 +378,8 @@ function Application() {
 
   /* ---- Integrations ---- */
 
-  /* A location with real-time sync on gets an occasional simulated webhook
-   * — a lightweight illusion that Clover is actually pushing updates, not
-   * just sitting there with a toggle flipped on. No toast for these: a
-   * background event isn't something the admin asked for, and a
-   * notification every tick would just train them to ignore this one too. */
+  /* A location with real-time sync on gets an occasional simulated webhook.
+   * No toast: a background event is not something the admin asked for. */
   useEffect(() => {
     const interval = setInterval(() => {
       setIntegrations((prev) => {
@@ -485,8 +396,7 @@ function Application() {
             message: `Webhook received — ${itemCount} item${itemCount === 1 ? "" : "s"} updated.`,
             itemCount,
           };
-          // A trickle, not a sync's whole page walk — but it's still Clover
-          // being asked "what changed," and it's the cost of leaving this on.
+          // A trickle of API calls, not a full sync's worth.
           const callLimit = i.apiCallLimit ?? 5000;
           const callsUsed = Math.min(callLimit, (i.apiCallsUsed || 0) + 1 + Math.floor(Math.random() * 3));
           return {
@@ -504,7 +414,7 @@ function Application() {
       });
     }, 25000);
     return () => clearInterval(interval);
-  }, []);
+  }, [setIntegrations]);
 
   const handleConnectIntegration = (locationId, provider, fields) => {
     const providerName = PROVIDERS.find((p) => p.id === provider)?.name || provider;
@@ -522,9 +432,8 @@ function Application() {
         lastError: null,
         webhookActive: true,
         lastWebhookAt: null,
-        // Reconnecting (Update credentials) picks the meter back up where it
-        // left off — a new API key doesn't reset what Clover has counted
-        // against the account this period.
+        // Reconnecting keeps the meter: a new API key doesn't reset what
+        // Clover has counted against the account this period.
         apiCallsUsed: existing?.apiCallsUsed ?? 0,
         apiCallLimit: existing?.apiCallLimit ?? 5000,
         history: [entry, ...(existing?.history || [])].slice(0, 10),
@@ -542,13 +451,9 @@ function Application() {
       prev.map((i) => {
         if (i.id !== id) return i;
         const entry = { id: newId("H"), at: new Date().toISOString(), type: "disconnected", message: "Disconnected.", itemCount: null };
-        /* The API key goes, the merchant ID stays. They're not the same kind
-         * of thing: the key is a live credential with no reason to outlive the
-         * connection, but the merchant ID just names WHICH Clover account this
-         * location was pointed at — the one field an admin would otherwise
-         * have to go dig out of the Clover dashboard again to reconnect. Now
-         * that connecting lives on the location's own page rather than a
-         * screen of its own, making them re-fetch it is a worse tax. */
+        /* The API key goes, the merchant ID stays: the key is a live
+         * credential, the merchant ID only names which Clover account this
+         * location points at and is a pain to dig up again to reconnect. */
         return {
           ...i,
           status: "disconnected",
@@ -563,10 +468,8 @@ function Application() {
     toast("Disconnected", { tone: "info" });
   };
 
-  /* "Sync now" replaces the old "Test" — it doesn't just check the
-   * credentials, it runs (a simulated) real pull and logs the outcome, so
-   * there's an actual history to show in the detail view rather than a
-   * button that quietly always says yes. */
+  /* Runs a (simulated) real pull and logs the outcome, so the detail view
+   * has an actual history to show. */
   const handleSyncIntegration = (id) => {
     const outcome = simulateSync();
     const now = new Date().toISOString();
@@ -605,14 +508,9 @@ function Application() {
 
   /* ---- Production planning & tasks (shared with the floor terminal) ---- */
 
-  /* Editing the band writes to the real inventory record, not to a private
-   * overrides map — "the min for this product is 50" is a fact about the
-   * product, and the floor app reads the same field. */
-  /* The clamp — a smallest-batch bigger than the whole case can never be
-   * satisfied, so the product would sit in "fine" forever with a permanent
-   * hole in it — moved into `setStockRange` in the shared domain, because the
-   * floor's own item modal writes this same band and did not know the rule.
-   * One writer, one invariant, both ends. */
+  /* Writes to the real inventory record, which the floor app reads too. The
+   * min-batch clamp lives in `setStockRange` in the shared domain so both
+   * writers enforce the same invariant. */
   const handleSetStockRange = (product, { threshold, max, minBatch }) => {
     setInventory((prev) =>
       prev.map((i) => (i.product === product ? setStockRange(i, { threshold, max, minBatch }) : i)),
@@ -625,11 +523,8 @@ function Application() {
     );
   };
 
-  /* `unit` is a real parameter now, not an assumption. Both writers here
-   * hardcoded `unit: "lb"` while the modal that scheduled the run displayed
-   * the product's actual unit — so a plan for "3 racks" of bacon was written
-   * as "3 lb" and the floor's board, which does check units, refused to count
-   * it toward the target it was made for. */
+  /* `unit` must be the product's real unit: the floor's board checks units
+   * and will not count a plan written in the wrong one toward its target. */
   const handleAddScheduleTask = (day, station, product, qty, unit = "lb") => {
     setSchedule((prev) => ({
       ...prev,
@@ -639,16 +534,12 @@ function Application() {
       },
     }));
     toast(`${product} planned`, { detail: `${station} · ${qty} ${unit}` });
-    /* Deliberately never touches `batches`. Planning from the console lands
-     * on a future production day; the floor turns a plan into a live batch
-     * when that day arrives, through its own Start control. That is the whole
-     * division of labour — the console decides what should run, the terminal
-     * decides that it is now running. */
+    /* Deliberately never touches `batches`: the console decides what should
+     * run, the floor decides that it is now running. */
   };
 
-  /* Same as handleAddScheduleTask, but for a family's worth of products at
-   * once — one state update and one toast instead of N, so a bulk "Make"
-   * from Targets doesn't stack a toast per product. */
+  /* Bulk form of handleAddScheduleTask: one state update and one toast
+   * instead of N. */
   const handleAddScheduleTasks = (entries) => {
     if (!entries || entries.length === 0) return;
     setSchedule((prev) => {
@@ -665,16 +556,6 @@ function Application() {
       entries.length === 1 ? `${entries[0].product} planned` : `${entries.length} products planned`,
       { detail: `${entries[0].station} · ${Math.round(totalQty)} ${entries[0].unit || "lb"} total` },
     );
-  };
-
-  const handleRemoveScheduleTask = (day, station, id) => {
-    setSchedule((prev) => ({
-      ...prev,
-      [day]: {
-        ...prev[day],
-        [station]: ((prev[day] && prev[day][station]) || []).filter((t) => t.id !== id),
-      },
-    }));
   };
 
   const handleCreateTaskItem = (task, staff) => {
@@ -706,21 +587,12 @@ function Application() {
     setTasks((prev) => prev.filter((t) => t.id !== id));
   };
 
-  /* Targets' stocking action. A move from the back is floor work for TODAY
-   * by whoever is on shift — no station, no lead time — so it goes to the
-   * task list, not the production schedule.
-   *
-   * `pull` is the part that makes the task actionable rather than merely
-   * correct: back stock lives in two different places (the made pile and
-   * the freezer), so the note names how much comes from each. "Restock 128
-   * lb" sends somebody hunting; "88 lb from the made pile, 40 lb from the
-   * freezer" is a route they can walk. `parts` rides along as structured
-   * data too, so a later screen can check the trip off a location at a time
-   * instead of re-parsing the sentence.
-   *
-   * `product` and `qty` are likewise real fields, not just words in the
-   * title — Targets reads open stocking tasks back through them to stop
-   * re-offering a move somebody already took. */
+  /* Targets' stocking action. A move from the back is floor work for today
+   * with no station or lead time, so it goes to the task list, not the
+   * schedule. `pull` names how much comes from the made pile vs the freezer,
+   * as both a sentence and structured `parts`. `product` and `qty` are real
+   * fields because Targets reads open stocking tasks back through them to
+   * avoid re-offering a move somebody already took. */
   const handleAddStockingTask = (product, qty, unit, urgent, pull) => {
     setTasks((prev) => [
       {
@@ -732,10 +604,8 @@ function Application() {
         dueDate: today,
         product,
         qty,
-        /* `unit` rides along because the floor renders the pull route as
-         * structured parts now, and a part carries a quantity but not the
-         * unit it is measured in — that belongs to the product. Without it
-         * the tablet had to guess "lb". */
+        /* A pull part carries a quantity but not its unit; the floor needs
+         * this to render the route without guessing "lb". */
         unit,
         pullFrom: pull?.parts || [],
         note: pull?.sentence
@@ -778,9 +648,8 @@ function Application() {
   }
 
   const isAdmin = currentUser.role === "admin";
-  // Exclusive, not a ladder: the Operations screens belong to a floor
-  // manager's own location, so an admin doesn't get them by outranking one.
-  // See navFor() in lib/nav.js.
+  // Exclusive, not a ladder: an admin doesn't get the manager's Operations
+  // screens by outranking one. See navFor() in lib/nav.js.
   const isManager = currentUser.role === "manager";
   const nav = navFor({ isAdmin, isManager });
   const current = nav.some((n) => n.id === view) ? view : "insights";
@@ -823,7 +692,6 @@ function Application() {
           users={users}
           production={production}
           stationTargets={stationTargets}
-          onNavigate={setView}
           canManage={isAdmin}
           onAdd={handleAddLocation}
           onUpdate={handleUpdateLocation}
@@ -906,7 +774,6 @@ function Application() {
           onRemoveCustom={handleRemoveCustomAction}
           onRequest={handleRequestPermission}
           users={users}
-          onManageAccess={handleManageAccess}
         />
       )}
 

@@ -7,16 +7,8 @@ import { Badge, Button, Field, Input, Modal } from "../../components/ui";
 import { relativeTime } from "../../lib/domain";
 
 /**
- * Business details as a modal (Sept 2026) — opened from the brand-title
- * dropdown (ConsoleShell's BrandMenu). Replaced the standalone
- * `/company/settings` route from earlier the same session: the user tried
- * a real page first, then asked for a modal instead. See AppShell.jsx's
- * project-memory notes for the full back-and-forth.
- *
- * The parent only mounts this while `settingsOpen` is true (see
- * CompanyConsole.jsx), so local form state always starts fresh from
- * `company` on every open — no reset effect needed, same convention as
- * TeamScreen.jsx's PersonDialog/PinDialog.
+ * Business details modal, opened from the brand-title dropdown. Mounted only
+ * while open, so form state starts fresh from `company` every time.
  */
 export default function SettingsModal({ onClose, company, canManage, onUpdate }) {
   const [name, setName] = useState(company.name);

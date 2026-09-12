@@ -1,4 +1,4 @@
-import ProductionTracker from "./ProductionTracker";
+import ProductionTracker from "./floor/ProductionTracker";
 import TabletFrame from "./components/TabletFrame";
 
 export default function Home() {

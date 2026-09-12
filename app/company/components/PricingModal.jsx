@@ -5,12 +5,7 @@ import { Check, Sparkles } from "lucide-react";
 
 import { Badge, Button, Modal, cx } from "../../components/ui";
 
-/**
- * Mock pricing tiers for the demo — there's no real billing system behind
- * this app, so these numbers/features are illustrative, not a real price
- * list. Picked to roughly track what the console actually gates by role/
- * plan tier elsewhere (locations, POS integrations, permissions).
- */
+/** Illustrative demo tiers — there's no billing system behind this. */
 const PLANS = [
   {
     name: "Starter",
@@ -99,13 +94,8 @@ function PlanCard({ plan, isCurrent, onSelect }) {
 }
 
 /**
- * Pricing/plan modal (Sept 2026) — a new brand-dropdown entry (ConsoleShell's
- * BrandMenu, third item after Settings/Feedback), not gated behind Settings.
- * Selecting a plan applies immediately and closes, same "pick it and you're
- * done" feel as AccountSwitcherMenu's account switch — no separate Save
- * step, unlike SettingsModal's form. `onSelectPlan` is CompanyConsole's
- * `handleChangePlan`, which updates `company.plan` and shows its own toast;
- * this modal doesn't toast itself.
+ * Plan modal, opened from the brand dropdown. Selecting a plan applies
+ * immediately and closes — no Save step. `onSelectPlan` shows its own toast.
  */
 export default function PricingModal({ onClose, currentPlan, onSelectPlan }) {
   const handleSelect = (name) => {
@@ -117,7 +107,7 @@ export default function PricingModal({ onClose, currentPlan, onSelectPlan }) {
     <Modal open onClose={onClose} title="Plan" icon={Sparkles} size="lg">
       <div className="space-y-3">
         <p className="text-xs text-ink-3">
-          This is a demo — switching plans here doesn't charge anything, it just updates what's shown as your plan.
+          This is a demo — switching plans here doesn&apos;t charge anything, it just updates what&apos;s shown as your plan.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {PLANS.map((plan) => (

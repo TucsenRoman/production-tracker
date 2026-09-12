@@ -11,48 +11,26 @@ import { ArrowLeft, RotateCw } from "lucide-react";
 
 import { cx } from "./ui";
 
-/**
- * Read by AppShell (the h-full swap) to know it is rendered inside a
- * TabletFrame. Defaults to false, so CompanyConsole — which never renders
- * inside one — is completely unaffected.
- *
- * ProductionTracker's Shell used to read this too, to decide whether to
- * portal the dev RoleSwitcher chip straight to document.body: the bezel's
- * own `transform: scale()` becomes a containing block for anything
- * `position: fixed` inside it, which trapped the chip against the mock
- * device instead of the real viewport. That chip switched a role the floor
- * no longer has and is retired, so only the h-full swap reads this now.
- */
+/** Read by AppShell (the h-full swap) to know it is inside a TabletFrame. */
 export const TabletFrameContext = createContext(false);
 
 /**
- * iPad Pro 11-inch (4th generation, 2022) — A2759.
- *
- * The mockup used to be an eyeballed rounded rectangle, which is the one
- * thing a device mockup must not be: if the proportions are invented, the
- * screenshot proves nothing about how the app sits on the real hardware.
- * So every number here is that specific iPad, expressed in ITS OWN points,
- * and the whole frame is rendered at one scale factor away from 1:1:
+ * iPad Pro 11-inch (4th generation, 2022) — A2759. Every number is that
+ * iPad in its own points; the whole frame renders at one scale factor:
  *
  *   display   2388 x 1668 px @2x  ->  834 x 1194 pt
  *   enclosure 247.6 x 178.5 mm    ->  bezel is (247.6-229.7)/2 = 8.95 mm on
  *                                     the long edge and (178.5-160.5)/2 =
  *                                     9.0 mm on the short one, i.e. uniform
  *   9.0 mm at 132 pt/inch         ->  47 pt of glass on all four sides
- *   display corner radius             18 pt (Apple's own value for this
- *                                     panel; iPad corners are far subtler
- *                                     than a phone's, which is exactly what
- *                                     the old approximation got wrong)
+ *   display corner radius             18 pt (Apple's value for this panel)
  *
- * The enclosure radius is CONCENTRIC with the display's — 18 + 47 = 65 pt —
- * because that is how the physical part is machined, and a non-concentric
- * pair is the tell that reads as "mockup" even when nobody can say why.
+ * The enclosure radius is concentric with the display's (18 + 47 = 65 pt),
+ * as the physical part is machined.
  *
- * The front camera on this generation sits centred on a SHORT edge, so it is
- * top-centre in portrait and mid-LEFT in landscape. Keeping it attached to
- * the same physical edge (rather than always drawing it "at the top") is
- * what makes the rotate control read as the device turning rather than the
- * picture being redrawn.
+ * The front camera sits centred on a SHORT edge: top-centre in portrait,
+ * mid-left in landscape. Keeping it on the same physical edge makes the
+ * rotate control read as the device turning.
  */
 const IPAD = {
   screenW: 834,
@@ -66,47 +44,30 @@ const SHELL_RADIUS = IPAD.screenRadius + IPAD.bezel;
 const OUTER_W = IPAD.screenW + IPAD.bezel * 2; // 928 pt
 const OUTER_H = IPAD.screenH + IPAD.bezel * 2; // 1288 pt
 
-/** Breathing room between the device and the edges of its stage. */
-/* Breathing room around the device, and the only thing now standing between
- * the bezel and the window edge — 12 rather than 20, since the corner
- * controls float over this same margin instead of taking a band of their
- * own. Small enough that the tablet reads as filling the screen. */
+/** Breathing room between the device and the edges of its stage; the corner
+ * controls float over this same margin. */
 const STAGE_MARGIN = 12;
 
 /**
- * Wraps the floor app in a device mockup for demos, so a screenshot reads as
- * "this is the tablet on the production floor" without a caption. Purely
- * visual chrome outside the app's own Notion DNA component system; only used
- * from ProductionTracker's Shell. CompanyConsole is never wrapped in this and
- * stays a normal, fully responsive web page.
+ * Wraps the floor app in a device mockup for demos. The device is sized by
+ * measuring its stage and solving for the largest whole iPad that fits: one
+ * scalar (`pt`, CSS pixels per iPad point) drives bezel, radii, camera and
+ * screen alike.
  *
- * The device is sized by measuring its stage and solving for the largest
- * whole iPad that fits — one scalar (`pt`, CSS pixels per iPad point) drives
- * bezel, radii, camera and screen alike, so the proportions above hold at any
- * window size instead of only at the one the numbers were tuned on.
- *
- * Deliberately NO `transform: scale()` (which the earlier version used to fit
- * a fixed 1180x820 logical screen into small windows). Scaling shows the app
- * at a viewport it will never actually run at, just drawn smaller — every
- * breakpoint, every wrap point and every real line-length problem hidden
- * behind a zoom. Sizing the screen area in real CSS pixels instead means the
- * app inside genuinely reflows, which is the only version of this mockup that
- * can tell you anything you didn't already know. (Caveat worth knowing: the
- * app's own `lg:` rules are viewport media queries, so they answer to the
- * browser window, not to this frame — see the note in the report.)
+ * Deliberately no `transform: scale()`: scaling shows the app at a viewport
+ * it never runs at. Sizing the screen in real CSS pixels makes the app
+ * genuinely reflow. Caveat: the app's `lg:` rules are viewport media queries,
+ * so they answer to the browser window, not this frame.
  */
 export default function TabletFrame({ children }) {
   const [portrait, setPortrait] = useState(false);
-  // Stage size in CSS pixels. Null until measured, and the device isn't
-  // rendered until then — mounting the app into a 0x0 box would have it take
-  // its own first measurements (AppShell's mobile header height, say)
+  // Null until measured, and the device isn't rendered until then: mounting
+  // the app into a 0x0 box would have it take its own first measurements
   // against a viewport that never existed.
   const [stage, setStage] = useState(null);
   const stageRef = useRef(null);
 
-  // useLayoutEffect + an immediate read, so the very first paint already has
-  // a real size: same measure-don't-guess pattern the rest of this codebase
-  // uses, and it avoids a frame of the app laid out at zero width.
+  // useLayoutEffect + an immediate read, so the first paint has a real size.
   useLayoutEffect(() => {
     const el = stageRef.current;
     if (!el) return;
@@ -121,9 +82,8 @@ export default function TabletFrame({ children }) {
   const outerW = portrait ? OUTER_W : OUTER_H;
   const outerH = portrait ? OUTER_H : OUTER_W;
 
-  // One scale factor for the whole device. Fits by the tighter of the two
-  // axes so the iPad is never clipped on a short window — the case the old
-  // fixed-size frame handled by shrinking the app instead.
+  // One scale factor for the whole device, fit by the tighter axis so the
+  // iPad is never clipped on a short window.
   const pt = stage
     ? Math.max(
         0,
@@ -148,14 +108,9 @@ export default function TabletFrame({ children }) {
       className="fixed inset-0"
       style={{ background: "#e5e0d5" }}
     >
-      {/* Harness controls, in the BROWSER window's top corners — outside the
-          device, on the page background.
-          
-          Icon-only for the reason the header bar died: at full height the
-          tablet is nearly the whole window, and the only room left is the
-          narrow gutter either side of it. A labelled link needs ~160px and
-          runs through the device's rounded corner; a 32px circle clears it at
-          every size the frame is usable at. Names are in the `title`. */}
+      {/* Harness controls in the browser window's top corners. Icon-only:
+          a labelled link runs through the device's rounded corner, a 32px
+          circle clears it at every usable size. Names are in `title`. */}
       <Link
         href="/company/milaca-meats"
         aria-label="Back to console"
@@ -219,20 +174,10 @@ export default function TabletFrame({ children }) {
                 borderRadius: px(IPAD.screenRadius),
                 overflow: "hidden",
                 background: "#fff",
-                /* The screen is the app's viewport, so anything the app pins
-                 * with `position: fixed` — AppShell's mobile bottom nav, most
-                 * visibly — has to pin to the glass, not to the browser
-                 * window. The old frame got that for free from its
-                 * `transform: scale()` (a transform makes an element a
-                 * containing block for fixed descendants); dropping the
-                 * transform to let the app reflow dropped that side effect
-                 * with it, and the tab bar started sitting on the paper below
-                 * the iPad. `contain: layout` restores the containing block
-                 * deliberately rather than by accident, and its isolation is
-                 * true here anyway: nothing inside a device screen should
-                 * influence layout outside it. Parts the app portals to
-                 * document.body (tooltips, modals) are outside this subtree
-                 * by design and are unaffected. */
+                /* `contain: layout` makes the screen a containing block for
+                 * `position: fixed` descendants (AppShell's bottom tab bar),
+                 * so they pin to the glass rather than the browser window.
+                 * Parts portaled to document.body are unaffected. */
                 contain: "layout",
               }}
             >

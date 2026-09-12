@@ -13,24 +13,13 @@ const GRID_DAYS = 35; // five Sun–Sat weeks, always a full 5x7 block regardles
 const TONE_ICON = { warn: AlertTriangle, danger: AlertTriangle, ok: CheckCircle2, neutral: Sparkles };
 const TONE_TEXT = { warn: "text-warn", danger: "text-danger", ok: "text-ok", neutral: "text-ink-2" };
 
-/* Same per-entity identity palette as the old multi-line trend chart used —
- * "deliberately its own hue family per swatch" (see globals.css), the right
- * choice for "which location," never a status. */
+/* Per-entity identity palette (see globals.css): "which location", never a status. */
 const SERIES_DOT = ["bg-identity-1", "bg-identity-2", "bg-identity-3", "bg-identity-4"];
 
 /**
- * One-tap questions per insight type, phrased as real questions but each
- * containing the exact keyword `answerInsightQuestion` (../lib/insights)
- * matches for that card's `context.type` — so every chip is a *guaranteed*
- * real answer, not a guess at phrasing the deterministic responder might
- * not recognize. Freeform typing is still there for anything else, just no
- * longer the only way in. No "trend" chip: the responder's trend branch
- * always returns the same "not enough data yet" line today, so a button
- * that always disappoints isn't worth offering.
- *
- * `day` covers a single calendar cell — every day with batches on it gets
- * the same guaranteed-answer chips as a rolled-up insight card, not just
- * the raw batch list.
+ * One-tap questions per `context.type`. Each `text` contains the exact
+ * keyword `answerInsightQuestion` matches, so every chip yields a real
+ * answer. No "trend" chip: that branch only ever says "not enough data yet".
  */
 const QUICK_QUESTIONS = {
   location: [
@@ -49,13 +38,10 @@ const QUICK_QUESTIONS = {
 };
 
 /**
- * A day's fill is the one sequential encoding on the whole screen: how good
- * was that day, in one hue (`--color-ok`) from barely-there to solid,
- * via `color-mix` against the real token rather than a hand-duplicated hex —
- * if the token ever moves, this moves with it. Flagged status and location
- * identity are deliberately separate visual channels (a corner icon, corner
- * dots) so magnitude, status and identity are never fighting for the same
- * pixel.
+ * A day's fill is the screen's one sequential encoding: yield in a single hue,
+ * mixed against the `--color-ok` token so it tracks theme changes. Flagged
+ * status and location identity use separate channels (corner icon, corner
+ * dots) so magnitude, status and identity never compete for the same pixel.
  */
 function yieldStyle(y) {
   if (y == null) return undefined;
@@ -65,13 +51,9 @@ function yieldStyle(y) {
 }
 
 /**
- * The detail panel's content for anything with a deterministic `context`
- * bundle behind it — a rolled-up insight card, or a single calendar day.
- * Same "Ask about this" Q&A either way (see ../lib/insights): a narrative
- * header, then guaranteed-answer chips, freeform as a fallback, and a
- * running thread. `children`, when given, renders between the narrative
- * and the chips — used to slot in a day's batch list without it needing
- * its own separate Q&A wiring.
+ * Detail panel for anything with a `context` bundle — an insight card or a
+ * calendar day: narrative, question chips, opt-in freeform, running thread.
+ * `children` renders between the narrative and the chips (a day's batch list).
  */
 function InsightDetail({ card, children }) {
   const Icon = TONE_ICON[card.tone];
@@ -79,9 +61,8 @@ function InsightDetail({ card, children }) {
   const [thread, setThread] = useState([]);
   const [customOpen, setCustomOpen] = useState(false);
 
-  // De-duped against the last question asked, not the whole thread -- a
-  // second tap of the same chip re-reads as "show me that again," not as
-  // a demand for a fresh duplicate line.
+  // De-duped against the last question only: re-tapping a chip means "show
+  // me that again", not "add a duplicate line".
   const ask = (raw) => {
     const q = (raw ?? question).trim();
     if (!q) return;
@@ -106,10 +87,8 @@ function InsightDetail({ card, children }) {
       <div className="pl-[26px] mt-3">
         {children && <div className="mb-3">{children}</div>}
 
-        {/* Chips first, always visible -- no click just to find out this is
-         *  interactive. Each one is a guaranteed real answer (see
-         *  QUICK_QUESTIONS above); freeform is opt-in via the last pill,
-         *  since it's the one path that can dead-end in a generic fallback. */}
+        {/* Chips always visible; freeform is opt-in via the last pill since
+         *  it's the one path that can dead-end in a generic fallback. */}
         <div className="flex items-center flex-wrap gap-1.5">
           {quick.map((qq) => (
             <button
@@ -166,28 +145,14 @@ function InsightDetail({ card, children }) {
 }
 
 /**
- * The console's landing screen — formerly a general Overview (onboarding
- * checklist, needs-attention list, locations at a glance), then a stack of
- * stat tiles + a trend chart + a card list. This version is one thing: a
- * five-week calendar of closed batches, sized to actually use the page,
- * with a single detail panel beside it instead of a page of separate
- * sections. Click a day to see what closed on it; nothing selected shows
- * the highest-priority rolled-up insight instead (same content the old
- * card list had — `insights.cards`, already sorted by tone — just one at a
- * time, paged with the small dots rather than stacked as boxes).
+ * The console's landing screen: a five-week calendar of closed batches with
+ * one detail panel beside it. A selected day becomes a synthesized
+ * `context.type: "day"` card through the same InsightDetail machinery as the
+ * rolled-up cards; nothing selected shows `insights.cards` one at a time.
  *
- * Every clickable day gets the same treatment as a rolled-up insight card —
- * a one-line narrative (tone, average yield, anything flagged) plus the
- * same guaranteed-answer "Ask about this" chips, not just a bare batch
- * list — via a synthesized `context.type: "day"` card fed through the same
- * `InsightDetail`/`answerInsightQuestion` machinery the rolled-up cards use.
- *
- * Scoped by role rather than one fixed view: `insights` and `history` are
- * already pre-filtered by the caller (CompanyConsole) down to whatever
- * locations the signed-in user can see, and each `history` item now
- * carries `locationId`/`locationName` (tagged by CompanyConsole) so a day
- * with batches from more than one location can show which via small
- * identity-coloured dots instead of needing a separate per-location view.
+ * `insights` and `history` arrive pre-filtered by CompanyConsole to the
+ * locations the user can see, and each history item carries
+ * `locationId`/`locationName` so multi-location days can show identity dots.
  */
 export default function InsightsScreen({ scopeLabel, insights, history, targets = {} }) {
   const [selectedDay, setSelectedDay] = useState(null);
@@ -247,27 +212,21 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
         avgY,
         flaggedCount,
         flagged: flaggedCount > 0,
-        // Only worth marking whose location a batch belongs to when there's
-        // more than one in view -- on a single-location scope every dot
-        // would just repeat the same colour on every day, telling the
-        // viewer nothing they don't already know from the header.
+        // Location dots only mean something with more than one location in view.
         dots: multi ? locationIds.map((id) => SERIES_DOT[seenLocations.indexOf(id) % SERIES_DOT.length]) : [],
         isToday: key === today,
         isFuture: key > today,
       };
     });
-  }, [history, multi]);
+  }, [history, multi, targets]);
 
   const weeks = [];
   for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
 
   const selectedCell = selectedDay ? days.find((d) => d.key === selectedDay) : null;
 
-  // Synthesize the same shape of card the rolled-up insights use, so a
-  // selected day gets a real narrative + the guaranteed-answer chips
-  // instead of a bare list. Tone follows the same signal the calendar cell
-  // itself already shows: flagged beats everything, then a clear beat of
-  // the company average reads as good news, otherwise it's just the facts.
+  // Same card shape as the rolled-up insights. Tone: flagged beats
+  // everything, a clear beat of the company average is good news, else neutral.
   const companyAvg = insights.company.avgYield;
   const dayCard = useMemo(() => {
     if (!selectedCell || selectedCell.batches.length === 0) return null;

@@ -8,19 +8,15 @@ import { useDoubleTapHotkey } from "../lib/useDoubleTapHotkey";
 import { TabletFrameContext } from "./TabletFrame";
 
 /**
- * The one app frame, shared by the floor Production tracker and the Company
- * console so the two can't drift apart. The Production version was the source
- * of truth for this layout:
+ * The one app frame, shared by the floor tracker and the Company console.
  *
  *  - a rail on the canvas, no border, that collapses 240px → 48px;
  *  - collapsing animates width/margin (never unmount) on the title and every
- *    nav label, so the rail narrows in one motion at 300ms;
+ *    nav label, so the rail narrows in one 300ms motion;
  *  - collapsed, the toggle centers on the same 24px axis as the nav icons;
- *  - the page content lives in a floating rounded/bordered surface card that
- *    owns its own scroll, with the phone header and tab bar unchanged.
+ *  - page content lives in a floating surface card that owns its own scroll.
  *
- * Everything app-specific comes in as props: nav items, the sidebar footer
- * user block, page actions/subtitle, and anything overlaid on the frame.
+ * Everything app-specific comes in as props.
  */
 
 /** Static class names so Tailwind can see every column count it may render. */
@@ -36,27 +32,14 @@ const TAB_COLS = {
 export default function AppShell({
   brand,
   /**
-   * Which chrome this app wears. Two apps, two machines, two answers.
+   * Which chrome this app wears. "rail" (default, the console): collapsible
+   * 240px sidebar, floating content card, 32px page title. "tabs" (the shop
+   * floor): a bottom tab bar at every width, full-width content.
    *
-   * "rail" (default, the console) is the desktop shape: a collapsible
-   * 240px sidebar, a floating content card, a 32px page title.
-   *
-   * "tabs" (the shop floor) is a bottom tab bar at every width, a slim top
-   * strip naming the shop and the screen, and content that runs the full
-   * width and scrolls as a page.
-   *
-   * The floor used to get "rail" in landscape and, purely because the `lg`
-   * breakpoint happens to fall between an iPad's two orientations, the
-   * bottom bar in portrait — so the tablet had two different navigations
-   * depending on which way somebody turned it. It is also carried around
-   * the shop rather than parked, and a rail is the one nav position a
-   * held tablet cannot reach with the thumb holding it. Three destinations
-   * were costing 240px, a fifth of the screen's width, most of it empty
-   * since the user block came out.
-   *
-   * This is a prop rather than a breakpoint because it is not a question
-   * about width. A phone-sized console window should still get the rail;
-   * a landscape tablet should still get tabs.
+   * A prop rather than a breakpoint because it is not a question of width:
+   * a phone-sized console window still gets the rail, a landscape tablet
+   * still gets tabs (the `lg` breakpoint falls between an iPad's two
+   * orientations, and a held tablet's thumb can reach the bottom, not a rail).
    */
   chrome = "rail",
   nav,
@@ -71,34 +54,24 @@ export default function AppShell({
   pageActions = null,
   pageSubtitle = null,
   overlay = null,
-  // Optional account switcher hook — only the console passes these. When
-  // omitted the sidebar footer renders exactly as it always has (the floor
-  // app doesn't pass them, so it's unaffected).
+  // Optional account switcher (console only); omitted, the footer is inert.
   userMenuOpen = false,
   onUserMenuOpenChange = null,
   userMenu = null,
-  // Same opt-in shape as the account switcher above, for a menu hung off
-  // the brand title instead of the footer — only the console passes these
-  // (see CompanyConsole's BrandMenu). Omitted, the header renders exactly
-  // as it always has: brand text, then the collapse toggle, nothing else.
+  // Same opt-in shape for a menu hung off the brand title (console only).
   brandMenuOpen = false,
   onBrandMenuOpenChange = null,
   brandMenu = null,
   children,
 }) {
   const active = nav.find((n) => n.id === view) || nav[0];
-  // Opt-in `hidden: true` on a nav item keeps it addressable (still
-  // findable above for `active`, so its own `label` becomes the page
-  // title when `view` points at it) without giving it a sidebar row, a
-  // mobile tab, or a hotkey digit — for a screen reachable only from
-  // somewhere else (e.g. the console's Settings, opened from the account
-  // popover). Neither app set this before, so this is purely additive:
-  // no `n.hidden` means no behavior change from today.
+  // `hidden: true` keeps a nav item addressable (still found for `active`, so
+  // its label becomes the page title) without a sidebar row, mobile tab, or
+  // hotkey digit — for a screen reachable only from somewhere else.
   const visibleNav = useMemo(() => nav.filter((n) => !n.hidden), [nav]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Same outside-click/Escape pattern as the Dropdown in ui.jsx — closes the
-  // account switcher popover without the caller having to wire that up itself.
+  // Outside-click/Escape closes the account switcher popover.
   const userMenuRef = useRef(null);
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -114,8 +87,7 @@ export default function AppShell({
     };
   }, [userMenuOpen, onUserMenuOpenChange]);
 
-  // Same pattern again for the brand dropdown — two independent popovers,
-  // each closing on its own outside click/Escape, never on each other's.
+  // Same for the brand dropdown; the two popovers close independently.
   const brandMenuRef = useRef(null);
   useEffect(() => {
     if (!brandMenuOpen) return;
@@ -131,13 +103,10 @@ export default function AppShell({
     };
   }, [brandMenuOpen, onBrandMenuOpenChange]);
 
-  // Measured, not guessed — a page that wants a sticky element to clear the
-  // mobile header (see TasksScreen's sticky toolbar) needs the header's real
-  // rendered height, safe-area inset and all, not a hardcoded px value that
-  // drifts out of sync the next time this header's content changes. Comes
-  // back 0 once the header itself goes `lg:hidden`, so a consumer needs no
-  // separate desktop override — `var(--app-mobile-header-h, 0px)` is already
-  // 0 there.
+  // Measured, not hardcoded: a sticky element clearing the mobile header
+  // needs its real rendered height, safe-area inset included. Reads 0 once
+  // the header goes `lg:hidden`, so `var(--app-mobile-header-h, 0px)` needs
+  // no desktop override.
   const mobileHeaderRef = useRef(null);
   const [mobileHeaderH, setMobileHeaderH] = useState(0);
   useEffect(() => {
@@ -154,9 +123,7 @@ export default function AppShell({
     };
   }, []);
 
-  // Double-tap "0" toggles the sidebar; double-tap a digit jumps to that nav
-  // item. Both are the same gesture, so they're the same hook — see
-  // useDoubleTapHotkey for the shared typing/repeat/modifier guard.
+  // Double-tap "0" toggles the sidebar; double-tap a digit jumps to that nav item.
   const hotkeyBindings = useMemo(() => {
     const bindings = { 0: () => setSidebarOpen((o) => !o) };
     visibleNav.slice(0, 9).forEach((n, i) => {
@@ -166,15 +133,11 @@ export default function AppShell({
   }, [visibleNav, onNavigate]);
   useDoubleTapHotkey(hotkeyBindings);
 
-  // Split once so a pinned item (Insights) renders after a divider at the
-  // end of the rail instead of inline with the rest. `i` stays the item's
-  // position in the original `nav` array so its hotkey digit — and the
-  // tooltip that names it — still matches the binding built above.
+  // `i` is the item's position in `visibleNav`, so the hotkey digit and the
+  // tooltip that names it match the binding built above.
   const renderNavItem = (n, i) => {
     const on = n.id === view;
-    // Double-tap hotkey only exists for the first 9 items — the
-    // tooltip names it the same way the toggle names B B, so
-    // it's discoverable rather than tribal knowledge.
+    // Hotkeys exist only for the first 9 items; the tooltip names the digit.
     const digit = i < 9 ? String(i + 1) : null;
     const tooltipLabel = digit ? `${n.label} (${digit} ${digit})` : n.label;
     const navButton = (
@@ -184,10 +147,9 @@ export default function AppShell({
         className={cx(
           "relative w-full flex items-center px-2 h-[var(--ctl-h)] rounded-md text-sm font-medium",
           "transition-colors duration-100",
-          // Selection is the same 5% tint as hover. Accent is not spent on navigation.
-          // --row-bg tracks that same state as a flat color (the 5% tint
-          // pre-composited over canvas) so an icon like Insights' can give
-          // its own knockout a background that never mismatches the row.
+          // Selection is the same 5% tint as hover; accent is not spent on nav.
+          // --row-bg is that tint pre-composited over canvas, so an icon's
+          // knockout can match the row exactly.
           on
             ? "bg-hover text-ink font-medium [--row-bg:#f4f4f3]"
             : "text-ink-2 hover:bg-hover hover:text-ink [--row-bg:var(--color-canvas)] hover:[--row-bg:#f4f4f3]"
@@ -204,19 +166,14 @@ export default function AppShell({
         >
           {n.label}
         </span>
-        {/* "trailing" only works once the row is wider than the icon —
-            the expanded rail has room for it at the row's own right edge.
-            Collapsed, the row IS icon-width, so it falls back to
-            "corner": pinned to the row's own top-right, hanging mostly
-            outside it rather than centered on top of the icon. */}
+        {/* "trailing" needs a row wider than the icon; collapsed, the row is
+            icon-width, so the dot pins to the row's top-right corner. */}
         <TabDot count={n.count} variant={sidebarOpen ? "trailing" : "corner"} />
       </button>
     );
-    // Always the same wrapper — toggling between Tooltip and a
-    // bare Fragment here would change the subtree's element type
-    // and force React to remount it, which skipped the label's
-    // collapse transition entirely (it'd just snap to state).
-    // `disabled` suppresses the tooltip instead, open or not.
+    // Always the same wrapper: swapping Tooltip for a Fragment would remount
+    // the subtree and skip the label's collapse transition. `disabled`
+    // suppresses the tooltip instead.
     return (
       <Tooltip key={n.id} label={tooltipLabel} side="right" className="w-full" disabled={sidebarOpen}>
         {navButton}
@@ -224,40 +181,30 @@ export default function AppShell({
     );
   };
 
-  // `pinned: "bottom"` (Insights) breaks off into its own group after a
-  // divider; everything else keeps its normal order.
+  // `pinned: "bottom"` items render in their own group after a divider.
   const mainNavItems = [];
   const bottomNavItems = [];
   visibleNav.forEach((n, i) => (n.pinned === "bottom" ? bottomNavItems : mainNavItems).push([n, i]));
 
-  // Inside a TabletFrame the shell fills a fixed-size mock device instead of
-  // the real browser viewport, so `min-h-screen`/`h-screen` (which measure
-  // against the window, not this element's own container) would overflow
-  // the frame's bezel. Swap to h-full there; CompanyConsole never renders
-  // inside a TabletFrame so `framed` is always false for it.
+  // Inside a TabletFrame the shell fills a fixed-size mock device, so
+  // `h-screen` (which measures the window) would overflow the bezel; use
+  // h-full there.
   const framed = useContext(TabletFrameContext);
 
-  /* In tabs mode the desktop branch is not "hidden at this width", it does
-   * not exist — so rather than fighting every `lg:` class with an override,
-   * `lgOnly` blanks them out at the source. Keeps one JSX tree instead of
-   * two, and keeps the rail app byte-identical to what it renders today. */
+  /* In tabs mode the desktop branch does not exist at any width, so `lgOnly`
+   * blanks the `lg:` classes at the source instead of overriding each one. */
   const tabs = chrome === "tabs";
   const lgOnly = (classes) => (tabs ? "" : classes);
 
   return (
-    /* Screens post their own header controls up here through `Slot`. The
-     * provider has to sit above BOTH the header and `children`, since the
-     * target is in one and the poster is in the other. */
+    /* The Slot provider must sit above both the header (target) and
+     * `children` (poster). */
     <SlotProvider>
     <div
       className={cx(
-        /* Tabs mode owns its scroll rather than letting the page scroll.
-         * On a real device that is simply better — the shop name and the tab
-         * bar stay put while only the work moves — and in the TabletFrame
-         * mock it is the difference between usable and not: the mock screen
-         * is a fixed-height `overflow: hidden` box, so a page-scrolling
-         * layout inside it is clipped at the fold with no way to reach the
-         * rest. */
+        /* Tabs mode owns its scroll rather than letting the page scroll: the
+         * TabletFrame mock screen is a fixed-height `overflow: hidden` box,
+         * so a page-scrolling layout inside it is clipped at the fold. */
         framed ? "h-full" : tabs ? "h-screen" : "min-h-screen lg:h-screen",
         tabs ? "flex flex-col overflow-hidden" : "lg:flex lg:flex-col lg:overflow-hidden",
         "bg-canvas"
@@ -271,18 +218,12 @@ export default function AppShell({
             : "lg:flex-1 lg:flex lg:overflow-hidden lg:min-h-0 lg:py-3 lg:pr-3"
         }
       >
-        {/* Desktop sidebar. Collapsing shrinks the rail to icon width; the nav
-            labels collapse their own width/margin over the same 300ms, so
-            nothing unmounts or pops — it all narrows together. Absent
-            entirely in tabs mode: the bottom bar below is the nav there, and
-            a hidden rail would still cost its wrapper's layout. */}
+        {/* Desktop sidebar. Absent entirely in tabs mode. */}
         {!tabs && (
         <div
           className={cx(
-            // No overflow-hidden here: the inner <aside> animates its own
-            // width in lockstep, so nothing overflows it at rest — clipping
-            // this wrapper too was only cutting off the nav Tooltips, which
-            // are meant to float outside the rail.
+            // No overflow-hidden: the inner <aside> animates its own width in
+            // lockstep, and clipping here would cut off the nav Tooltips.
             "hidden lg:block lg:shrink-0",
             "transition-all duration-300",
             sidebarOpen ? "w-60" : "w-12"
@@ -294,24 +235,16 @@ export default function AppShell({
               sidebarOpen ? "w-60" : "w-12"
             )}
           >
-            {/* Header row: title left edge lines up with the nav icons'
-                left edge (row px-2 + this ml-2 == nav's row px-2 + button
-                px-2). justify-between then does the toggle's positioning for
-                free — flush right while open, and naturally centered on the
-                icon axis once collapsed, since the rail narrows to exactly
-                the button's own width. Only the title's width/opacity
-                animate; nothing needs an (unanimatable) auto-margin flip. */}
+            {/* Header row: title left edge lines up with the nav icons
+                (row px-2 + ml-2 == nav row px-2 + button px-2).
+                justify-between positions the toggle: flush right while open,
+                centered on the icon axis once the rail narrows to the
+                button's own width. No auto-margin flip needed. */}
             <div className="flex items-center justify-between px-2 h-[var(--ctl-h)] mb-1">
-              {/* Relative anchor for the optional brand dropdown (Settings
-                  and other real pages, on the console) — the chevron only
-                  renders when a caller wires onBrandMenuOpenChange, and
-                  only while the rail is open (collapsed, there's no room
-                  for the brand text it sits beside either). */}
+              {/* Relative anchor for the optional brand dropdown. */}
               <div ref={brandMenuRef} className="relative min-w-0">
                 {onBrandMenuOpenChange ? (
-                  // Text + chevron are one clickable target (not text next to
-                  // a separate small chevron button) so clicking anywhere on
-                  // the brand title opens the menu.
+                  // Text + chevron are one clickable target.
                   <button
                     type="button"
                     onClick={() => onBrandMenuOpenChange(!brandMenuOpen)}
@@ -365,15 +298,10 @@ export default function AppShell({
             {sidebarExtra && sidebarOpen && <div className="px-2 pb-2">{sidebarExtra}</div>}
 
             <nav className="flex-1 flex flex-col gap-0.5 overflow-visible px-2">
-              {/* Optional `group` on a nav item clusters it with its
-                  neighbors of the same group under one quiet section label.
-                  Expanded: a small uppercase caption above the cluster —
-                  collapsed: the caption has nothing to sit next to, so it
-                  shrinks away and a hairline divider stands in for it
-                  instead, same treatment as the bottom-pinned divider below.
-                  Both the divider and the label are always in the tree;
-                  only their classes change with sidebarOpen, so nothing
-                  swaps element type or remounts mid-transition. */}
+              {/* `group` clusters neighboring nav items under a caption when
+                  expanded, a hairline divider when collapsed. Both stay in
+                  the tree; only classes change, so nothing remounts
+                  mid-transition. */}
               {mainNavItems.map(([n, i], idx) => {
                 const prevGroup = idx > 0 ? mainNavItems[idx - 1][0].group : undefined;
                 const isNewGroup = idx > 0 && n.group !== prevGroup;
@@ -404,24 +332,13 @@ export default function AppShell({
                   </React.Fragment>
                 );
               })}
-              {/* A hairline, not a labeled section — Insights is still a nav
-                  item, just one the user asked kept visually apart from the
-                  rest of the tabs. */}
+              {/* A hairline, not a labeled section. */}
               {bottomNavItems.length > 0 && <div className="my-1 shrink-0 border-t border-line" />}
               {bottomNavItems.map(([n, i]) => renderNavItem(n, i))}
             </nav>
 
-            {/* The whole footer is opt-in, and the floor opts out.
-              *
-              * A shared terminal has nobody to name. It used to sit here
-              * anyway — an avatar reading "MM", the shop's name where a
-              * person's would go, and a "Shared terminal" badge underneath —
-              * which is a lot of chrome spent saying "this is not a user".
-              * The shop is already on screen permanently as the brand line at
-              * the top of the rail (that label is the defence against a
-              * mis-set tablet), so the footer was repeating it in the costume
-              * of an account. The console still passes a real person and gets
-              * the full block, switcher and all. */}
+            {/* The footer is opt-in; a shared floor terminal has nobody to
+                name, so it opts out. */}
             {userName && (
             <div className="px-2 pt-3">
               <div ref={userMenuRef} className="relative">
@@ -430,10 +347,8 @@ export default function AppShell({
                 )}
                 <div className="flex items-center py-2">
                   {/* Avatar rides the same 24px axis as the nav icons, so the
-                      collapsed rail reads as one column. Clickable to open
-                      the account switcher when the caller wired one up
-                      (console only — the floor app doesn't pass onUserMenuOpenChange,
-                      so this stays a plain, inert block there). */}
+                      collapsed rail reads as one column. Clickable only when
+                      an account switcher is wired up. */}
                   {onUserMenuOpenChange ? (
                     <button
                       type="button"
@@ -484,11 +399,8 @@ export default function AppShell({
                       </div>
                     </div>
                   )}
-                  {/* A shell with no session has nothing to sign out OF — the
-                      floor terminal now opens straight up behind the iPad's own
-                      passcode. Rendering the control anyway left a button that
-                      looked live and did nothing, which is worse than the space
-                      it saves. */}
+                  {/* No session, no sign-out control: a button that looks live
+                      and does nothing is worse than the space it saves. */}
                   {onSignOut && (
                   <button
                     onClick={onSignOut}
@@ -512,17 +424,8 @@ export default function AppShell({
         </div>
         )}
 
-        {/* Top bar — phone-width in rail mode, and NOT AT ALL in tabs mode.
-          *
-          * On the floor it had one job left: name the shop and hang the
-          * "Change shop" chevron off it. Both moved to a tab of their own,
-          * which is a better home for the setting (with one location
-          * configured the chevron never rendered at all, so the tablet's only
-          * setting was reachable only in a demo state) and frees the strip's
-          * height on a screen where the work was below the fold.
-          *
-          * The screen still gets a title: the page H2 below renders in tabs
-          * mode, scrolling with the content instead of pinned above it. */}
+        {/* Top bar: phone-width in rail mode, absent in tabs mode (the page
+            H2 below names the screen there, scrolling with the content). */}
         {!tabs && (
         <header
           ref={mobileHeaderRef}
@@ -539,10 +442,8 @@ export default function AppShell({
                 {active.label}
               </h1>
             </div>
-            {/* Same on the mobile header, and gone entirely without a user —
-                see the sidebar footer above. With a session the chip is a
-                sign-out button; with a user but no session it is an identity
-                badge. */}
+            {/* With a session the chip is a sign-out button; with a user but
+                no session it is an identity badge. */}
             {userName && (
             <div
               className={cx(
@@ -567,34 +468,22 @@ export default function AppShell({
           <div className={tabs ? "h-full" : lgOnly("lg:h-full")}>
             <ScrollArea
               axis="y"
-              // Tabs mode owns its scroll and always wants to BE the scroll
-              // container, overflowing or not — self-arming is a horizontal
-              // affordance for rails that would otherwise clip a badge.
-              // Rail mode turns overflow on only at `lg:` through the classes
-              // below, so ScrollArea must keep its hands off it entirely.
+              // Tabs mode is always the scroll container; rail mode turns
+              // overflow on only at `lg:` via the classes below, so ScrollArea
+              // must not arm itself there.
               arm={tabs ? true : false}
-              // Enough slack at the bottom that every tab can reach the point
-              // where the toolbar pins. Without it a two-row tab has no scroll
-              // range, so `scrollAppToToolbar` has nowhere to land and the page
-              // header pops back in on exactly the short tabs. Measured against
-              // the toolbar, and it computes to 0 when a screen has none or when
-              // this box is not the thing scrolling.
               void
-              // No mask here. The fade belongs to StickyFadeHeader, which
-              // already fades what scrolls up behind the toolbar; a second one
-              // on the container would darken the last row of every list.
+              // No mask: StickyFadeHeader already fades what scrolls behind
+              // the toolbar, and a second one would darken the last row.
               fade={false}
-              // Named so a page (see TasksScreen's "back to top" control) can
-              // find and scroll *this* element specifically — on mobile the
-              // page itself scrolls instead, so callers should still fall
-              // back to `window` when this doesn't move.
+              // Named so a page can scroll *this* element; on mobile the page
+              // itself scrolls, so callers fall back to `window`.
               data-app-scroll
               className={cx(
                 "mx-auto w-full px-4 pt-5 pb-28 sm:px-6",
                 tabs && "h-full thin-scrollbar",
-                /* Tabs mode runs edge to edge: a production board wants the
-                   width, and with the rail gone there is plenty. Rail mode
-                   keeps its reading-width cap and its floating card. */
+                /* Tabs mode runs edge to edge; rail mode keeps its
+                   reading-width cap and floating card. */
                 tabs ? "max-w-none" : "max-w-5xl",
                 lgOnly(
                   "lg:max-w-none lg:h-full lg:overflow-y-auto thin-scrollbar lg:px-6 lg:py-6" +
@@ -602,25 +491,18 @@ export default function AppShell({
                 )
               )}
             >
-              {/* The page header carries the page's OWN actions and a one-line
-                  subtitle, so a screen never has to stack them into its content
-                  where they read as one more filter. Phones already get the view
-                  name from the sticky bar, so only actions and subtitle show. */}
+              {/* The page header carries the page's own actions and a one-line
+                  subtitle, so a screen never has to stack them into its
+                  content where they read as one more filter. */}
               <div className="mb-4">
                 <div className="flex items-start justify-between gap-4">
-                  {/* Shown in tabs mode too, now that nothing above it names
-                    * the screen. It scrolls away with the content rather than
-                    * holding height permanently, which is the trade the old
-                    * sticky strip could not make. */}
+                  {/* Shown in tabs mode too, since nothing above names the screen. */}
                   <h2 className={cx(lgOnly("hidden lg:block"), "text-[32px] font-bold text-ink leading-tight")}>
                     {active.label}
                   </h2>
-                  {/* Two ways in, on purpose. `pageActions` is for a shell
-                      that already knows the control; the slot is for a screen
-                      that owns the state behind it — a settings dialog's open
-                      flag lives in the screen, and prop-drilling it up through
-                      the console just to render a button would put the button
-                      and its handler in different files. */}
+                  {/* Two ways in, on purpose: `pageActions` for a shell that
+                      already knows the control, the slot for a screen that
+                      owns the state behind it. */}
                   <div className="flex items-center gap-2 ml-auto shrink-0">
                     {pageActions}
                     <SlotTarget name="page-actions" className="flex items-center gap-2" />
@@ -635,9 +517,8 @@ export default function AppShell({
 
         {overlay}
 
-        {/* The tab bar. Phone-width only in rail mode; the app's whole
-            navigation in tabs mode, sitting on the bottom edge where a thumb
-            already is on a tablet somebody is carrying. */}
+        {/* The tab bar: phone-width only in rail mode, the whole navigation
+            in tabs mode. */}
         <nav
           className={cx(
             lgOnly("lg:hidden"),
@@ -658,14 +539,9 @@ export default function AppShell({
                     on ? "text-ink" : "text-ink-3"
                   )}
                 >
-                  {/* The dot hangs off the ICON, not off the button.
-                      The button here is a full grid column — on a 1194pt
-                      tablet that is ~300px wide with a 19px glyph centered
-                      in it, so pinning the dot to the button's own corner
-                      parked it in empty space nearer the next tab than to
-                      the icon it was counting. Wrapping the glyph gives the
-                      dot the tight box "corner" assumes it has, which is
-                      what the collapsed rail already gives it. */}
+                  {/* The dot hangs off the icon, not the button: the button is
+                      a full grid column (~300px on a 1194pt tablet), so a dot
+                      pinned to its corner would sit nearer the next tab. */}
                   <span className="relative flex shrink-0">
                     <n.icon size={19} className="shrink-0" />
                     <TabDot count={n.count} variant="glyph" />

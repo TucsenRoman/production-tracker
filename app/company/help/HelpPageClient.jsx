@@ -15,18 +15,13 @@ import { COMPANY_SEED } from "../lib/companyDomain";
 import { navFor } from "../lib/nav";
 
 /**
- * Help as its own real route (`/company/help`, Sept 2026) \u2014 the one
- * brand-dropdown item that's a page rather than a modal, since reference
- * material is worth deep-linking or leaving open in another tab. Same
- * thin-server-page-imports-client-component shape, and the same
- * useHydrated-gate-no-redirect-on-mount pattern, that Settings/Feedback
- * used back when they were briefly routes too \u2014 see AppShell.jsx's
- * project-memory notes for why that pattern matters (a real data-loss bug
- * came from skipping it once).
+ * Help as a real route: the one brand-dropdown item that's a page rather
+ * than a modal, since reference material is worth deep-linking. Gates on
+ * useHydrated and never redirects on mount: the session lives in storage,
+ * so redirecting before hydration would bounce a signed-in user.
  *
- * Also wires up its own brand-dropdown modals (Settings/Feedback/Plan) via
- * useBrandModals/BrandModals, same as CompanyConsole.jsx, so the dropdown
- * behaves identically no matter which page it's opened from.
+ * Wires its own brand-dropdown modals via useBrandModals/BrandModals, same
+ * as CompanyConsole.jsx, so the dropdown behaves identically from either page.
  */
 function Application() {
   const router = useRouter();

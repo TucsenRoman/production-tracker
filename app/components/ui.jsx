@@ -36,22 +36,17 @@ export const cx = (...parts) => parts.filter(Boolean).join(" ");
 /** Send the app's scroll container back to the top.
  *
  *  Both targets are hit on purpose: in tabs mode AppShell's `[data-app-scroll]`
- *  element owns the scroll (see the tablet-chrome notes), while in rail mode at
- *  phone width the page itself scrolls. Whichever one is actually scrolling is
- *  the one that moves; the other is already at 0 and ignores it.
+ *  owns the scroll; in rail mode at phone width the page itself scrolls.
+ *  Whichever is scrolling moves; the other is already at 0.
  *
- *  `behavior` defaults to instant, which is right for a **tab change**: the
- *  list underneath has already been replaced, so animating to it just plays a
- *  scroll through content that is no longer there. Pass "smooth" for a
- *  deliberate "back to top" control, where the travel is the feedback.
+ *  `behavior` defaults to instant, which is right for a tab change (the list
+ *  has already been replaced). Pass "smooth" for a deliberate "back to top"
+ *  control, where the travel is the feedback.
  *
- *  Why this exists at all: the scroll container is ONE persistent element that
- *  every screen renders into, so switching to a shorter list leaves scrollTop
- *  past the new maximum and the browser silently clamps it — Tasks measured
- *  365 → 150 → 0 walking Open → Due today → Overdue, and coming back to Open
- *  landed at 0 with the position gone. That reads as the app throwing you to an
- *  arbitrary offset. Landing at the top of the new list is the deterministic
- *  answer — decided with the user Sept 9 2026. */
+ *  The scroll container is one persistent element every screen renders into,
+ *  so switching to a shorter list leaves scrollTop past the new maximum and
+ *  the browser silently clamps it to an arbitrary offset. Landing at the top
+ *  of the new list is the deterministic answer. */
 export function scrollAppToTop(behavior = "auto") {
   document.querySelector("[data-app-scroll]")?.scrollTo({ top: 0, behavior });
   window.scrollTo({ top: 0, behavior });
@@ -60,22 +55,17 @@ export function scrollAppToTop(behavior = "auto") {
 /** Where a sticky `anchor` comes to rest inside scroller `sc`, and whether it
  *  is resting there right now.
  *
- *  `offset` is the scroll position at which the anchor pins — the resting
- *  place a tab change wants. It is only trustworthy while the anchor is
- *  LOOSE: once pinned, its rect IS the pinned position and every way of
- *  asking degenerates to "wherever you are now" (`offsetTop` included —
- *  Blink folds the sticky shift into it, so a bar reading 76 at rest reads
- *  361 when scrolled). `pinned` is how a caller knows which it got.
+ *  `offset` is only trustworthy while the anchor is LOOSE: once pinned, its
+ *  rect IS the pinned position and every way of asking degenerates to
+ *  "wherever you are now" (`offsetTop` included — Blink folds the sticky
+ *  shift into it). `pinned` tells the caller which it got.
  *
  *  The stuck position is the sticky inset PLUS the scroller's own start
- *  padding, not the inset alone. Getting that wrong is subtle and expensive:
- *  the test for "is it pinned" then never fires, a scrolled bar looks loose,
- *  and whatever cached its offset caches nonsense.
+ *  padding. With the inset alone the pinned test never fires and a cached
+ *  offset is nonsense.
  *
- *  One function because two callers must agree — `scrollAppToToolbar` aims
- *  at this point and ScrollArea's `void` reserves the range to reach it. If
- *  they compute it differently the void is the wrong size by exactly the
- *  disagreement, which is a 20px mystery nobody enjoys finding twice. */
+ *  One function because two callers must agree: `scrollAppToToolbar` aims at
+ *  this point and ScrollArea's `void` reserves the range to reach it. */
 function stickPoint(sc, anchor, vertical = true) {
   const edge = vertical ? "top" : "left";
   const pad = vertical ? "paddingTop" : "paddingLeft";
@@ -92,27 +82,20 @@ function stickPoint(sc, anchor, vertical = true) {
 
 /** Scroll back to the point where the screen's toolbar STICKS — not to 0.
  *
- *  This is what a tab change wants. Going to 0 throws the page title and
- *  anything above the bar back onto the screen, so every tab change replays
- *  the header you already scrolled past; the useful resting place is the one
- *  where the toolbar is pinned and the first row sits directly under it.
+ *  Going to 0 replays the header you already scrolled past on every tab
+ *  change; the useful resting place is the toolbar pinned with the first row
+ *  directly under it.
  *
- *  Never scrolls DOWN. If you are already above the stick point the header is
- *  genuinely on screen and belongs there, so the target is `min(current,
- *  stick)` and switching tabs near the top of the page moves nothing.
+ *  Never scrolls DOWN: the target is `min(current, stick)`, so switching tabs
+ *  near the top of the page moves nothing.
  *
- *  Measuring it: a stuck element's rect IS its stuck position, so you cannot
- *  read its natural offset while it is stuck. Parking the container at 0
- *  first puts it back at its layout position, and both writes land in one
- *  task, so the browser paints only the final result — no flicker. The
- *  toolbar sits ABOVE the list, so its offset does not depend on which tab's
- *  rows are rendered below and this stays correct even when React has not
- *  committed the new list yet.
+ *  A stuck element's rect IS its stuck position, so its natural offset is
+ *  read after parking the container at 0; both writes land in one task, so
+ *  only the final result is painted. The toolbar sits above the list, so
+ *  its offset is correct even before React commits the new list.
  *
- *  `top` on the bar is the sticky inset (`--app-mobile-header-h`, or the
- *  negative `lg:` pull that seats it flush with the container's own padding),
- *  and it has to come out of the offset — that inset is exactly how far past
- *  its own position the bar has travelled once stuck. */
+ *  `top` on the bar is the sticky inset and comes out of the offset — it is
+ *  how far past its own position the bar travels once stuck. */
 export function scrollAppToToolbar(behavior = "auto") {
   const bar = document.querySelector("[data-screen-toolbar]");
   const sc = document.querySelector("[data-app-scroll]");
@@ -128,24 +111,16 @@ export function scrollAppToToolbar(behavior = "auto") {
     return;
   }
 
-  /* Capture the position we are LEAVING, once.
-   *
-   * This runs inside the click handler, so the old tab's rows are still in
-   * the DOM and the new tab's scroll range does not exist yet — and if the
-   * new tab is short, ScrollArea's `void` has not been measured or applied
-   * either. Setting the scroll now therefore gets clamped to a range that is
-   * about to change twice: once when React commits the new list, and again
-   * when the void lands a frame or two later.
-   *
-   * So the target is computed from the position we started at and then
-   * re-applied across the next few frames until it takes. Re-reading
-   * `scrollTop` each pass instead would be self-defeating — after the first
-   * clamp it reads 0, and `min(0, stick)` is 0 forever. */
+  /* Capture the position we are LEAVING, once. This runs inside the click
+   * handler, so the scroll range is about to change twice: when React commits
+   * the new list, and again when ScrollArea's `void` lands a frame or two
+   * later. The target is computed from the starting position and re-applied
+   * until it takes; re-reading `scrollTop` each pass would read 0 after the
+   * first clamp, and `min(0, stick)` is 0 forever. */
   const from = sc.scrollTop;
   const settle = () => {
-    // `stickPoint` can only be read while the bar is loose, so park at 0 —
-    // where it always is — and put the scroll straight back. Both writes land
-    // in one task, so only the final result is painted.
+    // `stickPoint` can only be read while the bar is loose, so park at 0 and
+    // put the scroll straight back; both writes paint as one.
     const at = sc.scrollTop;
     sc.scrollTop = 0;
     const { offset } = stickPoint(sc, bar, true);
@@ -160,11 +135,9 @@ export function scrollAppToToolbar(behavior = "auto") {
   };
   apply(target);
 
-  /* Chase it for a few frames. Each pass recomputes the target (the stick
-   * point can only be read once the new content is laid out) and stops as
-   * soon as the container actually holds it — which is the frame the void
-   * finished growing. Five frames is generous for a render → measure →
-   * setState → render round trip and costs nothing once it lands. */
+  /* Chase it for a few frames: recompute the target each pass and stop once
+   * the container actually holds it (the frame the void finished growing).
+   * Five frames covers a render → measure → setState → render round trip. */
   let frames = 5;
   const chase = () => {
     const t = settle();
@@ -177,16 +150,11 @@ export function scrollAppToToolbar(behavior = "auto") {
 /* ------------------------------------------------------------------ Slots -- */
 
 /**
- * Named portals from a screen into the app shell.
- *
- * A page's own actions — "Add product", a data-source status, a refresh —
- * belong beside the page title, not stacked into the middle of the content
- * where they read as one more filter. But the title is rendered by the shell
- * and the handlers live in the screen, so the screen posts into a slot the
- * shell put there.
- *
- * A ref callback sets the target once, so there is no state to keep in step
- * and no render loop to guard against.
+ * Named portals from a screen into the app shell. A page's own actions belong
+ * beside the page title, but the title is rendered by the shell and the
+ * handlers live in the screen, so the screen posts into a slot the shell put
+ * there. A ref callback sets the target once, so there is no render loop to
+ * guard against.
  */
 const SlotContext = createContext(null);
 
@@ -287,11 +255,9 @@ export function IconButton({
   icon: Icon,
   size = 16,
   className,
-  /* A bare icon needs a hoverable name, so `label` becomes a native `title`
-   * by default. Pass `title={null}` to suppress it — which is what `Tooltip`
-   * does to its child, so a tooltipped IconButton shows ONE label instead of
-   * this bubble plus the browser's own a second later. `aria-label` is
-   * unaffected either way. */
+  /* `label` becomes a native `title` by default. Pass `title={null}` to
+   * suppress it (Tooltip does this to its child so only one label shows).
+   * `aria-label` is unaffected either way. */
   title,
   ...rest
 }) {
@@ -325,10 +291,9 @@ export function Card({
     <Tag
       {...rest}
       className={cx(
-        // Not a card. A section is two rules — one above, one below — and the
-        // page showing through between them. No side borders, no radius, no
-        // shadow: the DNA bans wrapping a GROUP in a box, and every one of
-        // these held a group.
+        // Not a box: two rules, one above and one below, with the page showing
+        // through. No side borders, radius or shadow — the DNA bans wrapping a
+        // group in a box.
         "bg-surface border-y border-line",
         inset && "py-3",
         className,
@@ -339,71 +304,25 @@ export function Card({
   );
 }
 
-export function CardHeader({
-  title,
-  subtitle,
-  icon: Icon,
-  actions,
-  className,
-}) {
-  return (
-    <div
-      className={cx(
-        "flex items-start justify-between gap-3 py-2.5 border-b border-line",
-        className,
-      )}
-    >
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 text-sm font-medium text-ink">
-          {Icon && <Icon size={16} className="text-icon-2 shrink-0" />}
-          <span className="truncate">{title}</span>
-        </div>
-        {/* Same size as the title, separated by colour alone — the flat scale. */}
-        {subtitle && <p className="mt-0.5 text-sm text-ink-2">{subtitle}</p>}
-      </div>
-      {actions && (
-        <div className="flex items-center gap-2 shrink-0">{actions}</div>
-      )}
-    </div>
-  );
-}
-
-export function CardBody({ className, children }) {
-  return <div className={cx("py-3", className)}>{children}</div>;
-}
-
 /* ---------------------------------------------------------- Sticky header -- */
 
 /**
- * A sticky sub-header that fades whatever's scrolling up behind it, instead
- * of hard-clipping it. The fade is a `mask-image` on the header's own
- * background — real content-area padding, not a separate absolutely-
- * positioned strip — so it needs no JS "is this actually stuck yet" state
- * (a masked-but-solid box looks identical to a fully solid one until
- * there's something behind it to reveal), and it contributes its own height
- * to the scrolling container's natural scrollHeight, so nothing further
- * down the tree needs a hand-matched reserve to compensate. See
- * TasksScreen's toolbar for the case this was extracted from.
+ * A sticky sub-header that fades whatever scrolls up behind it instead of
+ * hard-clipping it. The fade is a `mask-image` on the header's own padding,
+ * not a separate strip, so it needs no "is it stuck yet" JS state and its
+ * height counts toward the container's natural scrollHeight.
  *
- * `top` defaults to the offset every OTHER sticky sub-header living inside
- * the content area needs too: `--app-mobile-header-h` (set by AppShell)
- * clears the mobile header — already 0 once that header's `lg:hidden` — and
- * `lg:-1.5rem` pulls the stuck position up flush with [data-app-scroll]'s
- * own `lg:py-6` padding, which a bare `top-0` would otherwise leave as a
- * gap that whatever's mid-scroll shows straight through. Override it only
- * if this header doesn't live in that same containing block.
+ * `top` defaults to what every sticky sub-header in the content area needs:
+ * `--app-mobile-header-h` clears the mobile header (0 once it is `lg:hidden`)
+ * and `lg:-1.5rem` seats the stuck position flush with [data-app-scroll]'s
+ * `lg:py-6` padding, which a bare `top-0` would leave as a see-through gap.
  *
- * `fade`/`pad` are px, not Tailwind steps, because they're tuned per
- * instance — inline style avoids needing every possible pb-N/mask-stop
- * combination to already exist in the compiled CSS. `pad` is the header's
- * total bottom padding (solid buffer + fade zone); `fade` is how much of
- * that, measured up from the bottom edge, actually fades — `pad - fade` is
- * the buffer that holds content fully opaque until it's genuinely leaving.
+ * `fade`/`pad` are px via inline style because they are tuned per instance.
+ * `pad` is total bottom padding; `fade` is the part of it that fades, so
+ * `pad - fade` is the buffer that holds content opaque until it is leaving.
  *
- * `bg` defaults to the one real background this pattern has needed so far
- * (canvas on mobile, the card surface at `lg:`); pass a different value for
- * a header that sits on something else — the mask only ever reveals
- * whatever's really behind THIS box, so it must match.
+ * `bg` must match whatever is really behind this box; the mask only ever
+ * reveals that.
  */
 export function StickyFadeHeader({
   children,
@@ -412,17 +331,12 @@ export function StickyFadeHeader({
   bg = "bg-canvas lg:bg-surface",
   fade = 18,
   pad = 44,
-  /* Symmetric with `pad`, and numeric for the same reason: the two paddings
-   * are one decision about how much air the bar sits in, and expressing one
-   * as a utility class and the other as a style made them look unrelated.
-   * 12 is exactly the `pt-3` this used to hardcode, so every existing caller
-   * renders identically. */
+  /** px, symmetric with `pad`. */
   padTop = 12,
   z = 10,
-  /* Anything else lands on the STICKY element itself — which matters for
-   * `data-screen-toolbar`: `scrollAppToToolbar` reads this element's
-   * computed `top` as the sticky inset, and an inner child reports `auto`
-   * for that and sits at its parent's padding rather than at the pin. */
+  /* Anything else lands on the STICKY element itself. This matters for
+   * `data-screen-toolbar`: `scrollAppToToolbar` reads this element's computed
+   * `top` as the sticky inset, and an inner child would report `auto`. */
   ...rest
 }) {
   return (
@@ -443,33 +357,22 @@ export function StickyFadeHeader({
 }
 
 /**
- * The one composition every floor screen's toolbar uses.
- *
- * `StickyFadeHeader` above owns the sticky positioning and the mask fade —
- * but it never owned the LAYOUT, so each screen re-inlined its own row and
- * they drifted: Tasks wrapped its rail in `justify-between` and passed
- * padTop 24, Batches deliberately passed no wrapper at all, Inventory used
- * the default padTop of 12 and grew a second line. Three treatments of one
- * bar. This component is that row, so there is one place to change it.
+ * The one toolbar composition every floor screen uses, so the row's layout
+ * lives in one place rather than being re-inlined per screen.
  *
  * Slots, in the order they render:
- *   `tabs`    the Segmented rail. Gets `flex-1 min-w-0` — with no `actions`
- *             beside it that resolves to the FULL row, which is what
- *             BatchesScreen's station rail needs. Boxing that rail to its
- *             own content width is the bug its long comment describes:
- *             463px inside an 1100px column left it permanently 6px too
- *             narrow for its own chips, a width that can never arm
- *             ScrollArea's scroller, so the chips spilled and the mask
- *             clipped them. Never give this slot a shrink-to-fit parent.
+ *   `tabs`    the Segmented rail. Gets `flex-1 min-w-0`, so with no `actions`
+ *             it takes the full row. Never give this slot a shrink-to-fit
+ *             parent: boxed to its content width it can end up a few px too
+ *             narrow for its own chips, which can never arm ScrollArea's
+ *             scroller, so the chips spill and the mask clips them.
  *   `actions` the screen's own controls, pinned right, never shrinking.
- *   `refine`  optional SECOND line: the narrowing that applies WITHIN the
- *             selected tab. It reads as a refinement of the lit chip above
- *             it, which is what it is — on one row with the tabs it read as
- *             a set of peer controls competing for the same job.
+ *   `refine`  optional second line: the narrowing that applies within the
+ *             selected tab. On one row with the tabs it reads as a set of
+ *             peer controls competing for the same job.
  *   `status`  what the filters did to the list, sitting with `refine`.
  *
- * `data-screen-toolbar` is what `scrollAppToToolbar` looks for; see that
- * function for why the bar has to be findable from outside the screen.
+ * `data-screen-toolbar` is what `scrollAppToToolbar` looks for.
  */
 export function ScreenToolbar({ tabs, actions, refine, status, className }) {
   const hasSecondLine = refine != null || status != null;
@@ -497,21 +400,15 @@ export function ScreenToolbar({ tabs, actions, refine, status, className }) {
 /* -------------------------------------------------------- Section heading -- */
 
 /**
- * The heading that opens one group inside a flat, un-boxed list: a small
- * icon, the label in caps, that group's count, then a hairline running out
- * to the right edge.
+ * The heading that opens one group inside a flat, un-boxed list: icon, label
+ * in caps, count, then a hairline running out to the right edge.
  *
- * The rule sits ON the heading's own line rather than under it. A hairline
- * *below* the label reads as one more row divider — easy to mistake for
- * another item in the list instead of a break between sections.
+ * The rule sits ON the heading's line, not under it — a hairline below the
+ * label reads as one more row divider.
  *
- * Render one for every group, always, including when a filter has narrowed
- * the list to a single group. A list that silently drops its headings once
- * there's only one of them reads as broken rather than tidy.
- *
- * Pair with a `pl-6` list beneath: with no box or divider around the group
- * itself, that indent is the only thing that reads as "these belong to
- * that heading".
+ * Render one for every group, even when a filter leaves a single group; a
+ * list that drops its headings reads as broken. Pair with a `pl-6` list
+ * beneath: the indent is the only thing that says "these belong here".
  */
 export function SectionHeading({ icon: Icon, label, count, className }) {
   return (
@@ -533,19 +430,11 @@ export function SectionHeading({ icon: Icon, label, count, className }) {
 /**
  * Per-row controls (edit, remove, …). Put `group` on the row itself.
  *
- * Hover-reveal is a CONSOLE pattern, not a universal one. At a desk, hiding
- * repeated row controls until the row is hovered stops a long list reading
- * as a wall of buttons. On the shop floor it is the wrong trade entirely:
- * those terminals are wall-mounted touch tablets operated in gloves, where
- * `:hover` never fires, and reaching a control via `focus-within` means
- * first tapping the row — which, on a row that is itself a button, fires
- * that row's action instead. A hidden control there is a missing one.
- *
- * So: `hover: none` always forces them visible, and floor screens should
- * additionally pass `always` rather than relying on that media query — a
- * floor row's actions are part of the row, not a reveal, and they should
- * not appear and disappear when the same screen is opened on a desktop to
- * check something.
+ * Hover-reveal is a console pattern. On the floor's touch tablets `:hover`
+ * never fires and reaching a control via `focus-within` means tapping the
+ * row first, which on a row that is itself a button fires the row's action.
+ * So `hover: none` forces them visible, and floor screens should also pass
+ * `always` so the same screen opened on a desktop behaves the same.
  */
 export function RowActions({ always = false, className, children }) {
   return (
@@ -640,11 +529,8 @@ const INPUT_BASE =
   "transition-colors duration-100 focus:border-primary outline-none " +
   "disabled:bg-sunken disabled:text-ink-3";
 
-/**
- * `pill` is for an input that sits in a row of chips — a weight range beside
- * the filters it narrows. It has to take the chips' shape and size or it reads
- * as a different class of control sitting in the wrong row.
- */
+/** `pill` is for an input that sits in a row of chips and must take their
+ *  shape and size. */
 export function Input({
   invalid,
   pill = false,
@@ -703,9 +589,8 @@ export function SearchInput({
     <div
       className={cx(
         "flex items-center gap-2 h-[var(--ctl-h)] bg-surface border border-line-strong",
-        // The ring belongs to the whole pill, not just the <input> inside it —
-        // drawn here on focus-within, with the input's own ring switched off,
-        // so a focused search field stays one unbroken shape.
+        // Focus ring on the whole pill (input's own ring is off) so a focused
+        // search field stays one shape.
         "focus-within:border-primary focus-within:shadow-[0_0_0_2px_var(--color-canvas),0_0_0_4px_var(--color-primary)]",
         "transition-colors duration-100",
         pill ? "rounded-full px-3" : "rounded-md px-2.5",
@@ -713,9 +598,8 @@ export function SearchInput({
       )}
     >
       <Search size={14} className="text-icon-2 shrink-0" />
-      {/* type="text", not "search" — Safari/Chrome each draw their own
-          cancel glyph and field decoration on a search input, on top of the
-          clear button below. One clear affordance, drawn by us. */}
+      {/* type="text", not "search": browsers draw their own cancel glyph on a
+          search input, on top of the clear button below. */}
       <input
         type="text"
         inputMode="search"
@@ -738,26 +622,17 @@ export function SearchInput({
   );
 }
 
-/**
- * A hover label for a control whose meaning isn't self-evident from its
- * text alone — built, not the native `title` attribute, which every browser
- * delays and styles differently (and some skip on touch entirely). Keyboard
- * focus shows it too, so it isn't a mouse-only explanation.
- */
 const TOOLTIP_GAP = 6; // trigger-to-bubble gap, in every direction
 const TOOLTIP_MARGIN = 8; // never closer than this to the viewport edge
 
 /**
- * Boundary-aware: `side` is a preference, not a promise. The bubble is
- * measured against the trigger's actual on-screen rect and the current
- * viewport after it mounts, then placed with `position: fixed` in real
- * viewport coordinates (portaled to `document.body`, so no ancestor's
- * `overflow`/stacking context gets a vote) — flipped to the opposite side
- * if the preferred one doesn't fit, and slid along the cross-axis to stay
- * fully on-screen either way. A trigger pinned in a screen corner (see
- * TasksScreen's back-to-top button) is exactly the case a fixed CSS
- * placement (centered on the trigger, no matter what's beside it) can't
- * handle — this can, because it actually knows where the edges are.
+ * A hover/focus label — built, not the native `title`, which browsers delay
+ * and style differently and some skip on touch.
+ *
+ * `side` is a preference, not a promise: the bubble is measured after mount,
+ * portaled to `document.body` with `position: fixed` (no ancestor overflow
+ * gets a vote), flipped if the preferred side does not fit, and slid along
+ * the cross axis to stay on screen.
  */
 export function Tooltip({
   label,
@@ -765,27 +640,17 @@ export function Tooltip({
   side = "top",
   className,
   disabled = false,
-  // Opt-in only: pins the bubble directly above the pointer instead of
-  // centering it on the trigger's own box. The trigger-centered default is
-  // right for the normal case (an icon or button, where the trigger IS
-  // basically a point) but wrong for a trigger that's a long strip of a
-  // bar — centering on a wide trigger puts the bubble wherever its
-  // midpoint happens to be, which can be far from where the pointer
-  // actually is. Every other call site leaves this off and is unaffected.
+  // Pin the bubble above the pointer instead of the trigger's centre. For a
+  // trigger that is a long strip, the centre can be far from the pointer.
   followCursor = false,
 }) {
   const [open, setOpen] = useState(false);
-  // Where to actually draw the bubble, in viewport coordinates — null
-  // until the first post-mount measurement resolves it, so nothing paints
-  // at the wrong (0,0, pre-measurement) spot even for one frame.
+  // Viewport coordinates; null until measured, so nothing paints at (0,0).
   const [pos, setPos] = useState(null);
   const timerRef = useRef(null);
   const wrapRef = useRef(null);
   const bubbleRef = useRef(null);
-  // Last known pointer position, in viewport coordinates. A ref, not
-  // state — it's read only at the moments we actually reposition (open,
-  // and each subsequent move while open), so it doesn't need to trigger a
-  // render just from being written.
+  // Last known pointer position. A ref: only read when repositioning.
   const cursorRef = useRef({ x: 0, y: 0 });
 
   const reposition = () => {
@@ -800,9 +665,7 @@ export function Tooltip({
 
     if (followCursor) {
       const { x, y } = cursorRef.current;
-      // Prefers directly above the pointer; drops below it only when
-      // there's genuinely no room above, same "flip rather than clip"
-      // rule the trigger-anchored path below uses.
+      // Above the pointer; below it only when there is no room above.
       const top =
         y - bubble.height - TOOLTIP_GAP >= TOOLTIP_MARGIN
           ? y - bubble.height - TOOLTIP_GAP
@@ -880,10 +743,7 @@ export function Tooltip({
     setOpen(false);
     setPos(null);
   };
-  // Keeps the bubble pinned above the pointer as it moves across a wide
-  // trigger, rather than freezing it wherever the pointer happened to
-  // enter — only does anything once the bubble is already open, and only
-  // in followCursor mode.
+  // followCursor only: keep the bubble above the pointer as it moves.
   const track = (e) => {
     if (!followCursor || typeof e.clientX !== "number") return;
     cursorRef.current = { x: e.clientX, y: e.clientY };
@@ -891,25 +751,18 @@ export function Tooltip({
   };
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  // Runs after the (invisible, unmeasured) bubble is in the DOM but before
-  // the browser paints, so the flip/clamp math is invisible to the user —
-  // it never shows the wrong position first and then jumps.
+  // Layout effect: the bubble is measured and placed before paint, so it
+  // never shows at the wrong position and then jumps.
   useLayoutEffect(() => {
     if (!open) return;
     reposition();
-    // Re-measures only on the signals that can actually move the trigger or
-    // change the bubble's own size — not every render.
+    // Re-measure only on signals that can move the trigger or resize the bubble.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, side, label]);
 
-  /* Strip a native `title` off the child. `IconButton` sets one on every
-   * instance — correct on its own, since a bare icon with no accessible or
-   * hoverable name is useless — but wrapping one in a Tooltip then produced
-   * TWO labels on hover: this bubble, and the browser's own box a second
-   * later, usually with different words in it. Replacing the native tooltip
-   * is the entire point of this component, so it takes the title away rather
-   * than asking every call site to remember to. `aria-label` is untouched;
-   * the accessible name never depended on `title`. */
+  /* Strip a native `title` off the child (IconButton sets one), otherwise a
+   * tooltipped control shows this bubble AND the browser's own box a second
+   * later. `aria-label` is untouched. */
   const child =
     React.isValidElement(children) && children.props?.title !== null
       ? React.cloneElement(children, { title: null })
@@ -952,24 +805,16 @@ export function Tooltip({
   );
 }
 
-/** Every floating part of a Dropdown is cut from one surface — hairline,
- *  6px radius, no fill of its own beyond the panel colour. Declared once so a
- *  pinned control and the option list can never drift apart. */
+/** The one surface every floating panel is cut from, so a pinned control and
+ *  the option list can never drift apart. */
 const PANEL = "rounded-md border border-line-strong bg-surface shadow-md";
 
 /**
- * A filter that opens a menu instead of a row of pills — built, not the OS
- * widget. The native `<select>` renders whatever chrome the platform feels
- * like that week; this one is the same hairline-and-ring surface as every
- * other floating panel in the system, and it matches its trigger's height and
- * radius exactly, which no native control can promise across browsers.
- *
- * `on` marks the trigger as active (non-default) the same way FilterChip did.
+ * A filter that opens a menu — built, not the native `<select>`, so it shares
+ * the system's panel surface and matches its trigger's height and radius.
+ * `on` marks the trigger as active (non-default).
  */
-/* Trigger-to-menu gap. Popover's own constants are declared further down
- * with the primitive that introduced them; this one sits here so Dropdown
- * reads on its own. */
-const DROPDOWN_GAP = 4;
+const DROPDOWN_GAP = 4; // trigger-to-menu gap
 
 export function Dropdown({
   value,
@@ -980,20 +825,14 @@ export function Dropdown({
   disabled,
   className,
   menuSide = "bottom",
-  // A control that acts on the option list rather than being one of its
-  // choices — an A–Z toggle, a quick filter. It gets its OWN floating panel,
-  // stacked above or below the options with a gap between them: a thing that
-  // does something to the list is not a row of the list, and a hairline
-  // inside one shared panel was never enough to say so. `pinnedSide` picks
-  // which end of the stack it sits at.
+  // A control that acts on the option list rather than being a choice (an
+  // A–Z toggle, a quick filter). It gets its own panel, stacked above or
+  // below the options; `pinnedSide` picks which end.
   pinned,
   pinnedSide = "top",
-  /* Multi-select. `value` becomes an ARRAY of option values and `onChange`
-   * is handed the next array; the menu stays open while you tick things,
-   * because picking three locations should not be three trips through the
-   * same control. An empty array means "no narrowing applied" — the caller
-   * decides what that means for its list, and the trigger says so with
-   * `placeholder`. */
+  /* Multi-select: `value` is an array and `onChange` gets the next array.
+   * The menu stays open while ticking. An empty array means "no narrowing";
+   * the trigger says so with `placeholder`. */
   multiple = false,
   /** Trigger text when a multi-select has nothing picked (e.g. "All locations"). */
   placeholder,
@@ -1022,16 +861,10 @@ export function Dropdown({
     };
   }, [open]);
 
-  /* The menu is PORTALED and `position: fixed`, for exactly the reason
-   * Popover is (read its comment). It used to position itself `absolute`
-   * inside the trigger's own box, which works right up until the trigger
-   * lives in a sticky toolbar — and in this app that toolbar is
-   * `StickyFadeHeader`, whose whole job is to carry a `mask-image`. A mask
-   * clips its subtree, so the menu was cut off at the header's padding edge
-   * and faded out by the gradient: on the floor Inventory screen its three
-   * filter menus showed one option and swallowed every click on the rest.
-   * Same measure-flip-clamp as Popover, re-run on scroll and resize so a
-   * menu hung off a sticky control stays attached while the page moves. */
+  /* Portaled and `position: fixed`, for the same reason as Popover: an
+   * `absolute` menu inside a `StickyFadeHeader` is clipped and faded by the
+   * header's mask. Same measure-flip-clamp as Popover, re-run on scroll and
+   * resize so a menu hung off a sticky control stays attached. */
   useLayoutEffect(() => {
     if (!open) return undefined;
     const place = () => {
@@ -1048,11 +881,8 @@ export function Dropdown({
         placed === "top"
           ? trigger.top - menu.height - DROPDOWN_GAP
           : trigger.bottom + DROPDOWN_GAP;
-      /* Hang from the trigger's left edge by default, but flip to its RIGHT
-       * edge when the menu would otherwise run off the side — a control
-       * parked at the right of a toolbar (a scope picker, say) opened a menu
-       * that slid out past the content card and looked broken. Clamped to
-       * the viewport either way. */
+      /* Hang from the trigger's left edge, but flip to its right edge when
+       * the menu would run off the side. Clamped to the viewport either way. */
       const wantsRight = trigger.left + menu.width > window.innerWidth - POPOVER_MARGIN;
       const left = Math.min(
         Math.max(wantsRight ? trigger.right - menu.width : trigger.left, POPOVER_MARGIN),
@@ -1076,8 +906,7 @@ export function Dropdown({
   const selected = multiple ? (Array.isArray(value) ? value : []) : null;
   const current = multiple ? null : options.find((o) => o.value === value);
 
-  /* One picked reads better as its own name than as "1 selected" — the
-   * whole point of the trigger is to say what the list is showing. */
+  // One pick reads as its own name, not "1 selected".
   const triggerLabel = multiple
     ? selected.length === 0
       ? (placeholder ?? "Any")
@@ -1131,11 +960,9 @@ export function Dropdown({
 
       {open && typeof document !== "undefined" &&
         createPortal(
-        // `menuSide` is a preference, not a promise — a dropdown near the
-        // bottom of the viewport (a sort control under a long list, say)
-        // flips upward rather than rendering off-screen. Everything the menu
-        // is made of stacks in here, each part its own surface, so the gap
-        // between them carries the separation.
+        // `menuSide` is a preference, not a promise: a dropdown near the
+        // bottom of the viewport flips upward. Each part of the menu is its
+        // own surface, so the gap between them carries the separation.
         <div
           ref={menuRef}
           style={{
@@ -1152,9 +979,8 @@ export function Dropdown({
             <div className={cx(PANEL, "p-1")}>{pinned}</div>
           )}
 
-          {/* `role="listbox"` is on the options alone. The pinned control is a
-              button, not a choice, and it used to sit inside this element —
-              announced to a screen reader as an option it could never be. */}
+          {/* `role="listbox"` is on the options alone; the pinned control is
+              a button, not a choice. */}
           <div
             role="listbox"
             aria-multiselectable={multiple || undefined}
@@ -1180,9 +1006,8 @@ export function Dropdown({
                     <o.icon size={13} className="shrink-0 text-ink-4" />
                   )}
                   <span className="truncate">{o.label}</span>
-                  {/* A tick, not a checkbox. In a single-select menu the tint
-                   *  alone says which one is live; with several on at once you
-                   *  need a mark you can count down the column. */}
+                  {/* A tick, not a checkbox: with several on at once you need
+                      a mark you can count down the column. */}
                   {multiple && (
                     <Check
                       size={14}
@@ -1210,43 +1035,25 @@ const POPOVER_GAP = 6; // trigger-to-panel gap
 const POPOVER_MARGIN = 8; // never closer than this to the viewport edge
 
 /**
- * A small floating panel hung off a trigger, opened by a click and closed
- * three ways.
+ * A small floating panel hung off a trigger: a legend, a filter panel,
+ * anything you open deliberately, read or poke at, and dismiss.
  *
- * The app had three separate pieces of floating-layer code and no primitive:
- * `Tooltip` portals and does boundary math but is hover-only and
- * `pointer-events-none`; `Dropdown` is dismissible and interactive but is a
- * listbox that positions itself with `absolute` inside its own trigger's box;
- * `Modal` takes over the screen. A legend, a filter panel, a "what does this
- * mean" card — anything you open deliberately, read or poke at, and dismiss —
- * had none of them. This is that gap, built from the halves that already
- * worked.
+ * Portaled and `position: fixed`, not `absolute`: an absolutely positioned
+ * panel is clipped by any ancestor that clips, and the obvious place to open
+ * one is a `StickyFadeHeader`, whose `mask-image` clips and fades its subtree.
  *
- * **Portaled and `position: fixed`, not `absolute`** — this is the whole
- * reason it cannot be a few lines inside a screen. An absolutely positioned
- * panel is clipped by any ancestor that establishes a clip, and the obvious
- * place to want one is a sticky toolbar — which in this app is
- * `StickyFadeHeader`, an element whose entire job is to carry a `mask-image`.
- * A mask clips its subtree. A panel opened from a control in that toolbar and
- * positioned the easy way is cut off at the header's padding edge and faded
- * out by the very gradient that makes the header work.
+ * Placement is a preference, not a promise: measured after mount, flipped
+ * when the preferred side does not fit, slid along the cross axis to stay on
+ * screen, and re-measured on scroll and resize so a panel hung off a sticky
+ * control stays attached.
  *
- * Placement is a preference, not a promise: measured against the trigger's
- * real on-screen rect and the live viewport after mount, flipped to the
- * opposite side when the preferred one does not fit, and slid along the cross
- * axis to stay on screen. It re-measures on scroll and resize, so a panel
- * hung off a sticky control stays attached to it while the page moves.
+ * Dismissal: Escape, a pointer-down outside, and the caller's own trigger
+ * toggle (the outside-press listener ignores presses inside this wrapper, so
+ * the two never produce a close-then-reopen flicker). Presses inside the
+ * panel do nothing.
  *
- * Dismissal is deliberately over-served, because a floating thing you cannot
- * get rid of is worse than no floating thing: Escape, a pointer-down anywhere
- * outside, and clicking the trigger again (which is the caller's own toggle —
- * the outside-press listener ignores presses inside this wrapper, so the two
- * never fight and produce a close-then-reopen flicker). Presses inside the
- * panel do nothing at all, so its own content stays usable.
- *
- * Controlled on purpose. The caller already owns the open state to drive its
- * trigger's pressed styling and `aria-expanded`; handing that to the panel
- * would mean two sources of truth for one boolean.
+ * Controlled on purpose: the caller owns `open` for its trigger's pressed
+ * styling and `aria-expanded`, so it must not be duplicated here.
  */
 export function Popover({
   open,
@@ -1299,8 +1106,7 @@ export function Popover({
     };
 
     place();
-    // `true` on scroll: the capture phase catches scrolling in any container,
-    // not just the window — the console's content pane is its own scroller.
+    // Capture phase: catches scrolling in any container, not just the window.
     window.addEventListener("scroll", place, true);
     window.addEventListener("resize", place);
     return () => {
@@ -1344,9 +1150,7 @@ export function Popover({
               position: "fixed",
               top: pos?.top ?? 0,
               left: pos?.left ?? 0,
-              // Hidden, not unmounted, until the first measurement lands —
-              // it has to be in the DOM to have a size to measure, and it
-              // must never paint at (0,0) first and then jump.
+              // In the DOM to be measured, but never painted at (0,0) first.
               visibility: pos ? "visible" : "hidden",
             }}
             className={cx(PANEL, "z-40 animate-fade-in", panelClassName)}
@@ -1361,12 +1165,7 @@ export function Popover({
 
 /* ------------------------------------------------------------- ScrollArea -- */
 
-/** Per-axis property names, so the logic below is written once.
- *
- *  `cross` is the OTHER axis, which matters more than it looks: setting
- *  `overflow` on one axis drags the other out of `visible` (the spec forces
- *  it to `auto`), so an armed scroller always clips across its own grain.
- *  That is what `clipRoom` exists to hold open. */
+/** Per-axis property names, so the logic below is written once. */
 const AXIS = {
   x: {
     pos: "scrollLeft",
@@ -1395,68 +1194,49 @@ const AXIS = {
 /**
  * One scroll container, either axis, with edge fades and optional end slack.
  *
- * This replaces `ScrollRail`, which was the same thing hard-coded to the
- * horizontal case. Everything ScrollRail learned the hard way is still here
- * — see the six constraints below — it is just written against an axis table
- * instead of against `scrollLeft` and `clientWidth` directly.
- *
  * Props:
  *   `axis`      "x" (default) or "y".
  *   `arm`       "auto" (default) becomes a scroll container only once the
- *               content genuinely outgrows the box, and goes back to a plain
- *               row when the room returns — nothing can clip a child while it
- *               fits. `true` is always a scroll container, which is what a
- *               page-level scroller wants. `false` never arms itself: the
- *               caller owns the overflow property (AppShell's rail mode turns
- *               it on only at `lg:`, so ScrollArea must keep its hands off).
+ *               content outgrows the box, and goes back to a plain row when
+ *               the room returns. `true` is always a scroll container.
+ *               `false` never arms itself: the caller owns the overflow
+ *               property (AppShell's rail mode turns it on only at `lg:`).
  *   `fade`      Fade whichever edge still has content behind it.
- *   `band`      Width of that fade. 16px was invisible; 40 reads properly.
+ *   `band`      Width of that fade in px. 16 was invisible; 40 reads.
  *   `clipRoom`  px held open across the grain for a decoration that pokes
- *               outside a child's own box — a corner badge is the usual one.
- *               **`axis="x"` only**, and that asymmetry is real, not an
- *               oversight: the reservation is padding plus a cancelling
- *               negative margin, which grows a box without costing layout,
- *               and only HEIGHT behaves that way. A block's auto WIDTH is
- *               already its container's content box, so the same trick can
- *               never widen it (see the `void`/spacer note below).
+ *               outside a child's box (a corner badge). `axis="x"` only, and
+ *               deliberately: the reservation is padding plus a cancelling
+ *               negative margin, which only grows HEIGHT. A block's auto
+ *               width is already its container's content box, so the same
+ *               trick can never widen it.
  *   `void`      Hold open enough slack at the far end that the scroll range
- *               always reaches the resting point — the stick point of a
- *               sticky child inside, `[data-scroll-anchor]` or the screen
- *               toolbar. Without it a two-row tab has no scroll range at
- *               all, so returning to it after a forty-row tab drops you at
- *               the top while the long one rests at the pin, and the header
- *               jumps in and out as you tab. Measured, not a constant, so
- *               both tabs come to rest in the same place.
+ *               always reaches the resting point: the stick point of a sticky
+ *               child, `[data-scroll-anchor]` or the screen toolbar. Without
+ *               it a short tab has no scroll range, so the header jumps in
+ *               and out as you tab. Measured, not a constant.
  *   `centerOnClick`  Glide a tapped child toward the middle.
  *
- * Six CSS constraints shaped this. Each was a bug first — don't "simplify"
- * any of them away:
+ * Six CSS constraints shaped this. Each was a bug first; do not simplify
+ * them away:
  *
  * 1. Overflow on one axis drags the other out of `visible`, so an armed
  *    scroller always clips across its grain. `clipRoom` reserves that room.
- * 2. `mask-image` clips its element to its own border box (masking paints
- *    into an isolated layer sized to that box), so the fade wrapper needs
- *    the SAME reservation as the rail or it re-clips what the rail just
- *    freed. This, not the rail's overflow, was the "badges still cut off".
+ * 2. `mask-image` clips its element to its own border box, so the fade
+ *    wrapper needs the SAME reservation as the rail or it re-clips what the
+ *    rail just freed.
  * 3. Reserved padding counts toward `scrollWidth`, so overflow detection
- *    must not see its own reservation as content — hence measuring the last
- *    child's border box rather than `scrollWidth`.
+ *    measures the last child's border box rather than `scrollWidth`.
  * 4. `max-w-full` (`max-h-full`) must always be on the rail, or it grows
- *    past its container instead of being clamped by it and nothing ever
- *    reads as overflowing.
+ *    past its container and nothing ever reads as overflowing.
  * 5. The armed state must not manufacture its own overflow. `max-w-full`
  *    clamps the BORDER box, so padding added by arming comes out of CONTENT
- *    width — which is exactly the overflow that keeps it armed. Armed state
- *    also sets `maxWidth: calc(100% + clipRoom)` so both states measure the
- *    same content width.
+ *    width, which is exactly the overflow that keeps it armed.
  * 6. It must not sit in a shrinkable flex item, or it gets squeezed to
- *    precisely its content width — the one place the reservation tips the
- *    test over — and the reading oscillates. `shrink-0`, and let the
- *    container wrap.
+ *    precisely its content width and the reading oscillates. `shrink-0`,
+ *    and let the container wrap.
  *
- * And the cheapest rule of all: a row that cannot overflow should not be a
- * scroller. Passing `fade` to three short tabs in a wide header buys nothing
- * but a chance to arm on a transient and clip a badge.
+ * And: a row that cannot overflow should not be a scroller. Passing `fade`
+ * to three short tabs buys nothing but a chance to arm on a transient.
  */
 export function ScrollArea({
   as: Tag = "div",
@@ -1476,7 +1256,7 @@ export function ScrollArea({
 }) {
   const A = AXIS[axis] || AXIS.x;
   const vertical = axis === "y";
-  // clipRoom is a horizontal-axis affordance only; see the prop note above.
+  // clipRoom is x-axis only; see the prop note above.
   const room = vertical ? 0 : clipRoom;
 
   const railRef = useRef(null);
@@ -1486,42 +1266,30 @@ export function ScrollArea({
     atEnd: true,
   });
   const [slack, setSlack] = useState(0);
-  // The applied slack, read back during measurement without waiting for a
-  // re-render — measuring against a stale value is what makes a void grow by
-  // its own size every pass.
+  // The applied slack, readable during measurement without a re-render.
   const slackRef = useRef(0);
-  // The anchor's resting offset, remembered across frames — see `measure`
-  // for why it can only be read while the anchor is loose.
+  // The anchor's resting offset, remembered across frames; it can only be
+  // read while the anchor is loose.
   const restRef = useRef(null);
 
   const measure = useCallback(() => {
     const el = railRef.current;
     if (!el) return;
 
-    /* The children's own extent, NOT `scrollSize`.
-     *
-     * `scrollSize` counts a corner badge's overhang: TabDot hangs a few px
-     * past the last chip and reads as content the rail does not have. That
-     * is enough to arm a rail whose chips fit — and arming is what reserves
-     * `clipRoom`, which absorbs the overhang and makes the next reading say
-     * "fits". Arm, fit, arm, fit: which state it lands in comes down to
-     * which measurement happened last, and landing armed is both the bad
-     * one and the stable one — a fade painted across a last tab that fits,
-     * with zero scroll range to move it out from under.
-     *
-     * A child's own offset + extent is its border box, and an absolutely
-     * positioned badge is not in it, so this reads the same armed or not. */
+    /* The children's own extent, NOT `scrollSize`. `scrollSize` counts a
+     * corner badge's overhang, which arms a rail whose chips fit; arming
+     * reserves `clipRoom`, which absorbs the overhang, and the reading
+     * oscillates. A child's offset + extent is its border box, and an
+     * absolutely positioned badge is not in it, so this reads the same
+     * armed or not. */
     let last = el.lastElementChild;
-    // Walk past our own spacers — they are reserved room, not content, and
-    // counting them re-arms a rail that fits and grows a void every pass.
+    // Walk past our own spacers: reserved room, not content. Counting them
+    // re-arms a rail that fits and grows a void every pass.
     while (last && (last.hasAttribute("data-rail-spacer") || last.hasAttribute("data-scroll-void")))
       last = last.previousElementSibling;
-    /* The slack that is actually RENDERED, read off the spacer itself —
-     * never `slackRef`. State lands a frame before the DOM does, so on the
-     * pass right after applying a void, `slackRef` says N while `scrollSize`
-     * still says 0, `baseMax` comes out N too small, and the next void is N
-     * too big. That is a void that feeds on itself. The element is the only
-     * honest answer to "how much slack is in the box right now". */
+    /* The slack actually RENDERED, read off the spacer, never `slackRef`.
+     * State lands a frame before the DOM does, so measuring against the ref
+     * makes the void feed on itself. */
     const voidEl = el.querySelector(":scope > [data-scroll-void]");
     const appliedSlack = voidEl
       ? Math.round(voidEl.getBoundingClientRect()[vertical ? "height" : "width"])
@@ -1532,25 +1300,17 @@ export function ScrollArea({
       : el[A.size] - (parseFloat(getComputedStyle(el)[A.padEnd]) || 0) - appliedSlack;
     const overflowing = contentExtent > el[A.client] + 1;
 
-    /* The ENDS are a different question from whether to arm, measured
-     * against a different number. Arming asks "is there more content than
-     * box", which is why it ignores the badge and the reserved room. "Have
-     * we reached the end" is only about how far the thing can actually
-     * scroll, and that range INCLUDES the reservation, because the
-     * reservation is where the trailing badge lives. Measuring the ends
-     * against the content extent instead declares the rail finished
-     * `clipRoom` px early: the fade lifts, and the last badge is still
-     * outside the box with nothing to say it can be scrolled into view. */
+    /* The ends are measured against the real scroll range, which INCLUDES
+     * the reservation (that is where the trailing badge lives). Measuring
+     * against the content extent declares the rail finished `clipRoom` px
+     * early, with the last badge still outside the box. */
     const maxScroll = el[A.size] - el[A.client];
     const atStart = el[A.pos] <= 1;
     const atEnd = el[A.pos] >= maxScroll - 1;
 
-    /* The void, measured.
-     *
-     * Only when this element really is a scroll container — "if applicable".
-     * In AppShell's rail mode at phone width the PAGE scrolls and this box
-     * does not, and padding the bottom of a box that isn't scrolling just
-     * adds dead space to the document. */
+    /* The void, measured. Only when this element really is a scroll
+     * container: in AppShell's rail mode at phone width the page scrolls,
+     * and padding a box that is not scrolling just adds dead space. */
     let want = 0;
     if (voidEnd) {
       const cs = getComputedStyle(el);
@@ -1560,27 +1320,22 @@ export function ScrollArea({
         el.querySelector("[data-screen-toolbar]");
       if (scrolls && anchor) {
         /* Read the resting point only while the anchor is loose, and keep
-         * it. It is a layout constant, not a per-frame quantity, and the
-         * container is at 0 on mount and again on every `settle()`, so a good
-         * value always arrives. Until one does, `want` stays 0 and no void is
-         * applied — the safe direction to be wrong in. */
+         * it: it is a layout constant, and the container is at 0 on mount
+         * and on every `settle()`, so a good value always arrives. Until
+         * then `want` stays 0 and no void is applied. */
         const { offset, pinned } = stickPoint(el, anchor, vertical);
         if (!pinned) restRef.current = offset;
 
         if (restRef.current != null) {
-          /* Correct the range we can SEE, rather than reconstructing the
-           * content height we cannot.
+          /* Correct the range we can SEE rather than reconstructing content
+           * height:
            *
            *     want = applied + (restPoint - currentRange)
            *
-           * If the range falls short of the resting point, add the shortfall;
-           * if it overshoots, give the surplus back, never below zero. It
-           * converges in a single pass and it is immune to both traps that
-           * bit the arithmetic this replaces: `scrollHeight` is floored at
-           * `clientHeight`, so a short list reports a range of exactly 0 —
-           * which is the truth here rather than a number to be unpicked —
-           * and no child offset is consulted, so a pinned sticky bar (whose
-           * used position Blink folds into `offsetTop`) cannot skew it. */
+           * Converges in one pass. `scrollHeight` is floored at
+           * `clientHeight`, so a short list reports a range of 0, which is
+           * the truth here; and no child offset is consulted, so a pinned
+           * sticky bar (Blink folds its shift into `offsetTop`) cannot skew it. */
           const range = el[A.size] - el[A.client];
           want = Math.max(0, Math.round(appliedSlack + restRef.current - range));
         }
@@ -1592,9 +1347,8 @@ export function ScrollArea({
       setSlack(want);
     }
 
-    // Bail on an unchanged reading: arming changes the rail's own padding,
-    // which trips the observer again, and a fresh object every time would
-    // re-render on each lap of that loop for nothing.
+    // Bail on an unchanged reading: arming changes the rail's padding, which
+    // trips the observer again, and a fresh object would re-render each lap.
     setEdges((prev) =>
       prev.overflowing === overflowing &&
       prev.atStart === atStart &&
@@ -1608,27 +1362,19 @@ export function ScrollArea({
     const el = railRef.current;
     if (!el) return;
     measure();
-    /* One more reading after the first paint has landed. The observers catch
-     * every LATER change, but the first measure runs against a layout that
-     * is still settling — web fonts, a sidebar finishing its transition —
-     * and a rail that armed on that reading can sit armed with nothing left
-     * to fire an observer. Cheap, once, self-cancelling. */
+    /* One more reading after first paint: the first measure runs against a
+     * layout still settling (web fonts, a sidebar transition), and a rail
+     * that armed on it can sit armed with nothing left to fire an observer. */
     const raf = requestAnimationFrame(measure);
     const ro = new ResizeObserver(measure);
     const watch = () => {
       ro.disconnect();
       ro.observe(el);
-      /* The parent is the only one of the three that can report a change in
-       * the space AVAILABLE, and without it the rail latches. A
-       * ResizeObserver reports the box an element lays out into, and an
-       * inline-flex rail's barely moves: it is sized to its own content and
-       * merely clamped by `max-w-full`, so it reads its container's width
-       * through `clientWidth` while its observed box stays at the chips'
-       * intrinsic width. The children never move either, being `shrink-0`.
-       * The parent is a block that fills its container, so its box does
-       * change. Loop-safe: arming pads the wrapper, which fires this once
-       * more, and that pass re-reads, gets the same answer, and is dropped
-       * by the bail-out in `measure`. */
+      /* The parent is the only one that reports a change in the space
+       * AVAILABLE: an inline-flex rail's observed box is its content width
+       * (merely clamped by `max-w-full`) and `shrink-0` children never move.
+       * Loop-safe: arming pads the wrapper, which fires once more, and that
+       * pass is dropped by the bail-out in `measure`. */
       if (el.parentElement) ro.observe(el.parentElement);
       for (const child of el.children) ro.observe(child);
     };
@@ -1638,8 +1384,7 @@ export function ScrollArea({
       measure();
     });
     // `subtree` on the vertical case: a page scroller's length is decided by
-    // rows several levels down, and childList on the container alone never
-    // sees a tab swap its list out.
+    // rows several levels down.
     mo.observe(el, { childList: true, subtree: vertical });
     window.addEventListener("resize", measure);
     return () => {
@@ -1654,18 +1399,11 @@ export function ScrollArea({
   const fadeStart = fade && armed && !edges.atStart;
   const fadeEnd = fade && armed && !edges.atEnd;
 
-  /* Across the grain only — the along-the-grain half of this reservation
-   * could never work, and that asymmetry is why the trailing badge kept
-   * getting sliced. Padding plus a cancelling negative margin grows a box
-   * without costing layout, and for HEIGHT that holds: a block grows upward
-   * when asked. Width does not. A block's auto width IS its container's
-   * content box, and `max-width` can only constrain that, never expand it —
-   * so the wrapper never took the extra px, its mask went on clipping at the
-   * original edge, and raising `clipRoom` did nothing because the box it
-   * widened was not the box doing the clipping. The along-the-grain room is
-   * a real spacer child instead: content sits inside `scrollWidth` and
-   * inside every clipping box on the way up, so the overhanging badge simply
-   * lands on top of it. */
+  /* Across the grain only. Padding plus a cancelling negative margin grows
+   * HEIGHT without costing layout; it can never widen a block, whose auto
+   * width is already its container's content box. The along-the-grain room
+   * is a real spacer child instead, so it sits inside `scrollWidth` and
+   * every clipping box on the way up. */
   const crossRoom =
     armed && room ? { paddingTop: room, marginTop: -room } : null;
 
@@ -1683,8 +1421,7 @@ export function ScrollArea({
       : itemBox.left - railBox.left - el.clientLeft + el.scrollLeft;
     const size = vertical ? itemBox.height : itemBox.width;
     // scrollTo, not scrollIntoView: the latter walks every scrollable
-    // ancestor and takes the page with it. Out-of-range targets clamp, so an
-    // item near either end that can't reach the middle still lands in frame.
+    // ancestor and takes the page with it. Out-of-range targets clamp.
     el.scrollTo({
       [vertical ? "top" : "left"]: start + size / 2 - el[A.client] / 2,
       behavior: "smooth",
@@ -1704,9 +1441,7 @@ export function ScrollArea({
         onClick?.(e);
       }}
       className={cx(
-        // Not optional: without the clamp the rail grows past its container
-        // instead of being clamped by it, and nothing ever reads as
-        // overflowing in the first place. `relative` is what makes the
+        // The clamp is not optional (constraint 4). `relative` makes the
         // offsetParent walk in `measure` terminate here.
         "relative",
         vertical ? "max-h-full" : "inline-flex max-w-full",
@@ -1740,11 +1475,9 @@ export function ScrollArea({
 
   if (!fade) return rail;
 
-  /* The end band stops at the edge now, not short of it. It used to stop
-   * `clipRoom` px early because those px were trailing PADDING — an empty
-   * strip with nothing in it to fade. The reserved room is a spacer at the
-   * end of the content instead, and it is only on screen when the rail is
-   * scrolled fully to the end, where there is no end fade to draw at all. */
+  /* The end band runs to the edge: the reserved room is a spacer at the end
+   * of the content, only on screen when scrolled fully to the end, where
+   * there is no end fade to draw. */
   const maskStops = [
     fadeStart ? "transparent" : "black",
     fadeStart ? `black ${band}px` : "black 0px",
@@ -1753,9 +1486,8 @@ export function ScrollArea({
   ].join(", ");
   const mask = `linear-gradient(${A.toward}, ${maskStops})`;
 
-  // A mask forces its element to clip to its own border box, so the wrapper
-  // would clip the very badges the rail's reserved room just freed. Same
-  // reservation, same cancelling margin, one level up.
+  // A mask clips to its own border box, so the wrapper needs the same
+  // reservation as the rail (constraint 2).
   return (
     <div
       className={cx("relative min-w-0", vertical && "h-full")}
@@ -1773,10 +1505,8 @@ export function ScrollArea({
 
 /* ------------------------------------------------------------- Segmented -- */
 
-/** A small notification dot for a tab: a count badge, not a status label —
- *  always the brand color, so it reads as "count" rather than a severity
- *  signal. Pinned to the tab's top-right corner. Zero renders nothing — an
- *  empty dot just adds noise. */
+/** A count badge for a tab: always the brand colour, so it reads as a count
+ *  rather than a severity signal. Zero renders nothing. */
 export function TabDot({ count, variant = "corner" }) {
   if (!count) return null;
   return (
@@ -1785,23 +1515,15 @@ export function TabDot({ count, variant = "corner" }) {
         "absolute inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full",
         "text-[10px] font-semibold leading-none tnum shrink-0 ring-2 ring-surface",
         "bg-primary text-white transition-[top,right] duration-300",
-        // "corner" (default): pinned to the row's own top-right corner —
-        // the in-screen tab-dot look, and also the collapsed nav rail /
-        // mobile tab bar, where the row is icon-width and there's no
-        // "inside the row" to tuck into.
-        // "trailing": the expanded nav rail, where the row is wider than
-        // the icon — vertically centered and tucked inside the row's own
-        // trailing edge instead of pinned to its corner. Centered with a
-        // calc'd `top` rather than inset-y-0/my-auto on purpose: an
-        // auto-margin can't be transitioned, so collapsing the sidebar
-        // (which flips this variant against "corner") would snap instead
-        // of sliding. A plain top/right pair, matched in kind with
-        // "corner"'s, is what lets `transition-[top,right]` actually
-        // animate the move.
-        // "glyph": anchored to a ~19px ICON rather than a row. At that size
-        // the corner offsets below bury half the glyph — the dot is nearly
-        // as big as the thing it is counting. Pushed out so it kisses the
-        // corner instead, roughly a quarter of the dot overlapping.
+        // "corner": the row's top-right corner (in-screen tabs, collapsed nav
+        // rail, mobile tab bar).
+        // "trailing": expanded nav rail, vertically centred inside the row's
+        // trailing edge. Centred with a calc'd `top` rather than my-auto on
+        // purpose: an auto margin cannot be transitioned, and a top/right
+        // pair matched with "corner"'s lets `transition-[top,right]` animate
+        // the sidebar collapse.
+        // "glyph": anchored to a ~19px icon, pushed out so it kisses the
+        // corner instead of burying half the glyph.
         variant === "trailing"
           ? "top-[calc((var(--ctl-h)-1rem)/2)] right-2"
           : variant === "glyph"
@@ -1825,18 +1547,12 @@ export function Segmented({
   /** Fade the scrolling row's edges to hint at what's off-screen. */
   fade = false,
 }) {
-  // Fixed, not var(--ctl-h) — the touch-target bump (28px -> 44px on a
-  // coarse pointer) scales height alone, and these chips never grew the
-  // padding/gap to match, so on a phone they went tall and squashed
-  // instead of just bigger. Pinning both keeps the pill proportions.
+  // Fixed, not var(--ctl-h): the coarse-pointer touch-target bump scales
+  // height alone, so chips went tall and squashed rather than bigger.
   const pad = size === "sm" ? "text-xs px-2 h-7" : "text-sm px-2.5 h-7";
 
-  /* An option may carry a `hint`: one line explaining what picking it does,
-   * shown on hover. Meant for chips that are a MODE rather than a filter —
-   * a filter's label says everything ("Out", "Under min"), but a mode like
-   * Fill/Align changes how the rest of the screen should be read, and that
-   * cannot fit in one word. Chips without a hint are untouched, so no
-   * existing Segmented gains a tooltip it did not ask for. */
+  /* An option may carry a `hint`, shown on hover. Meant for chips that are a
+   * MODE rather than a filter, where one word cannot say what changes. */
   const chips = options.map((o) => {
     const isActive = o.value === value;
     const chip = (
@@ -1923,11 +1639,8 @@ export function Switch({ checked, onChange, disabled, label, className }) {
 
 /* ---------------------------------------------------------------- StatCard */
 
-/**
- * A number, and — when `onClick` is given — the filter that number describes.
- * Making the tile the control means the count and the way to act on it are the
- * same target, rather than a stat you then have to go and reproduce by hand.
- */
+/** A number, and — when `onClick` is given — the filter that number describes,
+ *  so the count and the way to act on it are the same target. */
 export function StatCard({
   icon: Icon,
   label,
@@ -2031,7 +1744,6 @@ export function ProgressBar({
 /* ------------------------------------------------------------- EmptyState -- */
 
 export function EmptyState({
-  icon: Icon,
   title,
   description,
   action,
@@ -2052,7 +1764,7 @@ export function EmptyState({
 
 /* -------------------------------------------------------------- Skeleton -- */
 
-export function Skeleton({ className }) {
+function Skeleton({ className }) {
   return <div className={cx("skeleton rounded-sm", className)} />;
 }
 
@@ -2120,10 +1832,8 @@ export function Modal({
         className={cx(
           "relative w-full bg-surface shadow-pop",
           "rounded-t-md sm:rounded-md sm:m-4 pb-safe sm:pb-0",
-          // A column with a capped height: the header and footer hold their
-          // ground and the body scrolls, so a long dialog never pushes its own
-          // actions off the bottom of the screen. dvh rather than vh because
-          // mobile browser chrome makes vh overshoot.
+          // Capped-height column: header and footer hold, the body scrolls.
+          // dvh, not vh, because mobile browser chrome makes vh overshoot.
           "flex flex-col max-h-[88dvh] sm:max-h-[calc(100dvh-2rem)]",
           "animate-slide-up sm:animate-pop-in",
           width,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchVelocity } from "@/lib/clover";
+import { fetchVelocity } from "../../lib/clover";
 
 export async function GET(request: Request) {
   const days = Number(new URL(request.url).searchParams.get("days")) || 28;

@@ -9,16 +9,9 @@ import AppShell from "../../components/AppShell";
 import { ROLE_LABEL } from "../lib/companyDomain";
 
 /**
- * The console's "view as" — Dana signing in doesn't mean Dana is who cares
- * about today's task list or the smokehouse queue; a floor manager does.
- * Clicking the account block in the sidebar footer opens this instead of
- * making anyone remember a second password: pick a teammate, the session
- * (real, persisted — see useCompanySession) switches to them, same as if
- * they'd signed in themselves. A refresh keeps whoever you switched to,
- * exactly like actually signing in as them would.
- *
- * Pending invites (Jordan Reyes, "invited") aren't offered — there's no one
- * to "become" yet.
+ * Demo "view as" menu: pick a teammate and the persisted session switches to
+ * them (see useCompanySession), so a refresh keeps the switched user.
+ * Pending invites aren't offered — there's no one to become yet.
  */
 function AccountSwitcherMenu({ users, locations, currentUser, onSwitch, twoLocations, onToggleLocations }) {
   const locationName = (id) => locations.find((l) => l.id === id)?.name;
@@ -62,12 +55,9 @@ function AccountSwitcherMenu({ users, locations, currentUser, onSwitch, twoLocat
         })}
       </div>
 
-      {/* Dev affordance, in the menu that already exists to make the console
-       *  lie in useful ways. Most of this app only shows its real shape with
-       *  more than one location — Team's scope control and per-location lead
-       *  PINs, the Locations grid, a location with nothing connected — but
-       *  the everyday demo is one shop, so the second one is a switch rather
-       *  than seed data. Folds Princeton and its two managers in and out. */}
+      {/* Demo toggle: much of the console only shows its real shape with two
+       *  locations, but the everyday demo is one shop, so the second location
+       *  (and its two managers) is a switch rather than seed data. */}
       {onToggleLocations && (
         <div className="px-3 py-2.5 border-t border-line">
           <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-ink-4">Demo data</p>
@@ -119,24 +109,13 @@ const BRAND_MENU_ITEM =
 const BRAND_MENU_ICON = "flex items-center justify-center w-7 h-7 rounded-full bg-sunken text-icon-2 shrink-0";
 
 /**
- * Hangs off the chevron next to the brand title in the sidebar header —
- * company-level PAGES to go to, as opposed to the account switcher above
- * (which is about WHO you are) or the nav rail (shop-floor-style working
- * screens reached via console `view` state).
+ * Brand-title dropdown: company-level pages, as opposed to the account
+ * switcher (who you are) or the nav rail (working screens).
  *
- * Settings, Feedback, and Plan all open as MODALS (Sept 2026) — the user
- * tried real Next.js routes first, then said "instead lets do modals for
- * both," and Plan was added as a third modal the same way. `onOpenSettings`/
- * `onOpenFeedback`/`onOpenPricing` are plain callbacks (see useBrandModals.js)
- * threaded down from whichever page mounted this — CompanyConsole.jsx or
- * the standalone Help page — each of which owns the modal-open state and
- * renders <BrandModals> alongside <ConsoleShell>. Each button click closes
- * this dropdown itself (the callback does both) before the modal opens.
- *
- * Help is the one exception — a real route (`/company/help`), not a modal,
- * since it's reference material worth deep-linking or leaving open in
- * another tab rather than a quick in-place action. Plain `Link`, same as
- * Settings/Feedback were when they were briefly routes too.
+ * Settings, Feedback and Plan open as modals; the callbacks come from
+ * useBrandModals.js in whichever page mounted this, and each closes this
+ * dropdown before opening the modal. Help is a real route because it's
+ * reference material worth deep-linking or leaving open in another tab.
  */
 function BrandMenu({ onOpenSettings, onOpenFeedback, onOpenPricing }) {
   return (
@@ -169,16 +148,7 @@ function BrandMenu({ onOpenSettings, onOpenFeedback, onOpenPricing }) {
   );
 }
 
-/**
- * Shared app frame for the console SPA (CompanyConsole.jsx) — the AppShell
- * wiring plus its two popovers (AccountSwitcherMenu, BrandMenu). Moved out
- * of CompanyConsole.jsx into its own file (Sept 2026) back when Settings
- * and Feedback were briefly their own standalone routes reusing this same
- * chrome; now that both are modals again (see BrandMenu above), only the
- * console mounts this — kept as its own file regardless, since splitting
- * the account/brand popovers out of CompanyConsole.jsx keeps that file
- * shorter either way.
- */
+/** App frame for the console: AppShell wiring plus its two popovers. */
 export default function ConsoleShell({
   company,
   currentUser,
@@ -224,10 +194,8 @@ export default function ConsoleShell({
       brandMenuOpen={brandMenuOpen}
       onBrandMenuOpenChange={onBrandMenuOpenChange}
       brandMenu={<BrandMenu onOpenSettings={onOpenSettings} onOpenFeedback={onOpenFeedback} onOpenPricing={onOpenPricing} />}
-      /* The floor shell (ProductionTracker.jsx) has always wired this; the
-       * console never did, so a console screen posting to `page-subtitle`
-       * rendered nothing. Same target, same classes — `empty:hidden` so a
-       * screen with nothing to say costs no space. */
+      /* Same target and classes as the floor shell; `empty:hidden` so a
+       * screen with no subtitle costs no space. */
       pageSubtitle={
         <SlotTarget
           name="page-subtitle"
