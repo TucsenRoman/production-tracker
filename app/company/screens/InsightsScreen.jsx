@@ -10,13 +10,16 @@ import { answerInsightQuestion, HISTORY_WINDOW_DAYS, isFlaggedBatch, productHist
 /**
  * The console's landing screen, in three layers:
  *
- *   1. Header — scope, the four headline numbers, and (admins) a switch
- *      between the two ways of cutting the same closed-batch history.
+ *   1. Header — scope in the subtitle, the period's numbers as a ticker in
+ *      the corner, and (admins) a switch between the two ways of cutting the
+ *      same closed-batch history. The ticker is the same in both views, so
+ *      switching the cut never moves it.
  *   2. Calendar view — five weeks of days beside one panel: a picked day, or
  *      the rolled-up insight cards when nothing is picked.
- *   3. Products view (admin) — the per-product table beside a wide history
- *      panel: now vs. a year ago, month by month, and the last window's
- *      batches, with the same question chips underneath.
+ *   3. Products view (admin) — one full-width ledger row per product (name,
+ *      spread, average, flagged) with the picked product's history opening
+ *      underneath it: now vs. a year ago, month by month, and the last
+ *      window's batches, with the same question chips.
  *
  * A picked day and a picked product are both synthesized into the same card
  * shape as the rolled-up insights (`context.type` "day" / "product"), so one
@@ -72,18 +75,17 @@ const QUICK_QUESTIONS = {
   ],
 };
 
+/* The Q&A sits under its card's icon rather than the card's left edge, so
+ * the icon reads as a bullet for the whole block. 16px icon + 10px gap. */
+const ICON_INDENT = "pl-[26px]";
+
 /**
- * The screen's one sequential encoding: yield in a single hue, mixed against
- * the `--color-ok` token so it tracks theme changes. Flagged status and
- * location identity use separate channels (corner icon, corner dots) so
- * magnitude, status and identity never compete for the same pixel.
+ * Hairline column rule for the header ticker, same as the floor's Batches
+ * screen. Module scope so React does not remount it every render; `h-2`
+ * centres on the text, so nothing else in that row may carry a vertical
+ * nudge or the rule centres against the taller flex line instead.
  */
-function yieldStyle(y) {
-  if (y == null) return undefined;
-  const t = Math.max(0, Math.min(1, (y - 55) / 40));
-  const pct = Math.round(8 + t * 57);
-  return { backgroundColor: `color-mix(in srgb, var(--color-ok) ${pct}%, var(--color-surface))` };
-}
+const Rule = () => <span className="w-[0.5px] h-2 self-center rounded-full bg-line" aria-hidden="true" />;
 
 const round1 = (n) => Math.round(n * 10) / 10;
 
@@ -102,14 +104,6 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
 
   const multi = insights.byLocation.length > 1;
   const companyAvg = insights.company.avgYield;
-
-  const headline = useMemo(() => {
-    const best = history.reduce((acc, h) => {
-      const y = yieldPct(h.boxWeight, h.finalWeight);
-      return y != null && (!acc || y > acc.y) ? { y, product: h.product } : acc;
-    }, null);
-    return { batches: insights.company.batches, avg: companyAvg, flagged: insights.company.flagged, best };
-  }, [history, insights, companyAvg]);
 
   /* ---- Calendar: five full weeks ending this Saturday. */
   const days = useMemo(() => {
@@ -192,10 +186,13 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
     return {
       id: `product-${selectedProduct}`,
       tone: toneFor(flaggedCount, avgY, companyAvg),
-      title: `${rows.length} batch${rows.length === 1 ? "" : "es"} of ${selectedProduct} closed`,
-      detail: `${avgY}% average yield, ${stats ? `${stats.low}%–${stats.high}% range, ` : ""}${formatDay(rows[0].closedOn)} to ${formatDay(
+      /* The product's own name is the heading — the panel is already about
+       * one product, so "N batches of X closed" would say it twice. The
+       * count belongs in the sentence that qualifies the average. */
+      title: selectedProduct,
+      detail: `${rows.length} batch${rows.length === 1 ? "" : "es"} closed, ${formatDay(rows[0].closedOn)} to ${formatDay(
         rows[rows.length - 1].closedOn
-      )}${flaggedCount ? `, ${flaggedCount} flagged` : ""}.`,
+      )} · ${avgY}% average yield${stats ? `, ${stats.low}%–${stats.high}% range` : ""}${flaggedCount ? ` · ${flaggedCount} flagged` : ""}.`,
       context: { type: "product", product: selectedProduct, rows, recentRows, history: productHist, avgY, flaggedCount, companyAvg, stats },
     };
   }, [selectedProduct, history, targets, insights.byProduct, companyAvg]);
@@ -213,11 +210,12 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
       <Slot name="page-subtitle">
         {[scopeLabel, span && `closed batches, ${span}`].filter(Boolean).join(" · ")}
       </Slot>
-      {isAdmin && (
-        <Slot name="page-actions">
-          <Segmented size="sm" value={view} onChange={setView} options={VIEWS} />
-        </Slot>
-      )}
+      <Slot name="page-actions">
+        <div className="flex items-center gap-3">
+          <HeadlineTicker batches={insights.company.batches} avg={companyAvg} flagged={insights.company.flagged} />
+          {isAdmin && <Segmented size="sm" value={view} onChange={setView} options={VIEWS} />}
+        </div>
+      </Slot>
 
       {showProducts ? (
         <ProductsView
@@ -229,9 +227,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
           targets={targets}
         />
       ) : (
-        <>
-          <HeadlineStats {...headline} />
-          <CalendarView
+        <CalendarView
           days={days}
           selectedDay={selectedDay}
           onSelectDay={setSelectedDay}
@@ -242,8 +238,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
           onPickInsight={setInsightIndex}
           byLocation={insights.byLocation}
           multi={multi}
-          />
-        </>
+        />
       )}
     </div>
   );
@@ -251,31 +246,27 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
 
 /* ------------------------------------------------------------ Header -- */
 
-/** The four numbers behind everything else on the screen, as tiles. */
-function HeadlineStats({ batches, avg, flagged, best }) {
-  const tiles = [
-    { label: "Batches closed", value: batches },
-    { label: "Average yield", value: avg != null ? `${avg}%` : "—" },
-    { label: "Flagged", value: flagged, tone: flagged ? "text-warn" : undefined },
-    { label: "Best batch", value: best ? `${best.y}%` : "—", sub: best?.product, tone: best ? "text-ok" : undefined },
-  ];
+/**
+ * The period's numbers beside the screen title, as a ticker rather than
+ * tiles: they are the standing context for everything below, not findings
+ * of their own, and two big boxes were claiming a whole band of the page to
+ * say so. Ticker rules, same as the floor's Batches screen: one row, one
+ * size, one weight — only colour varies, and `tnum` keeps the digits from
+ * changing width as the numbers move.
+ */
+function HeadlineTicker({ batches, avg, flagged }) {
+  if (!batches) return null;
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      {tiles.map((t) => (
-        <StatTile key={t.label} label={t.label} value={t.value} sub={t.sub} tone={t.tone} />
-      ))}
-    </div>
-  );
-}
-
-/** One boxed number with a label, reused for the headline row and the
- * now-vs-a-year-ago comparison so both read as the same kind of thing. */
-function StatTile({ label, value, sub, tone }) {
-  return (
-    <div className="rounded-md border border-line bg-surface px-3.5 py-3 min-w-0">
-      <p className="text-[11px] uppercase tracking-wide text-ink-4 truncate">{label}</p>
-      <p className={cx("mt-1 text-xl font-semibold tnum leading-none", tone || "text-ink")}>{value}</p>
-      {sub && <p className="mt-1 text-xs text-ink-3 truncate">{sub}</p>}
+    <div className="flex items-center gap-2.5 text-xs font-normal leading-none">
+      <span className="text-ink-4 tnum">{avg != null ? `Yield ${avg}%` : "No yield yet"}</span>
+      <Rule />
+      <span className="text-ink-4 tnum">
+        {batches} batch{batches === 1 ? "" : "es"}
+      </span>
+      <Rule />
+      <span className={cx("tnum", flagged ? "text-warn/80" : "text-ink-4")}>
+        {flagged ? `${flagged} flagged` : "none flagged"}
+      </span>
     </div>
   );
 }
@@ -310,28 +301,29 @@ function CalendarView({ days, selectedDay, onSelectDay, selectedCell, dayCard, c
                     type="button"
                     disabled={!hasData}
                     onClick={() => onSelectDay(selected ? null : day.key)}
-                    style={yieldStyle(day.avgY)}
+                    aria-label={`${formatDay(day.key)}${hasData ? `, ${day.avgY}% average yield over ${day.batches.length} batches${day.flaggedCount ? `, ${day.flaggedCount} flagged` : ""}` : ", no batches closed"}`}
                     className={cx(
-                      "relative aspect-square rounded-md border text-left p-1.5 transition-colors",
-                      hasData ? "border-line-strong cursor-pointer hover:border-ink-3" : "border-line-soft",
+                      "aspect-square rounded-md border p-1.5 flex flex-col justify-between text-left transition-colors",
+                      hasData ? "border-line-strong bg-surface cursor-pointer hover:border-ink-3" : "border-line-soft",
                       !hasData && !day.isFuture && "bg-sunken",
                       day.isFuture && "opacity-40",
                       selected && "ring-2 ring-ink-3 ring-offset-1"
                     )}
                   >
-                    <span className={cx("text-[11px] tnum", hasData ? "text-ink-2" : "text-ink-4")}>{dayNum}</span>
-                    {day.isToday && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-ink-3" />}
-                    {hasData && (
-                      <span className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1">
-                        <span className="text-xs font-semibold text-ink tnum">{day.avgY}%</span>
-                        {day.flagged && <AlertTriangle size={11} className="text-warn shrink-0" />}
-                      </span>
-                    )}
-                    {day.dots.length > 0 && (
-                      <span className="absolute top-1.5 left-1.5 flex gap-0.5">
+                    {/* Top row: which day it is. Bottom row: what happened. */}
+                    <span className="flex items-center justify-between gap-1">
+                      <span className="flex items-center gap-1 min-w-0">
+                        <span className={cx("text-[11px] tnum", hasData ? "text-ink-2" : "text-ink-4")}>{dayNum}</span>
                         {day.dots.map((c, i) => (
-                          <span key={i} className={cx("w-1.5 h-1.5 rounded-full", c)} />
+                          <span key={i} className={cx("w-1.5 h-1.5 rounded-full shrink-0", c)} />
                         ))}
+                      </span>
+                      {day.isToday && <span className="w-1.5 h-1.5 rounded-full bg-ink-3 shrink-0" />}
+                    </span>
+                    {hasData && (
+                      <span className="flex items-end justify-between gap-1">
+                        <span className="text-sm font-semibold text-ink tnum leading-none">{day.avgY}%</span>
+                        {day.flagged && <AlertTriangle size={11} className="text-warn shrink-0" />}
                       </span>
                     )}
                   </button>
@@ -342,18 +334,6 @@ function CalendarView({ days, selectedDay, onSelectDay, selectedCell, dayCard, c
         </div>
 
         <div className="flex items-center flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs text-ink-3">
-          <span className="flex items-center gap-1.5">
-            <span className="flex items-center gap-0.5">
-              {[15, 35, 55, 75].map((pct) => (
-                <span
-                  key={pct}
-                  className="w-3 h-3 rounded-sm border border-line"
-                  style={{ backgroundColor: `color-mix(in srgb, var(--color-ok) ${pct}%, var(--color-surface))` }}
-                />
-              ))}
-            </span>
-            Lower &rarr; higher yield
-          </span>
           <span className="flex items-center gap-1">
             <AlertTriangle size={11} className="text-warn" /> Flagged
           </span>
@@ -448,23 +428,23 @@ function ProductsView({ byProduct, selected, onSelect, card, multi, targets }) {
     return <p className="text-sm text-ink-4">Yield by product shows up once batches start closing on the floor.</p>;
   }
   return (
-    <div className="flex flex-col lg:flex-row gap-6 items-start">
-      <div className="w-full lg:w-[22rem] shrink-0 lg:sticky lg:top-6">
-        <ProductYieldTable byProduct={byProduct} selected={selected} onSelect={onSelect} />
-      </div>
+    <div className="space-y-5">
+      <ProductYieldTable byProduct={byProduct} selected={selected} onSelect={onSelect} />
 
-      <div className="flex-1 min-w-0 w-full rounded-md border border-line bg-surface p-5">
-        {card ? (
+      {/* The detail opens UNDER the ledger at full width rather than beside
+        * it: the month chart and the batch table both want the room, and a
+        * side panel meant half the screen sat empty until somebody clicked. */}
+      {card ? (
+        <div className="rounded-md border border-line bg-surface p-5">
           <ProductDetail key={card.id} card={card} multi={multi} targets={targets} onClear={() => onSelect(selected)} />
-        ) : selected ? (
-          <p className="text-xs text-ink-4">No closed batches of {selected} yet.</p>
-        ) : (
-          <div className="py-12 text-center">
-            <p className="text-sm text-ink-2">Pick a product on the left.</p>
-            <p className="mt-1 text-xs text-ink-4">You&rsquo;ll get how it compares to a year ago and its month-by-month run.</p>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : selected ? (
+        <p className="text-xs text-ink-4">No closed batches of {selected} yet.</p>
+      ) : (
+        <p className="text-xs text-ink-4">
+          Pick a product for its month-by-month run and how it compares with a year ago.
+        </p>
+      )}
     </div>
   );
 }
@@ -472,32 +452,43 @@ function ProductsView({ byProduct, selected, onSelect, card, multi, targets }) {
 /**
  * Yield rolled up by product — "which item" rather than "which shop" or
  * "which shift". Worst average first, since that is where a manager would
- * look. Plain numbers, no fills: the only colour on the row is the warn on
- * an average under the low-yield line or a flagged count, so a warm cell
- * means "look here" and nothing else.
+ * look. One full-width row per product, the way Targets does it: the name,
+ * the spread, the average, the flagged count. The only colour is the warn
+ * on an average under the low-yield line or a flagged count, so anything
+ * warm means "look here" and nothing else.
  */
 function ProductYieldTable({ byProduct, selected, onSelect }) {
+  /* Rows can only be compared against each other if their bars share a
+   * scale, so the domain is measured once across every product — and always
+   * contains the low-yield line, since a bar's job is to show which
+   * products cross it. */
+  const domain = useMemo(() => {
+    const lo = Math.min(LOW_YIELD_PCT, ...byProduct.map((p) => p.low));
+    const hi = Math.max(LOW_YIELD_PCT, ...byProduct.map((p) => p.high));
+    return [Math.floor(lo - 2), Math.ceil(hi + 2)];
+  }, [byProduct]);
+
   return (
     <div className="rounded-md border border-line bg-surface p-4">
-      <div className="mb-3">
-        <p className="text-sm font-semibold text-ink">Yield by product</p>
-        <p className="mt-0.5 text-xs text-ink-3">Lowest average first.</p>
-      </div>
-      <table className="w-full text-sm border-collapse table-fixed">
+      <table className="w-full text-sm border-collapse">
         <colgroup>
+          <col className="w-56" />
           <col />
+          <col className="w-24" />
+          <col className="w-20" />
           <col className="w-16" />
-          <col className="w-14" />
         </colgroup>
         <thead>
           <tr className="text-left text-xs text-ink-4 border-b border-line">
-            <th className="font-medium pb-2 pr-2">Product</th>
-            <th className="font-medium pb-2 pr-2 text-right">Avg yield</th>
+            <th className="font-medium pb-2 pr-3">Product</th>
+            <th className="font-medium pb-2 pr-3">Spread</th>
+            <th className="font-medium pb-2 pr-3 text-right hidden sm:table-cell">Range</th>
+            <th className="font-medium pb-2 pr-3 text-right">Avg yield</th>
             <th className="font-medium pb-2 text-right">Flagged</th>
           </tr>
         </thead>
         <tbody>
-          {byProduct.map((p) => {
+          {byProduct.map((p, i) => {
             const isSelected = selected === p.product;
             return (
               <tr
@@ -505,11 +496,14 @@ function ProductYieldTable({ byProduct, selected, onSelect }) {
                 onClick={() => onSelect(p.product)}
                 aria-selected={isSelected}
                 className={cx(
-                  "border-b border-line-soft last:border-0 cursor-pointer transition-colors hover:bg-sunken",
+                  "cursor-pointer transition-colors hover:bg-sunken",
+                  /* Striped, not ruled: five columns of mostly numbers read
+                   * straighter on a band than under a hairline. */
+                  !isSelected && i % 2 === 1 && "bg-faint",
                   isSelected && "bg-sunken"
                 )}
               >
-                <td className="py-2 pr-2">
+                <td className="py-2 pr-3">
                   {/* A real button so the row is reachable by keyboard; the
                     * row's own onClick covers the mouse on the other cells. */}
                   <button
@@ -524,7 +518,13 @@ function ProductYieldTable({ byProduct, selected, onSelect }) {
                     {p.product}
                   </button>
                 </td>
-                <td className={cx("py-2 pr-2 text-right tnum font-medium", p.avgYield < LOW_YIELD_PCT ? "text-warn" : "text-ink")}>
+                <td className="py-2 pr-3">
+                  <YieldRange low={p.low} high={p.high} avg={p.avgYield} domain={domain} />
+                </td>
+                <td className="py-2 pr-3 text-right tnum text-xs text-ink-4 hidden sm:table-cell">
+                  {round1(p.low)}&ndash;{round1(p.high)}%
+                </td>
+                <td className={cx("py-2 pr-3 text-right tnum font-medium", p.avgYield < LOW_YIELD_PCT ? "text-warn" : "text-ink")}>
                   {p.avgYield}%
                 </td>
                 <td className="py-2 text-right tnum">
@@ -535,26 +535,71 @@ function ProductYieldTable({ byProduct, selected, onSelect }) {
           })}
         </tbody>
       </table>
+      <p className="mt-3 text-xs text-ink-4">
+        Lowest average first. The bar is each product&rsquo;s low&ndash;high spread with its average marked; the dotted line is{" "}
+        {LOW_YIELD_PCT}%.
+      </p>
     </div>
   );
 }
 
 /**
- * One product, one thing at a time. The headline states the case and the
- * question chips sit right under it (they are questions about that
- * sentence). Below: the year-over-year numbers as one plain row, then a
- * single chart with a switch for which series it shows — yield, or minutes
- * at one station — with the value printed under every bar, so nothing has
- * to be read off a colour. The batch list is there but folded, since the
- * chart already says what the last three months looked like.
+ * One product's spread on the scale every other row shares: the low–high
+ * span as a track segment, the average as a tick, and the low-yield line as
+ * a dotted rule. It answers the question the average alone cannot — whether
+ * a product is steadily mediocre or wildly inconsistent — so the span is
+ * the quiet part and the average is the mark you read.
+ */
+function YieldRange({ low, high, avg, domain }) {
+  const [lo, hi] = domain;
+  const at = (v) => ((v - lo) / (hi - lo)) * 100;
+  const under = avg < LOW_YIELD_PCT;
+  const left = at(low);
+  /* A product with one batch has low === high; without a floor its span
+   * would be invisible and the row would look like it had no data. */
+  const width = Math.max(1.5, at(high) - left);
+
+  return (
+    <span
+      className="relative block h-4 w-full min-w-[4rem]"
+      title={`${round1(low)}%–${round1(high)}%, ${avg}% average`}
+      role="img"
+      aria-label={`Spread ${round1(low)} to ${round1(high)} percent, average ${avg} percent`}
+    >
+      <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-sunken" />
+      <span
+        className={cx("absolute top-1/2 -translate-y-1/2 h-1 rounded-full", under ? "bg-warn/30" : "bg-ok/30")}
+        style={{ left: `${left}%`, width: `${width}%` }}
+      />
+      <span
+        className="absolute inset-y-0.5 border-l border-dotted border-ink-4"
+        style={{ left: `${at(LOW_YIELD_PCT)}%` }}
+        aria-hidden
+      />
+      <span
+        className={cx("absolute top-1/2 -translate-y-1/2 w-[3px] h-3 rounded-full", under ? "bg-warn" : "bg-ok")}
+        style={{ left: `calc(${at(avg)}% - 1.5px)` }}
+      />
+    </span>
+  );
+}
+
+/**
+ * One product, one thing at a time. One title block — the product's name,
+ * the sentence about it, and the way out — then the question chips right
+ * under it (they are questions about that sentence). Below: the
+ * year-over-year numbers as one plain row, then a single chart with a
+ * switch for which series it shows — yield, or minutes at one station —
+ * with the value printed under every bar, so nothing has to be read off a
+ * colour. The batch list is there but folded, since the chart already says
+ * what the last three months looked like.
  */
 function ProductDetail({ card, multi, targets, onClear }) {
-  const { product, history, recentRows } = card.context;
+  const { history, recentRows } = card.context;
   return (
     <div>
-      <PanelHeader title={product} onClear={onClear} />
-      <InsightHeadline card={card} />
-      <div className="mt-3 pl-[26px]">
+      <InsightHeadline card={card} onClear={onClear} />
+      <div className={cx("mt-3", ICON_INDENT)}>
         <InsightQA card={card} />
       </div>
 
@@ -630,7 +675,9 @@ function YearOverYear({ history }) {
 
   return (
     <div>
-      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-6 gap-y-1.5 items-baseline text-sm">
+      {/* Capped: the panel is full width now, and a four-column figure grid
+        * stretched across it puts the change a foot away from its label. */}
+      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-6 gap-y-1.5 items-baseline text-sm max-w-xl">
         <span />
         <span className="text-[11px] text-ink-4 text-right">Now</span>
         <span className="text-[11px] text-ink-4 text-right">Year ago</span>
@@ -699,13 +746,8 @@ function MonthChart({ history, targets }) {
   return (
     <div>
       {series.length > 1 && (
-        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div className="mb-3">
           <Segmented size="sm" value={which} onChange={setWhich} options={series} />
-          <p className="text-xs text-ink-3">
-            {isYield
-              ? `Average yield per month. Amber: under ${LOW_YIELD_PCT}%.`
-              : `Average minutes per month. Dotted line: the ${target}-minute target. Amber: far enough over it to be flagged.`}
-          </p>
         </div>
       )}
 
@@ -748,6 +790,13 @@ function MonthChart({ history, targets }) {
           </div>
         ))}
       </div>
+      {/* The key reads after the chart, where you look once you have a
+        * question about it — not next to the control that changes it. */}
+      <p className="mt-2 text-xs text-ink-4">
+        {isYield
+          ? `Amber: a month averaging under ${LOW_YIELD_PCT}%.`
+          : `Dotted line: the ${target}-minute target. Amber: far enough over it to be flagged.`}
+      </p>
     </div>
   );
 }
@@ -818,8 +867,13 @@ function PanelHeader({ title, onClear }) {
   );
 }
 
-/** A card's icon, title and one-line detail. */
-function InsightHeadline({ card }) {
+/**
+ * A card's icon, title and one-line detail — and, when the card is one the
+ * user picked, the way back out. Taking `onClear` here is what lets a
+ * picked product have a single heading instead of a panel header above a
+ * card title that says the same thing.
+ */
+function InsightHeadline({ card, onClear }) {
   const Icon = TONE_ICON[card.tone];
   return (
     <div className="flex items-start gap-2.5">
@@ -827,9 +881,14 @@ function InsightHeadline({ card }) {
         <Icon size={16} />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-ink">{card.title}</p>
+        <p className="text-sm font-semibold text-ink truncate">{card.title}</p>
         <p className="mt-1 text-xs text-ink-3 leading-relaxed">{card.detail}</p>
       </div>
+      {onClear && (
+        <button type="button" onClick={onClear} className="text-xs text-ink-3 hover:text-ink shrink-0">
+          Clear
+        </button>
+      )}
     </div>
   );
 }
@@ -899,7 +958,7 @@ function InsightQA({ card }) {
       )}
 
       {thread.length > 0 && (
-        <div className="mt-3 space-y-2" role="log" aria-live="polite" aria-label="Answers">
+        <div className="mt-3 space-y-2 max-w-2xl" role="log" aria-live="polite" aria-label="Answers">
           {thread.map((t, i) => (
             <div key={i} className="text-xs rounded-md bg-sunken px-2.5 py-2">
               <p className="font-medium text-ink-2">&ldquo;{t.q}&rdquo;</p>
@@ -920,7 +979,7 @@ function InsightDetail({ card, children }) {
   return (
     <div>
       <InsightHeadline card={card} />
-      <div className="pl-[26px] mt-3">
+      <div className={cx(ICON_INDENT, "mt-3")}>
         {children && <div className="mb-3">{children}</div>}
         <InsightQA card={card} />
       </div>
