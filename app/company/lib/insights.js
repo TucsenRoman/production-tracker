@@ -10,10 +10,80 @@
  * a real model call could replace it later with the same signature.
  */
 
-import { LOW_YIELD_PCT, STAGE_TARGET_MINUTES, isOverTarget, yieldPct } from "../../lib/domain";
+import { LOW_YIELD_PCT, STAGE_TARGET_MINUTES, isOverTarget, shiftDate, todayKey, yieldPct } from "../../lib/domain";
 
 const round1 = (n) => Math.round(n * 10) / 10;
 const fmtPct = (n) => (n == null ? "—" : `${n}%`);
+const mean = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : null);
+const fmtDate = (key) => new Date(`${key}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const fmtRange = (w) => `${fmtDate(w.from)} and ${fmtDate(w.to)}`;
+
+/** Days in the two windows `productHistory` compares (now vs. a year ago). */
+export const HISTORY_WINDOW_DAYS = 90;
+/** Months on the product history strip: a full year plus the current one. */
+export const HISTORY_MONTHS = 13;
+
+/**
+ * Yield, flags and per-station minutes over a set of product rows (rows
+ * already carry `y` and `flagged`). `minutes` averages only the batches that
+ * actually ran the station, keyed by station name, rounded to whole minutes.
+ */
+function windowStats(rows) {
+  const perStation = {};
+  for (const r of rows) {
+    for (const [s, m] of Object.entries(r.minutes || {})) {
+      if (m == null) continue;
+      (perStation[s] ||= []).push(m);
+    }
+  }
+  const minutes = Object.fromEntries(Object.entries(perStation).map(([s, list]) => [s, Math.round(mean(list))]));
+  const avg = mean(rows.map((r) => r.y));
+  return {
+    batches: rows.length,
+    avgYield: avg == null ? null : round1(avg),
+    flagged: rows.filter((r) => r.flagged).length,
+    minutes,
+  };
+}
+
+/**
+ * One product's long run: a month-by-month strip over the last
+ * HISTORY_MONTHS and a "now vs. a year ago" comparison of two equal windows,
+ * the last HISTORY_WINDOW_DAYS against the same days one year earlier. The
+ * windows are what the "a year ago" question answers from; the months are
+ * what the panel draws. Rows are the panel's product rows (with `y` and
+ * `flagged`), in any order.
+ */
+export function productHistory(rows, today = todayKey()) {
+  const months = [];
+  const first = new Date(`${today.slice(0, 7)}-01T00:00:00`);
+  for (let i = HISTORY_MONTHS - 1; i >= 0; i--) {
+    const d = new Date(first);
+    d.setMonth(d.getMonth() - i);
+    const key = d.toISOString().slice(0, 7);
+    const inMonth = rows.filter((r) => r.closedOn && r.closedOn.slice(0, 7) === key);
+    months.push({
+      key,
+      label: d.toLocaleDateString("en-US", { month: "short" }),
+      year: d.getFullYear(),
+      ...windowStats(inMonth),
+    });
+  }
+
+  const recentFrom = shiftDate(today, -(HISTORY_WINDOW_DAYS - 1));
+  const yearAgoTo = shiftDate(today, -365);
+  const yearAgoFrom = shiftDate(recentFrom, -365);
+  const inRange = (from, to) => rows.filter((r) => r.closedOn && r.closedOn >= from && r.closedOn <= to);
+
+  const stations = [...new Set(rows.flatMap((r) => Object.keys(r.minutes || {})))];
+
+  return {
+    months,
+    stations,
+    recent: { from: recentFrom, to: today, ...windowStats(inRange(recentFrom, today)) },
+    yearAgo: { from: yearAgoFrom, to: yearAgoTo, ...windowStats(inRange(yearAgoFrom, yearAgoTo)) },
+  };
+}
 
 /**
  * A closed batch worth flagging: low yield, or any station over target.
@@ -31,6 +101,40 @@ export function locationStats(history, targets = {}) {
   const avgYield = yields.length ? round1(yields.reduce((a, b) => a + b, 0) / yields.length) : null;
   const flagged = history.filter((h) => isFlaggedBatch(h, targets));
   return { batches: history.length, avgYield, flagged: flagged.length };
+}
+
+/**
+ * Closed-batch history grouped by product, worst average yield first — the
+ * question `locationStats` doesn't answer: not "which shop" but "which
+ * item". Same shape as a location row (`batches`/`avgYield`/`flagged`) plus
+ * `product` and a `low`/`high` spread so a manager can see how wide a
+ * product's own results run, not just its average.
+ */
+export function productStats(history, targets = {}) {
+  const byProduct = new Map();
+  for (const h of history) {
+    const y = yieldPct(h.boxWeight, h.finalWeight);
+    if (y == null) continue;
+    const list = byProduct.get(h.product);
+    if (list) list.push(h);
+    else byProduct.set(h.product, [h]);
+  }
+
+  return Array.from(byProduct.entries())
+    .map(([product, batches]) => {
+      const yields = batches.map((h) => yieldPct(h.boxWeight, h.finalWeight));
+      const avgYield = round1(yields.reduce((a, b) => a + b, 0) / yields.length);
+      const flagged = batches.filter((h) => isFlaggedBatch(h, targets)).length;
+      return {
+        product,
+        batches: batches.length,
+        avgYield,
+        flagged,
+        low: Math.min(...yields),
+        high: Math.max(...yields),
+      };
+    })
+    .sort((a, b) => a.avgYield - b.avgYield);
 }
 
 function stationStats(production, locations, station, targets = {}) {
@@ -69,6 +173,7 @@ export function buildCompanyInsights({ locations, stations, production, targets 
 
   const allHistory = locations.flatMap((loc) => production[loc.id] || []);
   const company = locationStats(allHistory, targets);
+  const byProduct = productStats(allHistory, targets);
 
   const byStation = stations.map((s) => stationStats(production, locations, s, targets));
 
@@ -140,7 +245,7 @@ export function buildCompanyInsights({ locations, stations, production, targets 
     ...cards.filter((c) => c.id !== "overall").sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone]),
   ];
 
-  return { company, byLocation, byStation, cards: sorted };
+  return { company, byLocation, byProduct, byStation, cards: sorted };
 }
 
 /** Deterministic Q&A scoped to one insight card — reasons only over that card's own numbers. */
@@ -199,6 +304,67 @@ export function answerInsightQuestion(card, question) {
       return `${fmtPct(avgY)} average yield that day, ${Math.abs(delta)} points ${delta > 0 ? "above" : "below"} the ${fmtPct(companyAvg)} overall average.`;
     }
     return `${batches.length} batch${batches.length === 1 ? "" : "es"} closed, ${fmtPct(avgY)} average yield, ${flaggedCount} flagged. I don't have a specific answer for that yet, but that's everything behind this day.`;
+  }
+
+  if (card.context.type === "product") {
+    const { product, rows, avgY, flaggedCount, companyAvg, history } = card.context;
+    /* Checked before "trend": "last year" contains no trend keyword, but
+     * "how does this compare to a year ago" would otherwise hit "compare". */
+    if (/year|ago|last (spring|summer|fall|winter)/.test(q) && history) {
+      const { recent, yearAgo } = history;
+      if (!yearAgo.batches) {
+        return `No ${product} batches closed between ${fmtRange(yearAgo)} — nothing on record from a year ago to compare against.`;
+      }
+      if (!recent.batches) {
+        return `A year ago ${product} averaged ${fmtPct(yearAgo.avgYield)} over ${yearAgo.batches} batch${yearAgo.batches === 1 ? "" : "es"} (${fmtRange(yearAgo)}), but nothing has closed in the last ${HISTORY_WINDOW_DAYS} days to compare.`;
+      }
+      const delta = round1(recent.avgYield - yearAgo.avgYield);
+      const yieldLine =
+        Math.abs(delta) < 1
+          ? `Yield is where it was: ${fmtPct(recent.avgYield)} over the last ${HISTORY_WINDOW_DAYS} days against ${fmtPct(yearAgo.avgYield)} the same stretch last year`
+          : `Yield is ${Math.abs(delta)} points ${delta > 0 ? "better" : "worse"} than a year ago: ${fmtPct(recent.avgYield)} over the last ${HISTORY_WINDOW_DAYS} days against ${fmtPct(yearAgo.avgYield)} the same stretch last year`;
+      const stationLines = Object.keys(recent.minutes)
+        .filter((s) => yearAgo.minutes[s] != null)
+        .map((s) => {
+          const d = recent.minutes[s] - yearAgo.minutes[s];
+          if (Math.abs(d) < 3) return `${s} is holding at about ${recent.minutes[s]} min`;
+          return `${s} is ${Math.abs(d)} min ${d < 0 ? "faster" : "slower"} (${recent.minutes[s]} vs ${yearAgo.minutes[s]})`;
+        });
+      return `${yieldLine} (${recent.batches} vs ${yearAgo.batches} batches).${stationLines.length ? ` ${stationLines.join("; ")}.` : ""}`;
+    }
+    if (/why|driv|cause/.test(q)) {
+      if (flaggedCount > 0) {
+        const dates = rows.filter((r) => r.flagged).map((r) => `${r.closedOn} (${r.y}%)`).join(", ");
+        return `${flaggedCount} of ${rows.length} ${product} batch${rows.length === 1 ? "" : "es"} ${
+          flaggedCount === 1 ? "was" : "were"
+        } flagged for low yield or slow time: ${dates}.`;
+      }
+      return `Nothing flagged for ${product} — every batch closed above ${LOW_YIELD_PCT}% and within target.`;
+    }
+    if (/trend|improv|wors|getting/.test(q)) {
+      /* Real trend here, unlike a location: the rows ARE the series. First
+       * half against second half, in date order — crude, but honest with
+       * the handful of batches a product usually has. */
+      if (rows.length < 4) {
+        return `Only ${rows.length} ${product} batch${rows.length === 1 ? "" : "es"} closed so far — too few to call a trend. Check back after a couple more.`;
+      }
+      const half = Math.floor(rows.length / 2);
+      const avg = (list) => round1(list.reduce((a, r) => a + r.y, 0) / list.length);
+      const early = avg(rows.slice(0, half));
+      const late = avg(rows.slice(rows.length - half));
+      const delta = round1(late - early);
+      if (Math.abs(delta) < 1) return `Flat: the latest ${half} ${product} batches average ${fmtPct(late)}, about the same as the earlier ${half} at ${fmtPct(early)}.`;
+      return `${delta > 0 ? "Improving" : "Slipping"}: the latest ${half} ${product} batches average ${fmtPct(late)}, ${Math.abs(delta)} points ${
+        delta > 0 ? "above" : "below"
+      } the earlier ${half} at ${fmtPct(early)}.`;
+    }
+    if (/compare|other|vs\.?|versus|average|typical/.test(q)) {
+      if (avgY == null || companyAvg == null) return `Not enough data yet to compare ${product} to the average.`;
+      const delta = round1(avgY - companyAvg);
+      if (Math.abs(delta) < 1) return `${product} averages ${fmtPct(avgY)} — right in line with the ${fmtPct(companyAvg)} average across everything.`;
+      return `${product} averages ${fmtPct(avgY)}, ${Math.abs(delta)} points ${delta > 0 ? "above" : "below"} the ${fmtPct(companyAvg)} average across everything.`;
+    }
+    return `${product}: ${rows.length} batch${rows.length === 1 ? "" : "es"} closed, ${fmtPct(avgY)} average yield, ${flaggedCount} flagged. I don't have a specific answer for that yet, but that's everything behind this product.`;
   }
 
   // "overall"

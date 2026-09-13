@@ -286,7 +286,7 @@ export const COMPANY_SEED = {
   company: {
     name: "Milaca Meats",
     plan: "Enterprise",
-    ownerEmail: "dana@milacameats.com",
+    ownerEmail: "sam@milacameats.com",
     createdAt: "2024-03-12T00:00:00.000Z",
   },
 
@@ -317,9 +317,8 @@ export const COMPANY_SEED = {
   users: [
     {
       id: "U-1",
-      name: "Dana Whitfield",
-      email: "dana@milacameats.com",
-      avatarUrl: "/avatars/dana-whitfield.jpg",
+      name: "Sam",
+      email: "sam@milacameats.com",
       role: "admin",
       locationIds: ["LOC-1"],
       status: "active",
@@ -329,10 +328,9 @@ export const COMPANY_SEED = {
     },
     {
       id: "U-2",
-      name: "Maria Ruiz",
-      email: "maria.ruiz@milacameats.com",
-      avatarUrl: "/avatars/maria-ruiz.jpg",
-      role: "admin",
+      name: "Justin",
+      email: "justin@milacameats.com",
+      role: "manager",
       locationIds: ["LOC-1"],
       status: "active",
       invitedAt: "2024-04-02T00:00:00.000Z",
@@ -340,23 +338,12 @@ export const COMPANY_SEED = {
     },
     {
       id: "U-3",
-      name: "Marcus Reed",
-      email: "marcus.reed@milacameats.com",
-      avatarUrl: "/avatars/marcus-reed.jpg",
+      name: "Frank",
+      email: "frank@milacameats.com",
       role: "manager",
       locationIds: ["LOC-1"],
       status: "active",
       invitedAt: "2024-06-18T00:00:00.000Z",
-    },
-    {
-      id: "U-5",
-      name: "Jordan Reyes",
-      email: "jordan.reyes@milacameats.com",
-      avatarUrl: "/avatars/jordan-reyes.jpg",
-      role: "admin",
-      locationIds: ["LOC-1"],
-      status: "invited",
-      invitedAt: "2026-08-18T00:00:00.000Z",
     },
   ],
 

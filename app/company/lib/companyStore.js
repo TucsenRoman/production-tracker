@@ -16,7 +16,7 @@ import { useCallback } from "react";
 
 import { createStore } from "../../lib/persistence";
 
-export const COMPANY_NS = "milaca.company.v4";
+export const COMPANY_NS = "milaca.company.v5";
 
 const store = createStore(COMPANY_NS);
 

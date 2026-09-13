@@ -680,6 +680,7 @@ function Application() {
           scopeLabel={insightsScopeLabel}
           insights={insights}
           targets={stationTargets}
+          isAdmin={isAdmin}
           history={visibleLocations.flatMap((l) =>
             (production[l.id] || []).map((h) => ({ ...h, locationId: l.id, locationName: l.name }))
           )}
