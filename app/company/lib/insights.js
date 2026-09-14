@@ -28,7 +28,7 @@ export const HISTORY_MONTHS = 13;
  * already carry `y` and `flagged`). `minutes` averages only the batches that
  * actually ran the station, keyed by station name, rounded to whole minutes.
  */
-function windowStats(rows) {
+export function windowStats(rows) {
   const perStation = {};
   for (const r of rows) {
     for (const [s, m] of Object.entries(r.minutes || {})) {
