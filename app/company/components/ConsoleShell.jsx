@@ -7,6 +7,8 @@ import { ArrowLeft, CircleHelp, MessageSquareText, Settings, Sparkles } from "lu
 import { SlotTarget, cx } from "../../components/ui";
 import AppShell from "../../components/AppShell";
 import { ROLE_LABEL } from "../lib/companyDomain";
+import { AssistantPanel, AssistantProvider, useAssistant } from "./Assistant";
+import InsightsIcon from "./InsightsIcon";
 
 /**
  * Demo "view as" menu: pick a teammate and the persisted session switches to
@@ -148,8 +150,22 @@ function BrandMenu({ onOpenSettings, onOpenFeedback, onOpenPricing }) {
   );
 }
 
-/** App frame for the console: AppShell wiring plus its two popovers. */
-export default function ConsoleShell({
+/**
+ * App frame for the console: AppShell wiring plus its two popovers.
+ *
+ * The provider wraps the frame rather than sitting inside it, because both
+ * ends need it — the frame reads `open` to size the third column, and the
+ * screens rendered as `children` publish their context into it.
+ */
+export default function ConsoleShell(props) {
+  return (
+    <AssistantProvider>
+      <ConsoleFrame {...props} />
+    </AssistantProvider>
+  );
+}
+
+function ConsoleFrame({
   company,
   currentUser,
   nav,
@@ -169,9 +185,20 @@ export default function ConsoleShell({
   onOpenPricing,
   children,
 }) {
+  const { open: assistantOpen, setOpen: setAssistantOpen } = useAssistant();
+
   return (
     <AppShell
       brand={company.name}
+      /* The sparkle-magnifier used to be the Insights nav icon. A nav item
+       * that does not navigate is a lie, so Insights took a plain chart mark
+       * and this — the rail's one deliberate spot of colour — moved to the
+       * thing that actually is a mode rather than a place. */
+      assistant={<AssistantPanel />}
+      assistantIcon={InsightsIcon}
+      assistantLabel="Ask"
+      assistantOpen={assistantOpen}
+      onAssistantOpenChange={setAssistantOpen}
       nav={nav}
       view={view}
       onNavigate={onNavigate}

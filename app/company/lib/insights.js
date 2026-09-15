@@ -1,6 +1,120 @@
 "use client";
 
 /**
+ * The things a manager actually asks of a window of closed batches, answered
+ * from the rollups rather than from prose. Order matters: the more specific
+ * keyword sets are tested first, so "which product is worst" does not fall
+ * into the generic "compare" branch.
+ */
+function answerPeriodQuestion(ctx, q) {
+  const { byProduct, byStation, stats, yearAgo, spanLabel, scopeLabel, overlaps } = ctx;
+  /* Rank only what is rankable. Over a short window a product can have ONE
+   * batch, and one bad batch would otherwise crown it "the weakest product"
+   * — a claim about a process made from a single measurement. Thin products
+   * are still reported, but as a single batch, not as a ranking. */
+  const rankable = byProduct.filter((p) => p.batches >= MIN_RANK_BATCHES);
+  const worst = rankable[0];
+  const best = rankable[rankable.length - 1];
+  const thin = byProduct.filter((p) => p.batches < MIN_RANK_BATCHES && p.avgYield < LOW_YIELD_PCT);
+  const over = byStation.filter((s) => s.overCount > 0).sort((a, b) => b.overPct - a.overPct);
+
+  const noData = () => `Nothing closed ${spanLabel} — there is nothing to read yet in this window.`;
+  if (!stats.batches) return noData();
+
+  /* "What should I look at" — the one question worth asking of a dashboard,
+   * answered as the two or three things that are actually unusual. */
+  if (/look at|stands? out|notable|summar|what.?s (up|wrong|going)|anything/.test(q)) {
+    const notes = [];
+    if (worst && rankable.length > 1 && stats.avgYield != null) {
+      const gap = round1(stats.avgYield - worst.avgYield);
+      if (gap >= 2) notes.push(`${worst.product} is the weak spot at ${fmtPct(worst.avgYield)} over ${worst.batches} batches, ${gap} points under the ${fmtPct(stats.avgYield)} average`);
+    }
+    if (thin.length) {
+      notes.push(
+        `${thin.map((p) => `${p.product} came in at ${fmtPct(p.avgYield)}`).join(" and ")} — ${
+          thin.length === 1 ? "one batch, so" : "a batch or two each, so"
+        } too little to call a pattern`
+      );
+    }
+    if (over.length) {
+      const s = over[0];
+      notes.push(`${s.station} went over its ${s.target}-minute target on ${s.overCount} of ${s.runs} run${s.runs === 1 ? "" : "s"}`);
+    }
+    if (stats.flagged) notes.push(`${stats.flagged} of ${stats.batches} batches ${stats.flagged === 1 ? "is" : "are"} flagged`);
+    if (!overlaps && yearAgo?.avgYield != null && stats.avgYield != null) {
+      const d = round1(stats.avgYield - yearAgo.avgYield);
+      if (Math.abs(d) >= 1) notes.push(`yield is ${Math.abs(d)} points ${d > 0 ? "up on" : "down on"} the same stretch last year`);
+    }
+    if (!notes.length) return `Nothing unusual ${spanLabel}: ${stats.batches} batches at ${fmtPct(stats.avgYield)}, nothing flagged, every station inside target.`;
+    return `${notes[0][0].toUpperCase()}${notes[0].slice(1)}. ${notes.slice(1).map((n) => `${n[0].toUpperCase()}${n.slice(1)}.`).join(" ")}`.trim();
+  }
+
+  /* Ranking. The screen deliberately shows no leaderboard, so this is the
+   * only place "which one" gets answered. */
+  if (/which|worst|weak|lowest|best|strongest|highest|rank|drag/.test(q)) {
+    if (rankable.length < 2) {
+      const thinNote = byProduct.length
+        ? ` The window holds ${byProduct.length} product${byProduct.length === 1 ? "" : "s"}, none with more than ${
+            Math.max(...byProduct.map((p) => p.batches))
+          } batch${Math.max(...byProduct.map((p) => p.batches)) === 1 ? "" : "es"}.`
+        : "";
+      return `Not enough closed batches per product ${spanLabel} to rank them — it takes ${MIN_RANK_BATCHES} to say anything about a product rather than about one batch.${thinNote} Widen the window and ask again.`;
+    }
+    const wantsBest = /best|strongest|highest/.test(q) && !/worst|weak|lowest|drag/.test(q);
+    const pick = wantsBest ? best : worst;
+    const others = (wantsBest ? [...rankable].reverse() : rankable).slice(1, 3);
+    const caveat = thin.length
+      ? ` (${thin.map((p) => `${p.product} ran lower at ${fmtPct(p.avgYield)}, but only ${p.batches} batch${p.batches === 1 ? "" : "es"}`).join("; ")}.)`
+      : "";
+    return `${pick.product} is the ${wantsBest ? "strongest" : "weakest"} ${spanLabel} at ${fmtPct(pick.avgYield)} over ${pick.batches} batches${
+      pick.flagged ? `, ${pick.flagged} flagged` : ""
+    }. Then ${others.map((p) => `${p.product} at ${fmtPct(p.avgYield)}`).join(", ")}.${caveat}`;
+  }
+
+  /* Stations. `byStation` was computed and displayed nowhere for a while;
+   * this is where it surfaces. */
+  if (/station|smokehouse|packaging|over target|slow|minutes|time/.test(q)) {
+    if (!byStation.length) return `No station minutes were logged ${spanLabel}.`;
+    if (!over.length) {
+      return `Every station stayed inside target ${spanLabel}: ${byStation.map((s) => `${s.station} averaged ${s.avgMinutes} min against ${s.target}`).join(", ")}.`;
+    }
+    return over
+      .map((s) => `${s.station} went over its ${s.target}-minute target on ${s.overCount} of ${s.runs} run${s.runs === 1 ? "" : "s"}, averaging ${s.avgMinutes} min`)
+      .join(". ") + ".";
+  }
+
+  if (/flag/.test(q)) {
+    if (!stats.flagged) return `Nothing flagged ${spanLabel} — every batch closed above ${LOW_YIELD_PCT}% and inside every station target.`;
+    const byProd = byProduct.filter((p) => p.flagged).map((p) => `${p.product} (${p.flagged})`);
+    return `${stats.flagged} of ${stats.batches} batches flagged ${spanLabel}, for low yield or slow time: ${byProd.join(", ")}.`;
+  }
+
+  if (/year|ago|last (spring|summer|fall|winter)/.test(q)) {
+    if (overlaps) {
+      return `This window is longer than a year, so the same stretch one year earlier overlaps it — the comparison would be partly against these very batches. Narrow it to a year or less and ask again.`;
+    }
+    if (!yearAgo || !yearAgo.batches) return `Nothing on record from the same stretch a year earlier to compare ${spanLabel} against.`;
+    const d = stats.avgYield != null && yearAgo.avgYield != null ? round1(stats.avgYield - yearAgo.avgYield) : null;
+    const yieldLine =
+      d == null ? "" : Math.abs(d) < 1
+        ? `Yield is where it was, ${fmtPct(stats.avgYield)} against ${fmtPct(yearAgo.avgYield)}`
+        : `Yield is ${Math.abs(d)} points ${d > 0 ? "better" : "worse"}, ${fmtPct(stats.avgYield)} against ${fmtPct(yearAgo.avgYield)}`;
+    return `${yieldLine} (${stats.batches} batches against ${yearAgo.batches}).`;
+  }
+
+  if (/why|driv|cause/.test(q)) {
+    if (stats.flagged && worst) {
+      return `${stats.flagged} of ${stats.batches} batches were flagged, and ${worst.product} carries the lowest average at ${fmtPct(worst.avgYield)}. That is where the ${fmtPct(stats.avgYield)} overall comes from.`;
+    }
+    return `Nothing flagged ${spanLabel}; the ${fmtPct(stats.avgYield)} average is spread evenly across ${byProduct.length} product${byProduct.length === 1 ? "" : "s"}.`;
+  }
+
+  return `${scopeLabel ? `${scopeLabel}, ` : ""}${spanLabel}: ${stats.batches} batches closed, ${fmtPct(stats.avgYield)} average yield, ${stats.flagged} flagged, across ${byProduct.length} product${
+    byProduct.length === 1 ? "" : "s"
+  }. I don't have a specific answer for that yet, but that is everything behind this window.`;
+}
+
+/**
  * Company-wide insight generation: the floor's yield/target math, applied to
  * compare locations and stations against each other.
  *
@@ -17,6 +131,13 @@ const fmtPct = (n) => (n == null ? "—" : `${n}%`);
 const mean = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : null);
 const fmtDate = (key) => new Date(`${key}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const fmtRange = (w) => `${fmtDate(w.from)} and ${fmtDate(w.to)}`;
+
+/**
+ * Batches a product needs before its average is a fact about the product
+ * rather than a fact about one batch. Ranking below this is how a single bad
+ * run gets reported as "the weakest product".
+ */
+export const MIN_RANK_BATCHES = 3;
 
 /** Days in the two windows `productHistory` compares (now vs. a year ago). */
 export const HISTORY_WINDOW_DAYS = 90;
@@ -248,9 +369,160 @@ export function buildCompanyInsights({ locations, stations, production, targets 
   return { company, byLocation, byProduct, byStation, cards: sorted };
 }
 
+/* ------------------------------------------------------ Page commands -- */
+
+/**
+ * The verbs that turn a question into an instruction. Asking and steering
+ * are different acts and the panel has to tell them apart: "which product is
+ * weakest?" wants a sentence, "show me the weakest product" wants the page
+ * to change. The verb is the whole test — without one, nothing here runs and
+ * the question falls through to the answerer as it always did.
+ */
+const COMMAND_VERB =
+  /\b(show|bring|pull|display|chart|graph|plot|filter|focus|zoom|open|set|switch|drill|isolate|narrow|widen|clear|reset|view|jump|hide)(s|ed|ing)?\b|\b(take me|go to|only|just|all)\b/;
+
+const UNIT_DAYS = { day: 1, week: 7, month: 30, year: 365 };
+
+const listOut = (names) =>
+  names.length <= 1 ? names[0] || "" : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+
+/* "3 batchs" is the kind of thing that makes generated prose read as
+ * generated. Only the sibilant rule matters here — every noun this is handed
+ * is a word from the domain, not arbitrary English. */
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : /(ch|sh|s|x|z)$/.test(word) ? "es" : "s"}`;
+
+/**
+ * Turn a typed instruction into a change to the page, or null if it is not
+ * one. Pure and deterministic, exactly like the answers: the model — when
+ * there is one — would phrase this, never decide it, because a wrong filter
+ * is a silently wrong number on every figure on screen.
+ *
+ * Returns `{ kind, ...payload, say }`. `say` is what the thread prints, and
+ * it states what changed in the same voice as an answer, because from the
+ * reader's side "filtered to Applewood Bacon" IS the answer to "bring the
+ * flagged products up".
+ *
+ * One action per question on purpose. "Show smokehouse times for the last
+ * three months" is two instructions, and guessing which half to honour is
+ * worse than honouring the first and letting the second be asked.
+ */
+export function planPageCommand(ctx, question, options = {}) {
+  const q = (question || "").toLowerCase().trim();
+  if (!q || !COMMAND_VERB.test(q)) return null;
+
+  const { byProduct = [], byStation = [], stats = {}, spanLabel = "in this window" } = ctx || {};
+  const catalogue = options.products?.length ? options.products : byProduct.map((p) => p.product);
+  const stations = options.stations?.length ? options.stations : byStation.map((s) => s.station);
+
+  /* Undo comes first: "show all products" contains a product word and would
+   * otherwise be read as a filter. */
+  if (/\b(all|every|any|each) (the )?(product|item|s?ku)s?\b/.test(q) || /\b(clear|reset|remove|drop|unset)\w*\b.*\b(filter|selection|products?)\b/.test(q)) {
+    return { kind: "filter", products: [], say: "Cleared the product filter — every product is back on screen." };
+  }
+
+  /* The window. Checked before products because "show me the last 3 months"
+   * is about time even when a product is named in the same breath. */
+  const span = q.match(/\b(\d+)\s*(day|week|month|year)s?\b/);
+  if (span && /\b(last|past|previous|recent|back|window|range|period|show|set|zoom|go|take)\b/.test(q)) {
+    const days = Math.max(1, Number(span[1]) * UNIT_DAYS[span[2]]);
+    return { kind: "range", days, say: `Window set to the last ${plural(Number(span[1]), span[2])}.` };
+  }
+  if (/\ball[- ]?time\b|\b(whole|entire|full) (record|history|thing)\b|\beverything (we|you) have\b/.test(q)) {
+    return { kind: "range", days: 0, say: "Window set to the whole record." };
+  }
+  if (/\bzoom out\b|\bwiden\b|\bwider\b|\bmore (time|history)\b/.test(q)) {
+    return { kind: "scale", factor: 2, say: "Widened the window." };
+  }
+  if (/\bzoom in\b|\bnarrow\b|\btighten\b|\bcloser\b/.test(q)) {
+    return { kind: "scale", factor: 0.5, say: "Narrowed the window." };
+  }
+
+  /* The batch list. */
+  if (/\b(batch list|list of batches|every batch|all (the )?batches|the batches|table|rows)\b/.test(q) && !/\bflag/.test(q)) {
+    return { kind: "list", say: `Opened the batch list — ${plural(stats.batches ?? 0, "batch")} ${spanLabel}.` };
+  }
+
+  /* The chart's series. A station named alongside a steering verb means
+   * "put it on the chart"; a station named in a question about timings is
+   * handled by the answerer, which has the rollups to say something. */
+  const station = stations.find((s) => q.includes(s.toLowerCase()));
+  if (station && !/\bover target\b|\bhow (long|many)\b|\bis .* running\b/.test(q)) {
+    const s = byStation.find((x) => x.station === station);
+    return {
+      kind: "series",
+      value: station,
+      say: s?.avgMinutes != null
+        ? `Charting ${station} minutes — it averaged ${s.avgMinutes} against a ${s.target}-minute target ${spanLabel}.`
+        : `Charting ${station} minutes.`,
+    };
+  }
+  if (/\byields?\b/.test(q) && !catalogue.some((p) => q.includes(p.toLowerCase()))) {
+    return { kind: "series", value: "yield", say: "Charting yield." };
+  }
+
+  /* Flagged. The question in the screenshot — "bring the flagged products up
+   * on screen" — which used to be answered with a sentence about them while
+   * the page carried on showing everything. */
+  if (/flag/.test(q)) {
+    const flagged = byProduct.filter((p) => p.flagged > 0).map((p) => p.product);
+    if (!flagged.length) return { kind: "none", say: `Nothing is flagged ${spanLabel}, so there is nothing to bring up.` };
+    return {
+      kind: "filter",
+      products: flagged,
+      say: `Filtered to ${listOut(flagged)} — ${plural(stats.flagged ?? 0, "flagged batch")} ${spanLabel}, all of ${
+        flagged.length === 1 ? "it there" : "them there"
+      }.`,
+    };
+  }
+
+  /* Superlatives. Same MIN_RANK_BATCHES floor as the ranking answer: the
+   * page must not be filtered down to a product on the strength of one
+   * batch, because every figure on screen would then be that one batch. */
+  if (/\b(weak|worst|low|drag|best|strong|top)/.test(q)) {
+    const rankable = byProduct.filter((p) => p.batches >= MIN_RANK_BATCHES);
+    if (rankable.length < 2) {
+      return {
+        kind: "none",
+        say: `Not enough closed batches per product ${spanLabel} to pick one out — it takes ${MIN_RANK_BATCHES} to say anything about a product rather than about one batch. Widen the window and ask again.`,
+      };
+    }
+    const wantsBest = /\b(best|strong|top)/.test(q) && !/\b(weak|worst|low|drag)/.test(q);
+    const pick = wantsBest ? rankable[rankable.length - 1] : rankable[0];
+    return {
+      kind: "filter",
+      products: [pick.product],
+      say: `Filtered to ${pick.product}, the ${wantsBest ? "strongest" : "weakest"} ${spanLabel} at ${fmtPct(pick.avgYield)} over ${plural(
+        pick.batches,
+        "batch"
+      )}.`,
+    };
+  }
+
+  /* A product by name. Longest match first, so "Snack Sticks - Honey BBQ"
+   * is not shadowed by a plain "Snack Sticks". */
+  const named = [...catalogue]
+    .sort((a, b) => b.length - a.length)
+    .filter((p) => q.includes(p.toLowerCase()))
+    .filter((p, i, all) => !all.slice(0, i).some((longer) => longer.toLowerCase().includes(p.toLowerCase())));
+  if (named.length) {
+    return { kind: "filter", products: named, say: `Filtered to ${listOut(named)}.` };
+  }
+
+  return null;
+}
+
 /** Deterministic Q&A scoped to one insight card — reasons only over that card's own numbers. */
 export function answerInsightQuestion(card, question) {
   const q = (question || "").toLowerCase();
+
+  /* The period: everything in the window the scrubber has selected, for the
+   * products the filter has selected. This is the only branch that can rank
+   * products or speak about stations, because it is the only one handed the
+   * rollups — which is exactly why the screen stopped printing a ranking of
+   * its own and sends people here instead. */
+  if (card.context.type === "period") {
+    return answerPeriodQuestion(card.context, q);
+  }
 
   if (card.context.type === "location") {
     const { loc, peerAvg, byLocation } = card.context;

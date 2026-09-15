@@ -119,6 +119,21 @@ export default function PricingModal({ onClose, currentPlan, onSelectPlan }) {
             />
           ))}
         </div>
+
+        {/* AI is not a tier. It is billed per question and the number is
+          * small and flat, so it is stated as a fact rather than sold as a
+          * feature — and the two things a buyer actually worries about
+          * (does it grow, can it run away) are answered in the same breath. */}
+        <div className="pt-3 border-t border-line">
+          <h3 className="text-xs font-semibold text-ink uppercase tracking-wide">Asking about your numbers</h3>
+          <p className="mt-1.5 text-xs text-ink-3 leading-relaxed">
+            Billed per question, not per seat &mdash; about{" "}
+            <span className="text-ink-2 tnum">$0.0025</span> on Sonnet 5 or{" "}
+            <span className="text-ink-2 tnum">$0.0012</span> on Haiku. Flat, however much history you build up: under{" "}
+            <span className="text-ink-2 tnum">$3</span> a month at a thousand questions. No database and no chat storage
+            behind it, and a hard spend cap means it can&rsquo;t run away.
+          </p>
+        </div>
       </div>
     </Modal>
   );

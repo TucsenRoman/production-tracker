@@ -2,11 +2,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, CheckCircle2, Filter, Rows3, Send, Sparkles, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Filter, Rows3, Sparkles } from "lucide-react";
 
-import { Button, Dropdown, IconButton, Input, Modal, Segmented, Slot, cx } from "../../components/ui";
+import { Dropdown, IconButton, Modal, Segmented, Slot, Tooltip, cx } from "../../components/ui";
 import { formatDay, isOverTarget, LOW_YIELD_PCT, shiftDate, STAGE_TARGET_MINUTES, todayKey, yieldPct } from "../../lib/domain";
-import { answerInsightQuestion, isFlaggedBatch, windowStats } from "../lib/insights";
+import { isFlaggedBatch, productStats, windowStats } from "../lib/insights";
+import { useAssistant, useAssistantSource } from "../components/Assistant";
 
 /**
  * The console's landing screen: one page, no cards, read top to bottom.
@@ -36,35 +37,6 @@ const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 
 const TONE_ICON = { warn: AlertTriangle, danger: AlertTriangle, ok: CheckCircle2, neutral: Sparkles };
 const TONE_TEXT = { warn: "text-warn", danger: "text-danger", ok: "text-ok", neutral: "text-ink-2" };
-
-/**
- * One-tap questions per `context.type`. Each `text` contains the exact
- * keyword `answerInsightQuestion` matches, so every chip yields a real
- * answer. Locations get no "trend" chip: that branch only ever says "not
- * enough data yet". A product's own batches over time are exactly the series
- * a trend and a year-over-year can be read from, so it gets both.
- */
-const QUICK_QUESTIONS = {
-  location: [
-    { label: "Why?", text: "Why is this happening?" },
-    { label: "How does it compare?", text: "How does it compare to other locations?" },
-  ],
-  station: [
-    { label: "Why?", text: "Why is this happening?" },
-    { label: "How does it compare?", text: "How does it compare across locations?" },
-  ],
-  overall: [{ label: "Why?", text: "Why is this happening?" }],
-  day: [
-    { label: "Why?", text: "Why is this happening?" },
-    { label: "How does it compare?", text: "How does it compare to the average?" },
-  ],
-  product: [
-    { label: "Why?", text: "Why is this happening?" },
-    { label: "Trend?", text: "What is the trend?" },
-    { label: "A year ago?", text: "Where was this a year ago?" },
-    { label: "How does it compare?", text: "How does it compare to the average?" },
-  ],
-};
 
 /* The Q&A sits under its card's icon rather than the card's left edge, so
  * the icon reads as a bullet for the whole block. 16px icon + 10px gap. */
@@ -167,6 +139,10 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   const [productFilter, setProductFilter] = useState([]);
   const [selectedDay, setSelectedDay] = useState(null);
   const [listOpen, setListOpen] = useState(false);
+  /* The chart's series lives here rather than inside the chart, because the
+   * Ask panel can set it: "show me smokehouse times" has to be able to move
+   * the same control the segmented buttons move. */
+  const [series, setSeries] = useState("yield");
 
   const multi = insights.byLocation.length > 1;
   const companyAvg = insights.company.avgYield;
@@ -188,7 +164,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
 
   const [range, setRange] = useState(() => {
     const to = todayKey();
-    return { from: shiftDate(to, -34), to };
+    return { from: shiftDate(to, -(DEFAULT_SPAN - 1)), to };
   });
   /* A range that predates the record, or a record that has grown past it,
    * is a range nobody chose. Clamp rather than silently draw empty space. */
@@ -252,6 +228,51 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
     [stations, from, to, windowRows, yearAgo]
   );
 
+  const filterLabel =
+    productFilter.length === 1 ? productFilter[0] : productFilter.length ? `${productFilter.length} products` : null;
+
+  /* ---- The period card. It carries the two rollups the page deliberately
+   * does NOT print — the product ranking and the station timings — which is
+   * what makes asking worth doing rather than a second way to read the
+   * chart. Scoped to the window and the filter, so it changes as you scrub. */
+  const periodCard = useMemo(() => {
+    const stats = windowStats(windowRows);
+    const byStation = stations.map((station) => {
+      const runs = windowRows.filter((r) => r.minutes?.[station] != null);
+      const overRuns = runs.filter((r) => isOverTarget(station, r.minutes[station], targets));
+      return {
+        station,
+        target: targets[station] ?? STAGE_TARGET_MINUTES[station],
+        runs: runs.length,
+        overCount: overRuns.length,
+        overPct: runs.length ? overRuns.length / runs.length : 0,
+        avgMinutes: runs.length ? Math.round(runs.reduce((a, r) => a + r.minutes[station], 0) / runs.length) : null,
+      };
+    });
+    return {
+      id: `period-${from}-${to}-${productFilter.join("|")}`,
+      tone: "neutral",
+      title: "This period",
+      detail: `${stats.batches} batches closed.`,
+      context: {
+        type: "period",
+        from,
+        to,
+        spanLabel: formatSpan(from, to),
+        /* The page withholds the year-ago comparison past a year because the
+         * window overlaps itself; the block must not answer what the page
+         * refuses to show. */
+        overlaps,
+        scopeLabel: [scopeLabel, filterLabel].filter(Boolean).join(" · "),
+        stats,
+        byProduct: productStats(windowRows, targets),
+        byStation,
+        yearAgo,
+        rows: windowRows,
+      },
+    };
+  }, [windowRows, stations, targets, from, to, productFilter, scopeLabel, filterLabel, yearAgo, overlaps]);
+
   /* ---- A picked day, which only exists at day granularity. */
   const selectedCell = useMemo(() => {
     if (!selectedDay) return null;
@@ -283,13 +304,50 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
     setSelectedDay(null);
   };
 
+  /**
+   * Chat drives the page.
+   *
+   * "Bring the flagged products up on screen" used to be answered with a
+   * sentence about them while the page carried on showing everything — the
+   * panel could describe the window but not move it, which is the difference
+   * between a chatbot bolted to a dashboard and a dashboard you can talk to.
+   *
+   * `planPageCommand` decides WHAT (deterministically, in insights.js, for
+   * the same reason the numbers are template-generated: a wrong filter is a
+   * silently wrong figure on every number on screen). This decides how to
+   * apply it, and nothing else in the screen knows a command happened —
+   * every command lands on the same setters the controls use, so the
+   * scrubber, the dropdown and the segmented buttons all show the result.
+   */
+  const runCommand = (plan) => {
+    if (plan.kind === "filter") return changeFilter(plan.products);
+    if (plan.kind === "series") return setSeries(plan.value);
+    if (plan.kind === "list") return setListOpen(true);
+    if (plan.kind === "range") {
+      setSelectedDay(null);
+      return setRange(
+        plan.days
+          ? { from: clampKey(shiftDate(lastKey, -(plan.days - 1)), firstKey, lastKey), to: lastKey }
+          : { from: firstKey, to: lastKey }
+      );
+    }
+    if (plan.kind === "scale") {
+      /* Zoom holds the middle still. Anchoring to either end would walk the
+       * window across the record every time you widened it. */
+      const next = Math.max(2, Math.min(daysBetween(firstKey, lastKey) + 1, Math.round(spanDays * plan.factor)));
+      const centre = shiftDate(from, Math.round((spanDays - 1) / 2));
+      const end = clampKey(shiftDate(centre, Math.floor((next - 1) / 2)), firstKey, lastKey);
+      setSelectedDay(null);
+      return setRange({ from: clampKey(shiftDate(end, -(next - 1)), firstKey, end), to: end });
+    }
+    /* kind "none": the planner understood the instruction and is declining
+     * it — nothing to apply, the sentence is the whole response. */
+  };
+
   const productOptions = useMemo(
     () => (insights.byProduct || []).map((p) => ({ value: p.product, label: `${p.product} · ${p.avgYield}%` })),
     [insights.byProduct]
   );
-
-  const filterLabel =
-    productFilter.length === 1 ? productFilter[0] : productFilter.length ? `${productFilter.length} products` : null;
 
   /* A shop that has closed nothing lately is the loudest thing the chart can
    * say, and an empty tail of bars says it only by omission. */
@@ -306,6 +364,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   const cardForAsk = (ask) => {
     if (!ask) return null;
     const [kind, value] = [ask.slice(0, ask.indexOf(":")), ask.slice(ask.indexOf(":") + 1)];
+    if (kind === "period") return periodCard;
     if (kind === "day") return makeDayCard(selectedCell?.key === value ? selectedCell : null, companyAvg);
     if (kind === "product")
       return makeRunCard({
@@ -321,6 +380,32 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   };
 
   const askKey = productFilter.length === 1 ? `product:${productFilter[0]}` : "run:";
+
+  /* ---- What the assistant may read and do while this screen is on.
+   *
+   * `runCommand` closes over half the screen's state, so it is a new function
+   * every render; published directly it would re-register the source on every
+   * keystroke. A ref holds the live one and the published handle is stable,
+   * which leaves the memo below depending only on things that genuinely
+   * change what the assistant knows. */
+  const commandRef = useRef(null);
+  useEffect(() => {
+    commandRef.current = runCommand;
+  });
+  const onCommand = useCallback((plan) => commandRef.current?.(plan), []);
+
+  const products = useMemo(() => productOptions.map((o) => o.value), [productOptions]);
+  /* No day count here, unlike the old Popover's header: the scrubber prints
+   * it two inches to the left, and at panel width it was the part that got
+   * truncated away. */
+  const scopeLine = [scopeLabel, filterLabel, formatSpanTitle(from, to)].filter(Boolean).join(" · ");
+
+  useAssistantSource(
+    useMemo(
+      () => ({ card: periodCard, scopeLine, products, stations, onCommand }),
+      [periodCard, scopeLine, products, stations, onCommand]
+    )
+  );
 
   return (
     <div data-ask-root="">
@@ -388,6 +473,8 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
           selected={selectedDay}
           onPick={pickBucket}
           quietSince={quietSince}
+          which={series}
+          onWhich={setSeries}
         />
       </div>
 
@@ -488,12 +575,28 @@ function HeadlineTicker({ batches, avg, flagged, range }) {
  * way to ask about any other stretch. Now a range drives everything: the
  * chart, its granularity, the year-ago comparison, the standing numbers.
  */
+/**
+ * The ladder everyone already knows how to read, and the reason it is short
+ * labels rather than "5 weeks": these are a scale, and a scale is scanned,
+ * not read. The old set opened on 35 days — a leftover from the five-week
+ * strip this chart replaced — which matched no button, so the page loaded
+ * with nothing lit and the first click always moved the window.
+ *
+ * The rungs are chosen against `grainFor`, not by round numbers: 2w and 1m
+ * land in day bars, 3m and 1y in week bars, All in months. Every press
+ * changes the shape of the chart, which is the only reason to have a preset
+ * rather than a scrubber.
+ */
 const PRESETS = [
-  { value: 35, label: "5 weeks" },
-  { value: 91, label: "3 months" },
-  { value: 365, label: "1 year" },
-  { value: 0, label: "All" },
+  { value: 14, label: "2w", title: "Last two weeks" },
+  { value: 30, label: "1m", title: "Last 30 days" },
+  { value: 91, label: "3m", title: "Last three months" },
+  { value: 365, label: "1y", title: "Last 12 months" },
+  { value: 0, label: "All", title: "The whole record" },
 ];
+
+/** The window the page opens on — a preset, so one is always lit. */
+const DEFAULT_SPAN = 30;
 
 /* Granularity follows the range, because the bar is the unit you can read.
  * Ninety days of daily bars is a picket fence; five weeks of monthly bars is
@@ -508,6 +611,22 @@ const daysBetween = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`
 const startOfWeek = (key) => shiftDate(key, -new Date(`${key}T00:00:00`).getDay());
 const monthKey = (key) => key.slice(0, 7);
 const clampKey = (key, lo, hi) => (key < lo ? lo : key > hi ? hi : key);
+
+/* `formatDay` drops the year, so a window that crosses New Year reads as
+ * "between Sep 16 and Sep 15" — backwards and a day long. Years go in only
+ * when they are what distinguishes the two ends. */
+const formatSpan = (from, to) =>
+  from.slice(0, 4) === to.slice(0, 4)
+    ? `between ${formatDay(from)} and ${formatDay(to)}`
+    : `between ${formatDay(from)} ${from.slice(0, 4)} and ${formatDay(to)} ${to.slice(0, 4)}`;
+
+/* The same range as a title rather than a clause — for the scrubber's label
+ * and the export's header. Carries the years for the same reason: without
+ * them a one-year window reads "Sep 16 – Sep 15". */
+const formatSpanTitle = (from, to) =>
+  from.slice(0, 4) === to.slice(0, 4)
+    ? `${formatDay(from)} \u2013 ${formatDay(to)}`
+    : `${formatDay(from)} ${from.slice(0, 4)} \u2013 ${formatDay(to)} ${to.slice(0, 4)}`;
 
 /** The bucket edges covering [from, to] at one granularity, oldest first. */
 function bucketsFor(from, to, grain) {
@@ -565,46 +684,158 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
   const left = Math.max(0, pct(from));
   const right = Math.min(100, pct(to));
 
-  /* The track rect is read ONCE per gesture, inside the handler — a drag
-   * cannot resize the window it is being measured against, and reading a ref
-   * while rendering is a bug the linter is right about. */
-  const begin = (mode) => (e) => {
+  /**
+   * The wheel PANS the window; it does not scroll a container.
+   *
+   * A scrolling track would have bought readable bars at the cost of the one
+   * thing the track is for — seeing the whole record at once, and where in it
+   * the work is. Wheeling the window along keeps the map whole and still lets
+   * you walk five years a notch at a time.
+   *
+   * Registered natively with `passive: false`, because React's own wheel
+   * listener is passive and `preventDefault` in an `onWheel` handler does
+   * nothing — the page would scroll underneath the gesture.
+   *
+   * The step is a PERCENTAGE of the current span, so one notch feels the same
+   * whether the window is two weeks or two years, and the remainder carries
+   * across events so a slow trackpad swipe still moves at day resolution
+   * instead of rounding to nothing every frame.
+   */
+  const trackRef = useRef(null);
+  const live = useRef(null);
+  useEffect(() => {
+    live.current = { from, to, firstKey, lastKey, onChange };
+  });
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return undefined;
+    let carry = 0;
+    const onWheel = (e) => {
+      /* A trackpad sends a horizontal swipe as deltaX and a mouse wheel only
+       * ever sends deltaY; whichever is larger is the one being made. */
+      const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!raw) return;
+      e.preventDefault();
+      const { from: f, to: t, firstKey: lo, lastKey: hi, onChange: emit } = live.current;
+      const span = daysBetween(f, t);
+      carry += (raw / 100) * (e.deltaMode === 1 ? 16 : 1) * Math.max(1, span * 0.08);
+      const step = Math.trunc(carry);
+      if (!step) return;
+      carry -= step;
+      const nextFrom = clampKey(shiftDate(f, step), lo, shiftDate(hi, -span));
+      if (nextFrom !== f) emit({ from: nextFrom, to: shiftDate(nextFrom, span) });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  /**
+   * One gesture, one rect, one frame.
+   *
+   * The track rect is read ONCE at pointerdown — a drag cannot resize the
+   * thing it is being measured against, and reading a ref during render is a
+   * bug the linter is right about. The working range is captured at the same
+   * moment and every position is computed against THAT, not against the
+   * props, so a resize cannot drift by accumulating its own output.
+   *
+   * Moves are coalesced into one `requestAnimationFrame` update and dropped
+   * when the day under the pointer has not changed, so dragging across five
+   * years re-renders the chart sixty times a second at most instead of once
+   * per pointer event — which is the whole difference between this feeling
+   * like a scrubber and feeling like a form control.
+   *
+   * `stopPropagation` is load-bearing: the edges sit inside the window,
+   * which sits inside the track, and all three want the pointer. Without it
+   * grabbing an edge also started a pan AND fired the track's re-centre, so
+   * the window jumped out from under the cursor and two handlers then fought
+   * over it. That is what "the edge resize doesn't work" was.
+   */
+  const startDrag = (mode, e, seed) => {
+    const rect = e.currentTarget.closest("[data-scrub-track]")?.getBoundingClientRect();
+    if (!rect || e.button > 0) return;
     e.preventDefault();
+    e.stopPropagation();
     e.currentTarget.setPointerCapture?.(e.pointerId);
     setDragging(mode);
-    const rect = e.currentTarget.closest("[data-scrub-track]")?.getBoundingClientRect();
-    if (!rect) return;
-    const keyAt = (clientX) => shiftDate(firstKey, Math.round(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * total));
-    const grabbed = keyAt(e.clientX);
-    const span = daysBetween(from, to);
-    const move = (ev) => {
-      const k = keyAt(ev.clientX);
-      if (mode === "from") onChange({ from: clampKey(k, firstKey, shiftDate(to, -1)), to });
-      else if (mode === "to") onChange({ from, to: clampKey(k, shiftDate(from, 1), lastKey) });
+
+    const keyAt = (clientX) =>
+      shiftDate(firstKey, Math.round(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * total));
+
+    const base = seed ?? { from, to };
+    const span = daysBetween(base.from, base.to);
+    const origin = keyAt(e.clientX);
+
+    let current = { from, to };
+    const emit = (next) => {
+      if (next.from === current.from && next.to === current.to) return;
+      current = next;
+      onChange(next);
+    };
+    if (seed) emit(seed);
+
+    let frame = 0;
+    let pending = null;
+    const apply = () => {
+      frame = 0;
+      const k = pending;
+      if (mode === "from") emit({ from: clampKey(k, firstKey, shiftDate(base.to, -1)), to: base.to });
+      else if (mode === "to") emit({ from: base.from, to: clampKey(k, shiftDate(base.from, 1), lastKey) });
       else {
-        const shift = daysBetween(grabbed, k);
-        const nextFrom = clampKey(shiftDate(from, shift), firstKey, shiftDate(lastKey, -span));
-        onChange({ from: nextFrom, to: shiftDate(nextFrom, span) });
+        const nextFrom = clampKey(shiftDate(base.from, daysBetween(origin, k)), firstKey, shiftDate(lastKey, -span));
+        emit({ from: nextFrom, to: shiftDate(nextFrom, span) });
       }
     };
+
+    const move = (ev) => {
+      pending = keyAt(ev.clientX);
+      if (!frame) frame = requestAnimationFrame(apply);
+    };
     const end = () => {
+      if (frame) cancelAnimationFrame(frame);
       setDragging(null);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
   };
 
-  /* A click on bare track re-centres the window rather than resizing it:
-   * the length you picked is a choice, and a click should not undo it. */
+  /* A press on bare track re-centres the window and then keeps dragging from
+   * there, so a click and a drag are the same gesture rather than two. The
+   * length you picked survives it: a click should move the window, not
+   * redefine it. */
   const jump = (e) => {
-    if (dragging) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const span = daysBetween(from, to);
     const centre = shiftDate(firstKey, Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * total));
     const nextFrom = clampKey(shiftDate(centre, -Math.round(span / 2)), firstKey, shiftDate(lastKey, -span));
-    onChange({ from: nextFrom, to: shiftDate(nextFrom, span) });
+    startDrag("pan", e, { from: nextFrom, to: shiftDate(nextFrom, span) });
+  };
+
+  /* Arrows move the window a day at a time, Shift moves it a week, and Alt
+   * drags the right edge instead of the whole thing — the keyboard reading
+   * of the same three gestures. A scrubber you can only use with a mouse is
+   * a scrubber half the shop cannot use. */
+  const onKeyDown = (e) => {
+    const dir = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+    const span = daysBetween(from, to);
+    if (dir) {
+      e.preventDefault();
+      const step = dir * (e.shiftKey ? 7 : 1);
+      if (e.altKey) return onChange({ from, to: clampKey(shiftDate(to, step), shiftDate(from, 1), lastKey) });
+      const nextFrom = clampKey(shiftDate(from, step), firstKey, shiftDate(lastKey, -span));
+      return onChange({ from: nextFrom, to: shiftDate(nextFrom, span) });
+    }
+    if (e.key === "Home") {
+      e.preventDefault();
+      return onChange({ from: firstKey, to: shiftDate(firstKey, span) });
+    }
+    if (e.key === "End") {
+      e.preventDefault();
+      return onChange({ from: shiftDate(lastKey, -span), to: lastKey });
+    }
   };
 
   const preset = (days) => {
@@ -613,7 +844,16 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
   };
 
   const span = daysBetween(from, to) + 1;
-  const activePreset = PRESETS.find((p) => (p.value ? p.value === span : from === firstKey && to === lastKey));
+  /* A preset is "on" when pressing it would not move anything — which is not
+   * the same as its length matching. On a nine-month record "1y" clamps to
+   * the whole record, and the old test (span === 365) left every button dark
+   * after you pressed one. Presets longer than the record are dropped
+   * instead of lit: offering a year of a nine-month shop is offering "All"
+   * under another name. */
+  const available = PRESETS.filter((p) => !p.value || p.value <= total);
+  const activePreset = available.find((p) =>
+    p.value ? to === lastKey && from === clampKey(shiftDate(lastKey, -(p.value - 1)), firstKey, lastKey) : from === firstKey && to === lastKey
+  );
 
   return (
     <div>
@@ -621,21 +861,22 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
         {/* The range lives here, not in the subtitle: the subtitle says what
           * the page is about, the scrubber says when. */}
         <p className="text-xs font-semibold text-ink uppercase tracking-wide tnum">
-          {formatDay(from)} &ndash; {formatDay(to)}
+          {formatSpanTitle(from, to)}
           <span className="ml-2 font-normal normal-case tracking-normal text-ink-4">
             {span} day{span === 1 ? "" : "s"}
           </span>
         </p>
-        <div className="flex items-center gap-1">
-          {PRESETS.map((p) => (
+        <div className="flex items-center gap-0.5">
+          {available.map((p) => (
             <button
               key={p.label}
               type="button"
               onClick={() => preset(p.value)}
               aria-pressed={activePreset?.label === p.label}
+              title={p.title}
               className={cx(
-                "h-7 px-2.5 rounded-md text-xs font-medium transition-colors duration-100",
-                activePreset?.label === p.label ? "bg-hover text-ink" : "text-ink-2 hover:bg-faint hover:text-ink"
+                "h-7 px-2 rounded-md text-xs font-medium tabular-nums transition-colors duration-100",
+                activePreset?.label === p.label ? "bg-hover text-ink" : "text-ink-3 hover:bg-faint hover:text-ink"
               )}
             >
               {p.label}
@@ -644,10 +885,23 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
         </div>
       </div>
 
+      {/* The instructions used to be printed under the track, between the two
+        * end dates — a permanent line of help text for a control most people
+        * work out in one drag. It is a tooltip now, and the row below is just
+        * the record's two ends.
+        *
+        * The Tooltip wraps the TRACK, not the window: its own span is
+        * `relative`, so wrapping the window would re-parent every absolute
+        * position in here to the tooltip and tear the scrubber apart. */}
+      <Tooltip label="Drag to move · edges resize · scroll to pan" side="top" className="w-full">
       <div
+        ref={trackRef}
         data-scrub-track=""
         onPointerDown={jump}
-        className={cx("relative h-8 select-none", dragging ? "cursor-grabbing" : "cursor-pointer")}
+        className={cx(
+          "relative w-full h-8 select-none touch-none",
+          dragging === "from" || dragging === "to" ? "cursor-ew-resize" : dragging ? "cursor-grabbing" : "cursor-pointer"
+        )}
       >
         {/* The whole record at week resolution, drawn by HOW MUCH CLOSED,
           * not by yield. A scrubber is a map you navigate — you drag to
@@ -663,29 +917,57 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
           ))}
         </div>
 
-        {/* The window. Drag the middle to move it, the edges to resize. */}
+        {/* Curtains, not a highlight. Washing the SELECTION was backwards —
+          * it dimmed the weeks you had chosen and left the rest bright, so
+          * the window read as the part being ignored. Dimming everything
+          * outside it makes the selection the clear part, which is what a
+          * scrubber is for. */}
+        <div className="absolute inset-y-0 left-0 bg-surface/75" style={{ width: `${left}%` }} aria-hidden="true" />
+        <div className="absolute inset-y-0 right-0 bg-surface/75" style={{ left: `${right}%` }} aria-hidden="true" />
+
+        {/* The window. Drag the middle to move it, an edge to resize it.
+          * `minWidth` keeps the two edges from collapsing into each other at
+          * a one-day window, where there would otherwise be nothing left to
+          * grab. */}
         <div
-          aria-label={`Selected period, ${formatDay(from)} to ${formatDay(to)}`}
-          onPointerDown={begin("pan")}
-          className="absolute inset-y-0 rounded-sm border border-ink-3 bg-ink/[0.06] cursor-grab active:cursor-grabbing"
-          style={{ left: `${left}%`, width: `${Math.max(1.5, right - left)}%` }}
+          tabIndex={0}
+          role="group"
+          aria-label={`Selected period, ${formatDay(from)} to ${formatDay(to)}. Arrow keys move it, Alt with an arrow resizes it.`}
+          onKeyDown={onKeyDown}
+          onPointerDown={(e) => startDrag("pan", e)}
+          className={cx(
+            "group absolute inset-y-0 rounded-sm border border-ink-3",
+            "outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+            dragging === "pan" ? "cursor-grabbing" : "cursor-grab"
+          )}
+          style={{ left: `${left}%`, width: `${right - left}%`, minWidth: 16 }}
         >
-          <span
-            onPointerDown={begin("from")}
-            className="absolute -left-1 inset-y-0 w-2 cursor-ew-resize"
-            aria-hidden="true"
-          />
-          <span
-            onPointerDown={begin("to")}
-            className="absolute -right-1 inset-y-0 w-2 cursor-ew-resize"
-            aria-hidden="true"
-          />
+          {/* Visible grips, not just hot zones. The old edges were two
+            * invisible 8px strips: nothing said the window could be resized,
+            * and finding them was a hunt. */}
+          {[
+            { mode: "from", side: "-left-1.5" },
+            { mode: "to", side: "-right-1.5" },
+          ].map((h) => (
+            <span
+              key={h.mode}
+              onPointerDown={(e) => startDrag(h.mode, e)}
+              className={cx("absolute inset-y-0 z-10 w-3 flex items-center justify-center cursor-ew-resize", h.side)}
+            >
+              <span
+                className={cx(
+                  "w-[3px] h-3.5 rounded-full transition-colors duration-100",
+                  dragging === h.mode ? "bg-ink" : "bg-ink-3 group-hover:bg-ink-2"
+                )}
+              />
+            </span>
+          ))}
         </div>
       </div>
+      </Tooltip>
 
       <div className="flex items-baseline justify-between mt-1 text-[10px] text-ink-4 tnum">
         <span>{formatDay(firstKey)}</span>
-        <span>Drag the window, or an edge to resize</span>
         <span>{formatDay(lastKey)}</span>
       </div>
     </div>
@@ -695,6 +977,28 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
 /* ------------------------------------------------------------- Chart -- */
 
 const BAR_H = 64;
+
+/**
+ * Bars and the threshold line EASE to their new positions instead of
+ * snapping.
+ *
+ * Scrubbing re-derives the whole chart on every frame, and at full speed a
+ * five-year drag was a strobe: you could see that something was changing but
+ * not what. A short ease means each update is chased rather than jumped to —
+ * during a drag the transitions continuously retarget, so the bars flow, and
+ * for a discrete change (a preset, a command from the Ask panel) the page
+ * visibly moves FROM the old reading TO the new one, which is the thing that
+ * makes the change comprehensible rather than merely fast.
+ *
+ * Bars are keyed by bucket key, so panning keeps the nodes that persist and
+ * only the ones entering at the edges fade in. A granularity flip changes
+ * every key at once, so the whole row fades — correct, because that is a
+ * different chart, not a moved one.
+ *
+ * `height` is not compositor-friendly, but there are at most a few dozen
+ * bars and `transform: scaleY` would distort their rounded caps.
+ */
+const CHART_EASE = "transition-[height,bottom,background-color] duration-[260ms] ease-out";
 
 /**
  * The one chart. It was two — a five-week day strip and a thirteen-month
@@ -710,8 +1014,7 @@ const BAR_H = 64;
  * stretches a three-point spread across the full height and makes a flat
  * year look volatile.
  */
-function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSince }) {
-  const [which, setWhich] = useState("yield");
+function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSince, which, onWhich }) {
   const series = [{ value: "yield", label: "Yield" }, ...stations.map((s) => ({ value: s, label: s }))];
   const isYield = which === "yield" || !stations.includes(which);
   const station = isYield ? null : which;
@@ -741,13 +1044,19 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
     <div>
       {series.length > 1 && (
         <div className="mb-3">
-          <Segmented size="sm" value={which} onChange={setWhich} options={series} />
+          <Segmented size="sm" value={which} onChange={onWhich} options={series} />
         </div>
       )}
 
       <div className="relative" style={{ height: BAR_H }}>
+        {/* The threshold line moves whenever the window's spread changes, so
+          * it eases like the bars do — a line that jumps while the bars slide
+          * reads as two different charts. */}
         <div
-          className="absolute left-0 right-0 z-10 border-t border-dashed border-line-strong pointer-events-none"
+          className={cx(
+            "absolute left-0 right-0 z-10 border-t border-dashed border-line-strong pointer-events-none",
+            CHART_EASE
+          )}
           style={{ bottom: `${Math.round(scale(line) * 100)}%` }}
           aria-hidden="true"
         />
@@ -775,7 +1084,8 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
               >
                 <span
                   className={cx(
-                    "w-full rounded-[2px] transition-colors",
+                    "w-full rounded-[2px] animate-fade-in",
+                    CHART_EASE,
                     p.v == null && "bg-line-soft",
                     p.v != null && (p.over ? "bg-warn/70" : isYield ? "bg-ok/60" : "bg-ink-3"),
                     p.v != null && clickable && "group-hover:bg-ink-3",
@@ -1013,9 +1323,9 @@ function InsightHeadline({ card, onClear }) {
 
 /** Shorter than this is a stray double-click, not a question. */
 const MIN_SELECTION = 3;
-/** Panel width, and the gap it keeps from the selection and the viewport. */
-const ASK_W = 320;
-const ASK_GAP = 6;
+/** The chip's width, and the gap it keeps from the selection and the edge. */
+const CHIP_W = 96;
+const CHIP_GAP = 6;
 
 /**
  * Highlight anything on the dashboard and ask about exactly that.
@@ -1023,37 +1333,33 @@ const ASK_GAP = 6;
  * Two steps on purpose. A panel that opens on every highlight fights the
  * user — you cannot select a number to copy it, or drag through a sentence
  * to re-read it, without a dialog landing on the page. So a selection only
- * ever raises a small chip; the panel opens when the chip is clicked, and
- * nothing at all happens if it is ignored. The chip is also the whole of the
- * feature's discoverability, which is why it carries a word and not just an
- * icon.
+ * ever raises a small chip; nothing at all happens if it is ignored. The
+ * chip is also the whole of the feature's discoverability, which is why it
+ * carries a word and not just an icon.
+ *
+ * What it opens is now the SHELL's assistant panel, not a floating panel of
+ * its own. Two triggers, one conversation: the rail button asks about the
+ * screen, the chip asks about the highlight, and the only difference is the
+ * subject chip the panel carries afterwards. Keeping a second, smaller chat
+ * here meant two threads that could not see each other's answers and two
+ * copies of every fix.
  *
  * What the selection is *about* comes from the nearest `data-ask` ancestor,
- * so a highlight inside the strip's day detail asks about that day and one
- * inside the product detail asks about that product. Both the chip and the
- * panel portal to the body: they are positioned in viewport coordinates and
- * would otherwise be clipped by the console's scroller.
+ * so a highlight inside the day detail asks about that day and one inside
+ * the product detail asks about that product.
  */
 function SelectionAsk({ cardFor }) {
   const [sel, setSel] = useState(null);
-  const [open, setOpen] = useState(false);
-  const [thread, setThread] = useState([]);
-  const [question, setQuestion] = useState("");
   const hostRef = useRef(null);
+  const assistant = useAssistant();
 
-  const dismiss = useCallback(() => {
-    setSel(null);
-    setOpen(false);
-    setThread([]);
-    setQuestion("");
-  }, []);
+  const dismiss = useCallback(() => setSel(null), []);
 
   useEffect(() => {
     /* Read the selection on the tick AFTER the gesture: mouseup fires before
      * the browser has collapsed or extended the range. */
     const read = () => {
       window.setTimeout(() => {
-        if (hostRef.current?.contains(document.activeElement)) return;
         const s = window.getSelection();
         if (!s || s.isCollapsed || s.rangeCount === 0) return dismiss();
         const text = s.toString().trim();
@@ -1063,9 +1369,6 @@ function SelectionAsk({ cardFor }) {
         if (!node?.closest?.("[data-ask-root]")) return dismiss();
         const rect = s.getRangeAt(0).getBoundingClientRect();
         if (!rect.width && !rect.height) return dismiss();
-        setOpen(false);
-        setThread([]);
-        setQuestion("");
         setSel({ text, rect, ask: node.closest("[data-ask]")?.dataset.ask || null });
       }, 0);
     };
@@ -1086,109 +1389,39 @@ function SelectionAsk({ cardFor }) {
     };
   }, [dismiss]);
 
-  if (!sel || typeof document === "undefined") return null;
+  if (!sel || !assistant || typeof document === "undefined") return null;
 
   const card = cardFor(sel.ask);
   if (!card) return null;
 
-  const quick = QUICK_QUESTIONS[card.context?.type] || [];
-
-  const ask = (raw) => {
-    const q = (raw ?? question).trim();
-    if (!q) return;
-    setThread((t) => (t.length && t[t.length - 1].q === q ? t : [...t, { q, a: answerInsightQuestion(card, q) }]));
-    setQuestion("");
-  };
-
-  /* The chip hangs off the END of the selection, where the cursor just
-   * let go; the panel lines up with its START, so it reads as belonging to
-   * the highlighted phrase rather than floating left of it. Flipped above
-   * when there is no room below, and never off either edge. */
-  const width = open ? ASK_W : 96;
-  const anchor = open ? sel.rect.left : sel.rect.right - width;
-  const left = Math.min(Math.max(anchor, 12), window.innerWidth - width - 12);
-  const flip = sel.rect.bottom + (open ? 200 : 40) > window.innerHeight;
-  const place = flip
-    ? { bottom: window.innerHeight - sel.rect.top + ASK_GAP }
-    : { top: sel.rect.bottom + ASK_GAP };
+  /* The chip hangs off the END of the selection, where the cursor just let
+   * go. Flipped above when there is no room below, never off either edge.
+   * Portaled: it is positioned in viewport coordinates and the console's
+   * scroller would otherwise clip it. */
+  const left = Math.min(Math.max(sel.rect.right - CHIP_W, 12), window.innerWidth - CHIP_W - 12);
+  const place =
+    sel.rect.bottom + 40 > window.innerHeight
+      ? { bottom: window.innerHeight - sel.rect.top + CHIP_GAP }
+      : { top: sel.rect.bottom + CHIP_GAP };
+  const short = sel.text.length > 44 ? `${sel.text.slice(0, 44)}…` : sel.text;
 
   return createPortal(
     <div ref={hostRef} className="fixed z-50" style={{ left, ...place }}>
-      {open ? (
-        <div
-          role="dialog"
-          aria-label={`Ask about "${sel.text}"`}
-          className="rounded-lg border border-line-strong bg-surface shadow-lg p-3"
-          style={{ width: ASK_W }}
-        >
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-xs text-ink-3 leading-snug min-w-0">
-              Ask about{" "}
-              <span className="text-ink font-medium">
-                &ldquo;{sel.text.length > 44 ? `${sel.text.slice(0, 44)}…` : sel.text}&rdquo;
-              </span>
-              {/* Only when the highlight isn't already the subject's own name —
-                * "Ask about 'Applewood Bacon' in Applewood Bacon" says it twice. */}
-              {!card.title.toLowerCase().includes(sel.text.toLowerCase()) && (
-                <span className="block mt-0.5 text-ink-4 truncate">in {card.title}</span>
-              )}
-            </p>
-            <button type="button" onClick={dismiss} aria-label="Close" className="shrink-0 text-ink-4 hover:text-ink">
-              <X size={14} />
-            </button>
-          </div>
-
-          <div className="flex items-center flex-wrap gap-1.5 mt-2.5">
-            {quick.map((qq) => (
-              <button
-                key={qq.label}
-                type="button"
-                onClick={() => ask(qq.text)}
-                aria-label={qq.text}
-                className="inline-flex items-center h-6 px-2.5 rounded-full border border-line bg-surface text-xs font-medium text-ink-2 hover:border-ink-3 hover:text-ink transition-colors"
-              >
-                {qq.label}
-              </button>
-            ))}
-          </div>
-
-          {thread.length > 0 && (
-            <div className="mt-2.5 space-y-2 max-h-52 overflow-y-auto" role="log" aria-live="polite" aria-label="Answers">
-              {thread.map((t, i) => (
-                <div key={i} className="text-xs rounded-md bg-sunken px-2.5 py-2">
-                  <p className="font-medium text-ink-2">&ldquo;{t.q}&rdquo;</p>
-                  <p className="mt-0.5 text-ink-3 leading-relaxed">{t.a}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="mt-2.5 flex items-center gap-1.5">
-            <Input
-              autoFocus
-              value={question}
-              placeholder="Ask about this…"
-              aria-label={`Ask about "${sel.text}"`}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && ask()}
-              className="flex-1"
-            />
-            <Button size="sm" icon={Send} onClick={() => ask()} aria-label="Send question">
-              Ask
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label={`Ask about "${sel.text}"`}
-          className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border border-line-strong bg-surface shadow-sm text-xs font-medium text-ink-2 hover:text-ink hover:border-ink-3 transition-colors"
-        >
-          <Sparkles size={12} className="text-ink-4" />
-          Ask
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => {
+          assistant.openWith({ label: `“${short}”`, card });
+          /* Drop the highlight once it has been handed over — leaving it
+           * selected makes the next click read as a new selection. */
+          window.getSelection()?.removeAllRanges();
+          dismiss();
+        }}
+        aria-label={`Ask about "${sel.text}"`}
+        className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border border-line-strong bg-surface shadow-sm text-xs font-medium text-ink-2 hover:text-ink hover:border-ink-3 transition-colors"
+      >
+        <Sparkles size={12} className="text-ink-4" />
+        Ask
+      </button>
     </div>,
     document.body
   );

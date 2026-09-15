@@ -3,14 +3,13 @@
 import {
   Blocks,
   ChartBar,
+  ChartNoAxesCombined,
   ListTodo,
   Package,
   ShieldCheck,
   Store,
   UsersRound,
 } from "lucide-react";
-
-import InsightsIcon from "../components/InsightsIcon";
 
 /**
  * The console's sidebar nav, shared with the Help page via `navFor` so both
@@ -19,7 +18,12 @@ import InsightsIcon from "../components/InsightsIcon";
  * entry locally.
  */
 export const NAV = [
-  { id: "insights", label: "Insights", short: "Insights", icon: InsightsIcon },
+  /* Was `InsightsIcon`, the sparkle-magnifier. That icon is the assistant's
+   * now (see ConsoleShell): the rail lists PLACES, and the assistant is a
+   * mode you turn on from anywhere, not somewhere you go. Insights keeps its
+   * top slot — it is the screen a manager opens daily, and filing it under
+   * System with the setup screens would demote the wrong thing. */
+  { id: "insights", label: "Insights", short: "Insights", icon: ChartNoAxesCombined },
   { id: "production", label: "Targets", short: "Targets", icon: ChartBar, managerOnly: true, group: "Operations" },
   { id: "tasks", label: "Assignments", short: "Assignments", icon: ListTodo, managerOnly: true, group: "Operations" },
   { id: "inventory", label: "Inventory", short: "Inventory", icon: Package, managerOnly: true, group: "Operations" },
