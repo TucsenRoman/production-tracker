@@ -60,8 +60,15 @@ export function Modal({
 
   if (!open) return null;
 
+  /* The assistant column is NOT covered.
+   *
+   * `--app-aside-w` is the width AppShell is currently giving the panel, and
+   * zero when it is closed or below `lg`. A modal that blacked out a panel
+   * you can still type into would make the assistant feel like a layer
+   * rather than part of the frame — and the batch table is exactly the thing
+   * people want to ask about while they are reading it. */
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center animate-fade-in lg:[right:var(--app-aside-w,0px)]">
       <div
         className="absolute inset-0 bg-ink/60"
         onClick={onClose}

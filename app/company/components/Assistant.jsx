@@ -1,9 +1,9 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, PanelRightClose, Send, Sparkles, X } from "lucide-react";
+import { Copy, MessageCirclePlus, PanelRightClose, Send, Sparkles, X } from "lucide-react";
 
-import { Button, Input, ScrollArea, cx, useToast } from "../../components/ui";
+import { Button, IconButton, Input, Popover, cx, useToast } from "../../components/ui";
 import { answerInsightQuestion, planPageCommand } from "../lib/insights";
 
 /**
@@ -29,6 +29,36 @@ import { answerInsightQuestion, planPageCommand } from "../lib/insights";
  * is what keeps cost flat and makes compaction, token accounting and server
  * state unnecessary. Keep it.
  */
+/**
+ * The answers carry `**bold**` and nothing else — see the EMPHASIS rule in
+ * insights.js for what goes inside it. A three-line splitter rather than a
+ * Markdown library, because one mark is the whole vocabulary and it stays
+ * that way: emphasis marks the clause that answers the question, and a
+ * paragraph that also had headings and links would not be an answer any more.
+ *
+ * It doubles as the clipboard format, so a copied thread pastes into a note
+ * with the same word already bold.
+ */
+function Rich({ text }) {
+  return text.split(/\*\*(.+?)\*\*/g).map((part, i) =>
+    i % 2 ? (
+      <strong key={i} className="font-semibold text-ink">
+        {part}
+      </strong>
+    ) : (
+      part
+    )
+  );
+}
+
+/** Header controls: same 28px square, ghost until hovered. */
+const HEADER_BTN =
+  "w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-hover transition-colors";
+
+/** An empty-state starter: a full-width row, because it is a sentence. */
+const STARTER =
+  "w-full flex items-start gap-1.5 text-left px-2 py-1.5 rounded-md text-xs leading-relaxed text-ink-2 hover:bg-hover hover:text-ink transition-colors";
+
 const AssistantContext = createContext(null);
 
 export const useAssistant = () => useContext(AssistantContext);
@@ -81,9 +111,10 @@ const QUICK_QUESTIONS = {
 };
 
 /**
- * Questions and instructions in one rail, deliberately mixed: the first
- * command chip somebody taps is how they find out the panel can move the
- * page at all.
+ * Follow-up chips, shown only ONCE A THREAD EXISTS. Questions and
+ * instructions deliberately mixed: mid-conversation the distinction does not
+ * matter, and a command chip sitting among the questions is how somebody
+ * finds out the panel can move the page.
  */
 function suggestionsFor(card) {
   const ctx = card?.context;
@@ -91,30 +122,54 @@ function suggestionsFor(card) {
   if (ctx.type !== "period") return QUICK_QUESTIONS[ctx.type] || [];
 
   const { stats, byProduct = [], byStation = [], yearAgo } = ctx;
+  /* Chip LABELS are clipped short and the sent TEXT stays whole. At panel
+   * width a full question is a chip the width of the panel, and a column of
+   * those is just a menu wearing rounded corners — short labels let two sit
+   * on a line and read as replies rather than rows. */
   const out = [{ label: "What should I look at?", text: "What should I look at?" }];
-  if (byProduct.length > 1) out.push({ label: "Which product is weakest?", text: "Which product is weakest?" });
-  if (stats?.flagged) out.push({ label: "Show flagged only", text: "Show the flagged products" });
+  if (byProduct.length > 1) out.push({ label: "Weakest product?", text: "Which product is weakest?" });
+  if (stats?.flagged) out.push({ label: "Flagged only", text: "Show the flagged products" });
   const over = byStation.filter((s) => s.overCount > 0).sort((a, b) => b.overPct - a.overPct)[0];
-  if (over) out.push({ label: `Chart ${over.station} times`, text: `Show ${over.station} times` });
-  if (yearAgo?.batches) out.push({ label: "Versus a year ago?", text: "How does this compare with a year ago?" });
+  if (over) out.push({ label: `${over.station} times`, text: `Show ${over.station} times` });
+  if (yearAgo?.batches) out.push({ label: "vs. a year ago", text: "How does this compare with a year ago?" });
   return out.slice(0, 4);
 }
 
 /**
- * The empty state's examples are all INSTRUCTIONS, never questions. Nobody
- * has trouble guessing they can ask a thing called Ask a question; what no
- * one guesses is that it will move the page. The chips below the thread
- * already carry the questions worth asking.
+ * The empty state's starters, SPLIT into asking and doing.
+ *
+ * Two lists rather than one mixed rail, because on first open the split IS
+ * the thing being taught: nobody has trouble guessing they can ask a box
+ * called Ask a question, and nobody guesses it will move the page. Mixed
+ * together, the instructions read as more questions and the point is lost.
+ *
+ * They are also full-width rows, not chips. The panel opens on a column of
+ * empty space, and a rail of two-and-a-half clipped chips floating in it was
+ * both the worst use of the room and the least legible shape for a sentence.
  */
-function examplesFor(card) {
+function startersFor(card) {
   const ctx = card?.context;
-  if (ctx?.type !== "period") return [];
-  const station = ctx.byStation?.[0]?.station;
-  return [
-    ctx.stats?.flagged ? "Show the flagged products" : "Show the weakest product",
-    "Show me the last 3 months",
-    station ? `Chart ${station} times` : null,
+  if (!ctx) return { ask: [], act: [] };
+  if (ctx.type !== "period") return { ask: (QUICK_QUESTIONS[ctx.type] || []).map((q) => q.text), act: [] };
+
+  const { stats, byProduct = [], byStation = [], yearAgo, overlaps } = ctx;
+  const station = byStation.filter((x) => x.overCount > 0).sort((a, b) => b.overPct - a.overPct)[0] || byStation[0];
+
+  const ask = [
+    "What should I look at?",
+    byProduct.length > 1 ? "Which product is weakest?" : null,
+    stats?.flagged ? "What got flagged?" : null,
+    !overlaps && yearAgo?.batches ? "How does this compare with a year ago?" : null,
   ].filter(Boolean);
+
+  const act = [
+    stats?.flagged ? "Show the flagged products" : byProduct.length > 1 ? "Show the weakest product" : null,
+    "Show me the last 3 months",
+    station ? `Chart ${station.station} times` : null,
+    "Open the batch list",
+  ].filter(Boolean);
+
+  return { ask: ask.slice(0, 4), act: act.slice(0, 3) };
 }
 
 export function AssistantProvider({ children }) {
@@ -176,15 +231,23 @@ export function AssistantProvider({ children }) {
 /* ------------------------------------------------------------- Panel -- */
 
 export function AssistantPanel() {
-  const { setOpen, thread, ask, source, subject, setSubject } = useAssistant();
+  const { setOpen, thread, ask, clear, source, subject, setSubject } = useAssistant();
   const [question, setQuestion] = useState("");
+  const [confirmNew, setConfirmNew] = useState(false);
   const endRef = useRef(null);
   const inputRef = useRef(null);
   const toast = useToast();
 
   const card = subject?.card ?? source?.card ?? null;
-  const suggestions = useMemo(() => suggestionsFor(card), [card]);
-  const examples = useMemo(() => examplesFor(card), [card]);
+  /* Drop anything already asked. A follow-up rail that offers the question
+   * you just asked is noise, and at three chips it is most of the rail. */
+  const suggestions = useMemo(() => {
+    const asked = new Set(thread.map((t) => t.q.toLowerCase()));
+    return suggestionsFor(card)
+      .filter((s) => !asked.has(s.text.toLowerCase()))
+      .slice(0, 3);
+  }, [card, thread]);
+  const starters = useMemo(() => startersFor(card), [card]);
   const scopeLine = source?.scopeLine ?? "";
 
   const send = (raw) => {
@@ -223,8 +286,10 @@ export function AssistantPanel() {
     try {
       await navigator.clipboard.writeText(`### Ask · ProTrack\n\n${body}\n`);
       toast("Chat copied", { detail: thread.length === 1 ? "1 answer" : `${thread.length} answers` });
+      return true;
     } catch {
       toast("Couldn't copy", { tone: "error", detail: "Your browser blocked clipboard access." });
+      return false;
     }
   };
 
@@ -238,24 +303,73 @@ export function AssistantPanel() {
           <p className="text-sm font-medium text-ink">Ask</p>
           <p className="mt-0.5 text-xs text-ink-4 truncate">{scopeLine || "Nothing to ask about on this screen yet"}</p>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0">
+          {/* Copy before New, in the order you would use them: the thread is
+            * not stored anywhere, so clearing it without copying loses it. */}
           {thread.length > 0 && (
-            <button
-              type="button"
-              onClick={copyAll}
-              aria-label="Copy chat"
-              title="Copy chat"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-hover transition-colors"
-            >
-              <Copy size={13} />
-            </button>
+            <>
+              <button type="button" onClick={copyAll} aria-label="Copy chat" title="Copy chat" className={HEADER_BTN}>
+                <Copy size={13} />
+              </button>
+              {/* Discarding is destructive in a way most chat UIs are not:
+                * there is no history to go back to, by design — the thread
+                * lives in memory and nothing writes it anywhere. So the
+                * confirm says that plainly, and offers the one action that
+                * makes it recoverable. */}
+              <Popover
+                open={confirmNew}
+                onClose={() => setConfirmNew(false)}
+                align="end"
+                label="Discard this chat?"
+                panelClassName="w-64 p-3"
+                content={
+                  <div>
+                    <p className="text-sm font-medium text-ink">Discard this chat?</p>
+                    <p className="mt-1 text-xs text-ink-3 leading-relaxed">
+                      Chats aren&rsquo;t saved anywhere &mdash; once it&rsquo;s gone there&rsquo;s no getting it back.
+                    </p>
+                    <div className="mt-3 flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => {
+                          clear();
+                          setConfirmNew(false);
+                        }}
+                      >
+                        Discard
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={Copy}
+                        onClick={async () => {
+                          /* Only discard if the copy actually landed — a
+                           * blocked clipboard must not eat the thread. */
+                          if (await copyAll()) clear();
+                          setConfirmNew(false);
+                        }}
+                      >
+                        Copy first
+                      </Button>
+                    </div>
+                  </div>
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() => setConfirmNew((v) => !v)}
+                  aria-expanded={confirmNew}
+                  aria-label="Start a new chat"
+                  title="New chat"
+                  className={cx(HEADER_BTN, confirmNew && "text-ink bg-hover")}
+                >
+                  <MessageCirclePlus size={13} />
+                </button>
+              </Popover>
+            </>
           )}
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label="Close the assistant"
-            className="w-7 h-7 flex items-center justify-center rounded-md text-ink-3 hover:text-ink hover:bg-hover transition-colors"
-          >
+          <button type="button" onClick={() => setOpen(false)} aria-label="Close the assistant" className={HEADER_BTN}>
             <PanelRightClose size={14} />
           </button>
         </div>
@@ -311,7 +425,7 @@ export function AssistantPanel() {
                   * so "I changed the page" is visible at a glance and not just
                   * implied by the wording. */}
                 {t.did && <Sparkles size={12} className="inline-block mr-1.5 -mt-0.5 text-ink-3" aria-hidden="true" />}
-                {t.a}
+                <Rich text={t.a} />
               </p>
             </div>
           ))}
@@ -320,55 +434,72 @@ export function AssistantPanel() {
         </div>
       ) : (
         /* The empty state is the panel's whole first impression, and it has
-         * one job: say that this thing can DO something, not just answer. */
-        <div className="flex-1 min-h-0 flex flex-col justify-end px-4 pb-1">
+         * one job: say that this thing can DO something, not just answer.
+         *
+         * Top-aligned, unlike the thread. Bottom-anchoring is right for a
+         * conversation growing off the composer and wrong for an empty
+         * column — it left six hundred pixels of nothing under the header
+         * and pushed the only useful content into the corner. */
+        <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar px-4 py-3.5">
           <p className="text-sm text-ink-2 leading-relaxed">
             Ask about what&rsquo;s on screen &mdash; or tell it what to show.
           </p>
-          {examples.length > 0 && (
-            <ul className="mt-3 space-y-1">
-              {examples.map((e) => (
-                <li key={e}>
-                  <button
-                    type="button"
-                    onClick={() => send(e)}
-                    className="text-left text-xs text-ink-3 hover:text-ink transition-colors"
-                  >
-                    <Sparkles size={11} className="inline-block mr-1.5 -mt-0.5 text-ink-4" aria-hidden="true" />
-                    &ldquo;{e}&rdquo;
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-3 text-xs text-ink-4 leading-relaxed">
+          <p className="mt-1.5 text-xs text-ink-4 leading-relaxed">
             Every answer is scoped to the window and filter above, and says so. Highlight anything on the page to ask
             about just that.
           </p>
+
+          {starters.ask.length > 0 && (
+            <div className="mt-5">
+              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-ink-4">Ask</p>
+              <div className="mt-1.5 -mx-2">
+                {starters.ask.map((t) => (
+                  <button key={t} type="button" onClick={() => send(t)} className={STARTER}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {starters.act.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-ink-4">Do</p>
+              <div className="mt-1.5 -mx-2">
+                {starters.act.map((t) => (
+                  <button key={t} type="button" onClick={() => send(t)} className={STARTER}>
+                    <Sparkles size={12} className="shrink-0 mt-0.5 text-ink-4" aria-hidden="true" />
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       <div className="shrink-0 p-4">
-        {/* One row that scrolls rather than two that wrap: suggestions are a
-          * rail you skim along, and a wrapping block changed the panel's
-          * height every time the window changed how many there were. */}
-        {suggestions.length > 0 && (
-          <ScrollArea axis="x" arm fade className="mb-2.5">
-            <div className="flex items-center gap-1.5">
-              {suggestions.map((s) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => send(s.text)}
-                  className="inline-flex items-center h-7 px-2.5 rounded-full border border-line bg-surface text-xs font-medium text-ink-2 hover:border-ink-3 hover:text-ink transition-colors shrink-0"
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </ScrollArea>
+        {/* Follow-ups WRAP now instead of scrolling sideways. The rail came
+          * from the Popover, where a second row would have grown the floating
+          * panel; in a fixed-height column there is nothing to grow, and a
+          * horizontal rail at this width showed two and a half chips with the
+          * third clipped mid-word. Only while a thread is running — before
+          * that, the starters above are the suggestions. */}
+        {thread.length > 0 && suggestions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+            {suggestions.map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => send(s.text)}
+                className="inline-flex items-center h-7 px-2.5 rounded-full border border-line bg-surface text-xs font-medium text-ink-2 hover:border-ink-3 hover:text-ink transition-colors"
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         )}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <Input
             ref={inputRef}
             value={question}
@@ -381,9 +512,16 @@ export function AssistantPanel() {
             }}
             className="flex-1"
           />
-          <Button size="sm" icon={Send} onClick={() => send()} disabled={!card} aria-label="Send question">
-            Ask
-          </Button>
+          {/* Icon, not a labelled button. Enter is how this actually gets
+            * used, and a word here cost fifty pixels of the line you type on. */}
+          <IconButton
+            label="Send"
+            icon={Send}
+            size={15}
+            onClick={() => send()}
+            disabled={!card}
+            className={cx(question.trim() && "text-ink")}
+          />
         </div>
       </div>
     </div>

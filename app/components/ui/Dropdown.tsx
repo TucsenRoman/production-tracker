@@ -40,6 +40,9 @@ interface DropdownBase<T extends string> {
   summary?: (count: number) => string;
   /** Widen (or otherwise adjust) the menu when the options carry a figure as
    *  well as a name and the default cap would truncate the figure. */
+  /** Drop the pill: renders as text with a chevron, for a scope control that
+   *  sits in a subtitle rather than a toolbar. */
+  quiet?: boolean;
   menuClassName?: string;
   "aria-label"?: string;
 }
@@ -87,6 +90,7 @@ export function Dropdown<T extends string = string>(props: DropdownProps<T>) {
     placeholder,
     summary,
     menuClassName,
+    quiet = false,
     "aria-label": ariaLabel,
   } = props;
 
@@ -205,12 +209,16 @@ export function Dropdown<T extends string = string>(props: DropdownProps<T>) {
         aria-label={ariaLabel}
         onClick={() => setOpen((o) => !o)}
         className={cx(
-          "inline-flex items-center gap-1.5 px-2.5 h-[var(--ctl-h)] rounded-full border",
-          "text-xs font-medium transition-colors duration-100 max-w-[11rem]",
+          "inline-flex items-center transition-colors duration-100",
           "disabled:opacity-45 disabled:cursor-not-allowed",
-          isOn
-            ? "border-line-strong bg-hover text-ink"
-            : "border-line bg-surface text-ink-2 hover:bg-hover",
+          quiet
+            ? // No pill and no fixed height: it reads as part of the sentence
+              // it sits in, and only the chevron says it opens.
+              "gap-1 max-w-[16rem] " + (isOn ? "text-ink" : "hover:text-ink")
+            : "gap-1.5 px-2.5 h-[var(--ctl-h)] rounded-full border text-xs font-medium max-w-[11rem] " +
+              (isOn
+                ? "border-line-strong bg-hover text-ink"
+                : "border-line bg-surface text-ink-2 hover:bg-hover"),
         )}
       >
         {Icon && <Icon size={12} className="shrink-0" />}

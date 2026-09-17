@@ -8,6 +8,10 @@ export function SearchInput({
   value,
   onChange,
   placeholder = "Search…",
+  icon: Icon = Search,
+  readOnly = false,
+  onFocus,
+  "aria-label": ariaLabel,
   pill = false,
   className,
 }) {
@@ -23,7 +27,7 @@ export function SearchInput({
         className,
       )}
     >
-      <Search size={14} className="text-icon-2 shrink-0" />
+      <Icon size={14} className="text-icon-2 shrink-0" />
       {/* type="text", not "search": browsers draw their own cancel glyph on a
           search input, on top of the clear button below. */}
       <input
@@ -32,10 +36,13 @@ export function SearchInput({
         autoComplete="off"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
+        readOnly={readOnly}
+        aria-label={ariaLabel}
         placeholder={placeholder}
         className="flex-1 min-w-0 h-full bg-transparent border-0 outline-none focus-visible:shadow-none text-sm text-ink placeholder:text-ink-4 [&::-webkit-search-cancel-button]:hidden"
       />
-      {value && (
+      {value && !readOnly && (
         <IconButton
           label="Clear search"
           icon={X}

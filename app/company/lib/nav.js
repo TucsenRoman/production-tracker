@@ -3,7 +3,7 @@
 import {
   Blocks,
   ChartBar,
-  ChartNoAxesCombined,
+  ChartNoAxesColumn,
   ListTodo,
   Package,
   ShieldCheck,
@@ -23,7 +23,7 @@ export const NAV = [
    * mode you turn on from anywhere, not somewhere you go. Insights keeps its
    * top slot — it is the screen a manager opens daily, and filing it under
    * System with the setup screens would demote the wrong thing. */
-  { id: "insights", label: "Insights", short: "Insights", icon: ChartNoAxesCombined },
+  { id: "insights", label: "Insights", short: "Insights", icon: ChartNoAxesColumn },
   { id: "production", label: "Targets", short: "Targets", icon: ChartBar, managerOnly: true, group: "Operations" },
   { id: "tasks", label: "Assignments", short: "Assignments", icon: ListTodo, managerOnly: true, group: "Operations" },
   { id: "inventory", label: "Inventory", short: "Inventory", icon: Package, managerOnly: true, group: "Operations" },

@@ -27,20 +27,20 @@ function answerPeriodQuestion(ctx, q) {
     const notes = [];
     if (worst && rankable.length > 1 && stats.avgYield != null) {
       const gap = round1(stats.avgYield - worst.avgYield);
-      if (gap >= 2) notes.push(`${worst.product} is the weak spot at ${fmtPct(worst.avgYield)} over ${worst.batches} batches, ${gap} points under the ${fmtPct(stats.avgYield)} average`);
+      if (gap >= 2) notes.push(`${b(worst.product)} is the weak spot at ${fmtPct(worst.avgYield)} over ${worst.batches} batches, ${gap} points under the ${fmtPct(stats.avgYield)} average`);
     }
     if (thin.length) {
       notes.push(
-        `${thin.map((p) => `${p.product} came in at ${fmtPct(p.avgYield)}`).join(" and ")} — ${
+        `${thin.map((p) => `${b(p.product)} came in at ${fmtPct(p.avgYield)}`).join(" and ")} — ${
           thin.length === 1 ? "one batch, so" : "a batch or two each, so"
         } too little to call a pattern`
       );
     }
     if (over.length) {
       const s = over[0];
-      notes.push(`${s.station} went over its ${s.target}-minute target on ${s.overCount} of ${s.runs} run${s.runs === 1 ? "" : "s"}`);
+      notes.push(`${b(s.station)} went over its ${s.target}-minute target on ${s.overCount} of ${s.runs} run${s.runs === 1 ? "" : "s"}`);
     }
-    if (stats.flagged) notes.push(`${stats.flagged} of ${stats.batches} batches ${stats.flagged === 1 ? "is" : "are"} flagged`);
+    if (stats.flagged) notes.push(`${b(stats.flagged)} of ${stats.batches} batches ${stats.flagged === 1 ? "is" : "are"} flagged`);
     if (!overlaps && yearAgo?.avgYield != null && stats.avgYield != null) {
       const d = round1(stats.avgYield - yearAgo.avgYield);
       if (Math.abs(d) >= 1) notes.push(`yield is ${Math.abs(d)} points ${d > 0 ? "up on" : "down on"} the same stretch last year`);
@@ -66,7 +66,7 @@ function answerPeriodQuestion(ctx, q) {
     const caveat = thin.length
       ? ` (${thin.map((p) => `${p.product} ran lower at ${fmtPct(p.avgYield)}, but only ${p.batches} batch${p.batches === 1 ? "" : "es"}`).join("; ")}.)`
       : "";
-    return `${pick.product} is the ${wantsBest ? "strongest" : "weakest"} ${spanLabel} at ${fmtPct(pick.avgYield)} over ${pick.batches} batches${
+    return `${b(pick.product)} is the ${wantsBest ? "strongest" : "weakest"} ${spanLabel} at ${fmtPct(pick.avgYield)} over ${pick.batches} batches${
       pick.flagged ? `, ${pick.flagged} flagged` : ""
     }. Then ${others.map((p) => `${p.product} at ${fmtPct(p.avgYield)}`).join(", ")}.${caveat}`;
   }
@@ -76,16 +76,16 @@ function answerPeriodQuestion(ctx, q) {
   if (/station|smokehouse|packaging|over target|slow|minutes|time/.test(q)) {
     if (!byStation.length) return `No station minutes were logged ${spanLabel}.`;
     if (!over.length) {
-      return `Every station stayed inside target ${spanLabel}: ${byStation.map((s) => `${s.station} averaged ${s.avgMinutes} min against ${s.target}`).join(", ")}.`;
+      return `${b("Every station")} stayed inside target ${spanLabel}: ${byStation.map((s) => `${s.station} averaged ${s.avgMinutes} min against ${s.target}`).join(", ")}.`;
     }
     return over
-      .map((s) => `${s.station} went over its ${s.target}-minute target on ${s.overCount} of ${s.runs} run${s.runs === 1 ? "" : "s"}, averaging ${s.avgMinutes} min`)
+      .map((s) => `${b(s.station)} went over its ${s.target}-minute target on ${s.overCount} of ${s.runs} run${s.runs === 1 ? "" : "s"}, averaging ${s.avgMinutes} min`)
       .join(". ") + ".";
   }
 
   if (/flag/.test(q)) {
     if (!stats.flagged) return `Nothing flagged ${spanLabel} — every batch closed above ${LOW_YIELD_PCT}% and inside every station target.`;
-    const byProd = byProduct.filter((p) => p.flagged).map((p) => `${p.product} (${p.flagged})`);
+    const byProd = byProduct.filter((p) => p.flagged).map((p) => `${b(p.product)} (${p.flagged})`);
     return `${stats.flagged} of ${stats.batches} batches flagged ${spanLabel}, for low yield or slow time: ${byProd.join(", ")}.`;
   }
 
@@ -97,14 +97,14 @@ function answerPeriodQuestion(ctx, q) {
     const d = stats.avgYield != null && yearAgo.avgYield != null ? round1(stats.avgYield - yearAgo.avgYield) : null;
     const yieldLine =
       d == null ? "" : Math.abs(d) < 1
-        ? `Yield is where it was, ${fmtPct(stats.avgYield)} against ${fmtPct(yearAgo.avgYield)}`
-        : `Yield is ${Math.abs(d)} points ${d > 0 ? "better" : "worse"}, ${fmtPct(stats.avgYield)} against ${fmtPct(yearAgo.avgYield)}`;
+        ? `Yield is ${b("where it was")}, ${fmtPct(stats.avgYield)} against ${fmtPct(yearAgo.avgYield)}`
+        : `Yield is ${b(`${Math.abs(d)} points ${d > 0 ? "better" : "worse"}`)}, ${fmtPct(stats.avgYield)} against ${fmtPct(yearAgo.avgYield)}`;
     return `${yieldLine} (${stats.batches} batches against ${yearAgo.batches}).`;
   }
 
   if (/why|driv|cause/.test(q)) {
     if (stats.flagged && worst) {
-      return `${stats.flagged} of ${stats.batches} batches were flagged, and ${worst.product} carries the lowest average at ${fmtPct(worst.avgYield)}. That is where the ${fmtPct(stats.avgYield)} overall comes from.`;
+      return `${stats.flagged} of ${stats.batches} batches were flagged, and ${b(worst.product)} carries the lowest average at ${fmtPct(worst.avgYield)}. That is where the ${fmtPct(stats.avgYield)} overall comes from.`;
     }
     return `Nothing flagged ${spanLabel}; the ${fmtPct(stats.avgYield)} average is spread evenly across ${byProduct.length} product${byProduct.length === 1 ? "" : "s"}.`;
   }
@@ -125,6 +125,43 @@ function answerPeriodQuestion(ctx, q) {
  */
 
 import { LOW_YIELD_PCT, STAGE_TARGET_MINUTES, isOverTarget, shiftDate, todayKey, yieldPct } from "../../lib/domain";
+
+/**
+ * EMPHASIS: bold the answer, not the numbers.
+ *
+ * Every answer and every command acknowledgement is written in the sliver of
+ * Markdown the panel renders — `**like this**` — and the rule for what goes
+ * inside it is not "the important bit" or "the figures". It is: **whatever
+ * the question asked for.**
+ *
+ *   "show me the flagged products"   → the PRODUCT NAMES bold. Not the count.
+ *   "how many were flagged?"         → the COUNT bolds. Not the names.
+ *   "is Smokehouse over target?"     → the VERDICT bolds.
+ *   "which product is weakest?"      → the PRODUCT bolds, not its yield.
+ *   "what was the yield?"            → now the yield bolds.
+ *
+ * The same sentence therefore emphasises different words depending on what
+ * was asked, which is the whole point: emphasis is how a reader finds the
+ * answer without reading the sentence, so pointing it at a fixed part of
+ * speech (numbers, say) makes it decoration instead of information.
+ *
+ * Three constraints that keep it that way:
+ *   1. **At most one emphasis per sentence.** Two bolds is a sentence that
+ *      could not decide, and a paragraph where a third of the words are bold
+ *      is a paragraph with no emphasis at all.
+ *   2. **Never bold a number just for being a number.** A figure bolds only
+ *      when the figure IS the answer.
+ *   3. **Supporting clauses stay plain**, even when they carry the more
+ *      interesting number — "Charting **Smokehouse** minutes; it averaged 271
+ *      against a 240-minute target" answers "show me Smokehouse", and the 271
+ *      is what you then go and read.
+ *
+ * When a model is wired in behind this, these five lines are its instruction,
+ * not a formatting preference: it phrases, the template decides the numbers,
+ * and the bold marks which clause is the reply. A model that bolds every
+ * figure has misunderstood the job.
+ */
+const b = (x) => `**${x}**`;
 
 const round1 = (n) => Math.round(n * 10) / 10;
 const fmtPct = (n) => (n == null ? "—" : `${n}%`);
@@ -417,7 +454,7 @@ export function planPageCommand(ctx, question, options = {}) {
   /* Undo comes first: "show all products" contains a product word and would
    * otherwise be read as a filter. */
   if (/\b(all|every|any|each) (the )?(product|item|s?ku)s?\b/.test(q) || /\b(clear|reset|remove|drop|unset)\w*\b.*\b(filter|selection|products?)\b/.test(q)) {
-    return { kind: "filter", products: [], say: "Cleared the product filter — every product is back on screen." };
+    return { kind: "filter", products: [], say: `Cleared the product filter — ${b("every product")} is back on screen.` };
   }
 
   /* The window. Checked before products because "show me the last 3 months"
@@ -425,10 +462,10 @@ export function planPageCommand(ctx, question, options = {}) {
   const span = q.match(/\b(\d+)\s*(day|week|month|year)s?\b/);
   if (span && /\b(last|past|previous|recent|back|window|range|period|show|set|zoom|go|take)\b/.test(q)) {
     const days = Math.max(1, Number(span[1]) * UNIT_DAYS[span[2]]);
-    return { kind: "range", days, say: `Window set to the last ${plural(Number(span[1]), span[2])}.` };
+    return { kind: "range", days, say: `Window set to the last ${b(plural(Number(span[1]), span[2]))}.` };
   }
   if (/\ball[- ]?time\b|\b(whole|entire|full) (record|history|thing)\b|\beverything (we|you) have\b/.test(q)) {
-    return { kind: "range", days: 0, say: "Window set to the whole record." };
+    return { kind: "range", days: 0, say: `Window set to ${b("the whole record")}.` };
   }
   if (/\bzoom out\b|\bwiden\b|\bwider\b|\bmore (time|history)\b/.test(q)) {
     return { kind: "scale", factor: 2, say: "Widened the window." };
@@ -439,7 +476,7 @@ export function planPageCommand(ctx, question, options = {}) {
 
   /* The batch list. */
   if (/\b(batch list|list of batches|every batch|all (the )?batches|the batches|table|rows)\b/.test(q) && !/\bflag/.test(q)) {
-    return { kind: "list", say: `Opened the batch list — ${plural(stats.batches ?? 0, "batch")} ${spanLabel}.` };
+    return { kind: "list", say: `Switched to the batch list — ${plural(stats.batches ?? 0, "batch")} ${spanLabel}.` };
   }
 
   /* The chart's series. A station named alongside a steering verb means
@@ -451,13 +488,15 @@ export function planPageCommand(ctx, question, options = {}) {
     return {
       kind: "series",
       value: station,
+      /* The station is what you asked to see; the 271 is what you then go
+       * and read. One emphasis, and it is the subject. */
       say: s?.avgMinutes != null
-        ? `Charting ${station} minutes — it averaged ${s.avgMinutes} against a ${s.target}-minute target ${spanLabel}.`
-        : `Charting ${station} minutes.`,
+        ? `Charting ${b(station)} minutes — it averaged ${s.avgMinutes} against a ${s.target}-minute target ${spanLabel}.`
+        : `Charting ${b(station)} minutes.`,
     };
   }
   if (/\byields?\b/.test(q) && !catalogue.some((p) => q.includes(p.toLowerCase()))) {
-    return { kind: "series", value: "yield", say: "Charting yield." };
+    return { kind: "series", value: "yield", say: `Charting ${b("yield")}.` };
   }
 
   /* Flagged. The question in the screenshot — "bring the flagged products up
@@ -469,7 +508,7 @@ export function planPageCommand(ctx, question, options = {}) {
     return {
       kind: "filter",
       products: flagged,
-      say: `Filtered to ${listOut(flagged)} — ${plural(stats.flagged ?? 0, "flagged batch")} ${spanLabel}, all of ${
+      say: `Filtered to ${listOut(flagged.map(b))} — ${plural(stats.flagged ?? 0, "flagged batch")} ${spanLabel}, all of ${
         flagged.length === 1 ? "it there" : "them there"
       }.`,
     };
@@ -491,7 +530,7 @@ export function planPageCommand(ctx, question, options = {}) {
     return {
       kind: "filter",
       products: [pick.product],
-      say: `Filtered to ${pick.product}, the ${wantsBest ? "strongest" : "weakest"} ${spanLabel} at ${fmtPct(pick.avgYield)} over ${plural(
+      say: `Filtered to ${b(pick.product)}, the ${wantsBest ? "strongest" : "weakest"} ${spanLabel} at ${fmtPct(pick.avgYield)} over ${plural(
         pick.batches,
         "batch"
       )}.`,
@@ -505,7 +544,7 @@ export function planPageCommand(ctx, question, options = {}) {
     .filter((p) => q.includes(p.toLowerCase()))
     .filter((p, i, all) => !all.slice(0, i).some((longer) => longer.toLowerCase().includes(p.toLowerCase())));
   if (named.length) {
-    return { kind: "filter", products: named, say: `Filtered to ${listOut(named)}.` };
+    return { kind: "filter", products: named, say: `Filtered to ${listOut(named.map(b))}.` };
   }
 
   return null;

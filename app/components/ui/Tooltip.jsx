@@ -34,6 +34,9 @@ export function Tooltip({
   // Viewport coordinates; null until measured, so nothing paints at (0,0).
   const [pos, setPos] = useState(null);
   const timerRef = useRef(null);
+  /* Dismissed by a scroll, and not re-shown until the pointer moves. */
+  const suppressRef = useRef(false);
+  const detachRef = useRef(null);
   const wrapRef = useRef(null);
   const bubbleRef = useRef(null);
   // Last known pointer position. A ref: only read when repositioning.
@@ -116,26 +119,82 @@ export function Tooltip({
     setPos({ top, left });
   };
 
+  /**
+   * A wheel or a scroll while the pointer is parked on a control dismisses
+   * the bubble, and keeps it dismissed until the pointer actually moves
+   * again.
+   *
+   * Without this, any tooltip you happen to be hovering sits there for the
+   * whole gesture, covering the thing you scrolled in order to look at — and
+   * on a control you operate BY scrolling, like the Insights scrubber, it is
+   * simply always on screen. The rule generalises: a tooltip answers "what is
+   * this thing under my cursor", and scrolling means the person has stopped
+   * asking that.
+   *
+   * Listeners are armed from `show` and dropped in `hide`, so they exist only
+   * while one tooltip is hovered rather than one pair per mounted instance.
+   * Capture phase, because `scroll` does not bubble and the scrollers here are
+   * containers, not the window.
+   */
+  const detach = () => {
+    detachRef.current?.();
+    detachRef.current = null;
+  };
+  const armDismiss = () => {
+    if (detachRef.current) return;
+    const stop = () => {
+      suppressRef.current = true;
+      clearTimeout(timerRef.current);
+      setOpen(false);
+      setPos(null);
+    };
+    window.addEventListener("wheel", stop, { passive: true, capture: true });
+    window.addEventListener("scroll", stop, { passive: true, capture: true });
+    detachRef.current = () => {
+      window.removeEventListener("wheel", stop, true);
+      window.removeEventListener("scroll", stop, true);
+    };
+  };
+
   const show = (e) => {
-    if (disabled) return;
+    if (disabled || suppressRef.current) return;
     if (followCursor && typeof e?.clientX === "number") {
       cursorRef.current = { x: e.clientX, y: e.clientY };
     }
+    armDismiss();
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setOpen(true), delay);
   };
   const hide = () => {
     clearTimeout(timerRef.current);
+    /* Leaving the trigger ends the suppression too: the next hover is a
+     * fresh question, not a continuation of the scroll. */
+    suppressRef.current = false;
+    detach();
     setOpen(false);
     setPos(null);
   };
-  // followCursor only: keep the bubble above the pointer as it moves.
   const track = (e) => {
+    /* A real pointer move is the signal that the person is pointing at things
+     * again rather than scrolling past them. A wheel gesture does not move the
+     * cursor, so this cannot undo its own dismissal. */
+    if (suppressRef.current) {
+      suppressRef.current = false;
+      show(e);
+      return;
+    }
+    // followCursor only: keep the bubble above the pointer as it moves.
     if (!followCursor || typeof e.clientX !== "number") return;
     cursorRef.current = { x: e.clientX, y: e.clientY };
     if (open) reposition();
   };
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(timerRef.current);
+      detach();
+    },
+    []
+  );
 
   // Layout effect: the bubble is measured and placed before paint, so it
   // never shows at the wrong position and then jumps.

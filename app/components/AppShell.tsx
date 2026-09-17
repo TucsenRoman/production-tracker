@@ -5,11 +5,12 @@ import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react
 
 import type { ReactNode } from "react";
 
-import { cx, ScrollArea, SlotProvider, SlotTarget, TabDot, Tooltip } from "./ui";
+import { cx, ScrollArea, SearchInput, SlotProvider, SlotTarget, TabDot, Tooltip } from "./ui";
 import type { IconComponent } from "./ui";
 import { useDoubleTapHotkey } from "../lib/useDoubleTapHotkey";
 import type { HotkeyBindings } from "../lib/useDoubleTapHotkey";
 import { TabletFrameContext } from "./TabletFrame";
+import { createStore } from "../lib/persistence";
 
 /** One entry in the app's navigation, shared by the rail and the tab bar. */
 export interface NavItem {
@@ -51,6 +52,8 @@ export interface AppShellProps {
   assistant?: ReactNode;
   assistantIcon?: IconComponent;
   assistantLabel?: string;
+  /** The words inside the search-field-shaped trigger. */
+  assistantPlaceholder?: string;
   assistantOpen?: boolean;
   onAssistantOpenChange?: ((open: boolean) => void) | null;
   userMenuOpen?: boolean;
@@ -73,6 +76,18 @@ export interface AppShellProps {
  *
  * Everything app-specific comes in as props.
  */
+
+/* The assistant column's width: a starting guess, a floor, and a ceiling
+ * measured against the window so the page keeps most of the room. */
+const ASSISTANT_W_DEFAULT = 336;
+const ASSISTANT_W_MIN = 288;
+const assistantMax = () =>
+  typeof window === "undefined" ? 640 : Math.max(ASSISTANT_W_MIN, Math.min(720, window.innerWidth * 0.45));
+
+/* The house persistence pattern rather than a hand-rolled localStorage read:
+ * it hydrates AFTER mount (so the server and client first pass match), obeys
+ * the NEXT_PUBLIC_PERSIST dev switch, and keeps the two tabs in step. */
+const { usePersistentState: useAssistantWidth } = createStore("protrack.assistant");
 
 /** Static class names so Tailwind can see every column count it may render. */
 const TAB_COLS: Record<number, string> = {
@@ -114,6 +129,7 @@ export default function AppShell({
   assistant = null,
   assistantIcon: AssistantIcon,
   assistantLabel = "Ask",
+  assistantPlaceholder = "Ask or search\u2026",
   assistantOpen = false,
   onAssistantOpenChange = null,
   // Optional account switcher (console only); omitted, the footer is inert.
@@ -132,6 +148,50 @@ export default function AppShell({
   // hotkey digit — for a screen reachable only from somewhere else.
   const visibleNav = useMemo(() => nav.filter((n) => !n.hidden), [nav]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  /**
+   * The assistant column is DRAGGABLE, and its width outlives the session.
+   *
+   * A fixed width is a guess about what people read in it, and the answers
+   * vary from one line to a dozen. The gap between the content card and the
+   * panel is the grab strip, so the handle costs no space of its own.
+   *
+   * Clamped on both ends: too narrow and answers become a ticker tape, too
+   * wide and the page it is describing has nowhere left to be. The max is
+   * measured against the window at drag time rather than stored, so a
+   * width dragged out on a big monitor does not swallow a laptop.
+   */
+  const [storedW, setStoredW] = useAssistantWidth("width", ASSISTANT_W_DEFAULT);
+  const [resizing, setResizing] = useState(false);
+  /* Clamped on READ, not on write: a width dragged out on a big monitor must
+   * not swallow the page when the same profile opens on a laptop. */
+  const assistantW = Math.round(Math.min(assistantMax(), Math.max(ASSISTANT_W_MIN, storedW)));
+  const setAssistantW = setStoredW;
+
+  const startResize = (e: React.PointerEvent) => {
+    if (e.button > 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = assistantW;
+    const max = assistantMax();
+    setResizing(true);
+    const move = (ev: PointerEvent) => {
+      // Dragging LEFT widens: the panel's own edge is what the pointer holds.
+      setAssistantW(Math.round(Math.min(max, Math.max(ASSISTANT_W_MIN, startW + (startX - ev.clientX)))));
+    };
+    const end = () => {
+      setResizing(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+
+  const nudgeWidth = (by: number) =>
+    setAssistantW((w: number) => Math.round(Math.min(assistantMax(), Math.max(ASSISTANT_W_MIN, w + by))));
 
   // Outside-click/Escape closes the account switcher popover.
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -281,7 +341,16 @@ export default function AppShell({
         tabs ? "flex flex-col overflow-hidden" : "lg:flex lg:flex-col lg:overflow-hidden",
         "bg-canvas"
       )}
-      style={{ "--app-mobile-header-h": `${mobileHeaderH}px` }}
+      style={
+        {
+          "--app-mobile-header-h": `${mobileHeaderH}px`,
+          /* What a `fixed` overlay must leave alone on the right: the
+           * assistant column plus its grab strip and the frame's own padding.
+           * Zero when the panel is shut. Modal reads it at `lg` only, since
+           * the column does not exist below that. */
+          "--app-aside-w": assistantOpen && assistant && !tabs ? `${assistantW + 24}px` : "0px",
+        } as React.CSSProperties
+      }
     >
       <div
         className={
@@ -578,6 +647,35 @@ export default function AppShell({
                   <div className="flex items-center gap-2 ml-auto shrink-0">
                     {pageActions}
                     <SlotTarget name="page-actions" className="flex items-center gap-2" />
+                    {/* Rightmost, nearest the column it opens. The shell owns
+                        it rather than each screen, because the assistant is
+                        app-wide — a screen with nothing to say still has a
+                        thread worth reopening. */}
+                    {!tabs && assistant && (
+                      /* The real `SearchInput`, not a lookalike: a control
+                       * that half-matches a field reads as a field that is
+                       * slightly wrong, and the shell is going to drift the
+                       * moment someone touches the component.
+                       *
+                       * `readOnly` is the honest part. The panel it opens is
+                       * where you type, so a field is what people look for —
+                       * but this one does not take the keystroke. Focus lands
+                       * here, the panel opens, and focus moves into the real
+                       * input before anything could be typed and lost. */
+                      <SearchInput
+                        readOnly
+                        value=""
+                        onChange={() => {}}
+                        onFocus={() => onAssistantOpenChange?.(true)}
+                        icon={AssistantIcon}
+                        placeholder={assistantPlaceholder}
+                        aria-label={assistantLabel}
+                        className={cx(
+                          "w-56 max-w-[40vw] cursor-pointer [--row-bg:var(--color-surface)]",
+                          assistantOpen && "border-primary"
+                        )}
+                      />
+                    )}
                   </div>
                 </div>
                 {pageSubtitle}
@@ -587,13 +685,14 @@ export default function AppShell({
           </div>
         </main>
 
-        {/* The assistant column, and the rail that opens it.
+        {/* The assistant column and its grab strip.
           *
-          * The rail is on the FAR right and the panel opens to its left, so
-          * the button never moves: open or closed, it is the same pixel. A
-          * toggle that slides out from under the cursor as you press it is
-          * the small tax every "collapse into the panel header" design
-          * charges, and it is paid on every single use.
+          * There was a 40px rail here holding the one toggle, on the theory
+          * that a button which never moves is worth a column. It is not —
+          * VS Code's activity bar earns its column by holding eight icons,
+          * and ours held one, so it read as a permanently empty gutter. The
+          * toggle moved up into the page header (see `assistantToggle`) and
+          * the column it used to occupy became the drag handle.
           *
           * The panel UNMOUNTS when closed. That is safe — and it is the
           * reason the thread lives in AssistantProvider rather than in the
@@ -602,46 +701,56 @@ export default function AppShell({
           *
           * Tabs mode gets none of this: the floor tablet has no sidebar at
           * any width, so it has no room for a third column either. */}
-        {!tabs && assistant && (
-          <>
-            <div
+        {!tabs && assistant && assistantOpen && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the assistant"
+            aria-valuenow={assistantW}
+            tabIndex={0}
+            onPointerDown={startResize}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") {
+                e.preventDefault();
+                nudgeWidth(16);
+              }
+              if (e.key === "ArrowRight") {
+                e.preventDefault();
+                nudgeWidth(-16);
+              }
+            }}
+            className="hidden lg:flex lg:shrink-0 w-3 cursor-col-resize items-center justify-center group outline-none"
+          >
+            {/* Invisible until you go near it: a permanent divider between
+              * two bordered cards would be a third line in the same gap. */}
+            <span
               className={cx(
-                "hidden lg:flex lg:shrink-0 lg:h-full overflow-hidden transition-all duration-300",
-                assistantOpen ? "w-[21rem] ml-3" : "w-0 ml-0"
+                "w-[3px] h-10 rounded-full transition-colors duration-100",
+                resizing ? "bg-ink-3" : "bg-transparent group-hover:bg-line-strong group-focus-visible:bg-ink-3"
               )}
-              aria-hidden={!assistantOpen}
+            />
+          </div>
+        )}
+        {!tabs && assistant && (
+          <div
+            className={cx(
+              "hidden lg:flex lg:shrink-0 lg:h-full overflow-hidden",
+              // No width transition mid-drag, or the panel lags the pointer.
+              !resizing && "transition-all duration-300"
+            )}
+            style={{ width: assistantOpen ? assistantW : 0 }}
+            aria-hidden={!assistantOpen}
+          >
+            {/* Fixed inner width so the wrapper's width can animate on open
+                without reflowing the panel's own contents mid-transition. */}
+            <aside
+              aria-label={assistantLabel}
+              style={{ width: assistantW }}
+              className="h-full rounded-md border border-line bg-surface overflow-hidden"
             >
-              {/* Fixed inner width so the wrapper's width can animate without
-                  reflowing the panel's own contents mid-transition. */}
-              <aside
-                aria-label={assistantLabel}
-                className="w-[21rem] h-full rounded-md border border-line bg-surface overflow-hidden"
-              >
-                {assistantOpen && assistant}
-              </aside>
-            </div>
-
-            <div className="hidden lg:flex lg:shrink-0 lg:flex-col items-center w-10 ml-1">
-              <Tooltip label={assistantLabel} side="left">
-                <button
-                  type="button"
-                  onClick={() => onAssistantOpenChange?.(!assistantOpen)}
-                  aria-expanded={assistantOpen}
-                  aria-label={assistantLabel}
-                  className={cx(
-                    "w-9 h-9 flex items-center justify-center rounded-md transition-colors duration-100",
-                    // Same --row-bg contract the nav rows use, so the icon's
-                    // knockout patch matches whatever is actually behind it.
-                    assistantOpen
-                      ? "bg-hover text-ink [--row-bg:#f4f4f3]"
-                      : "text-ink-2 hover:bg-hover hover:text-ink [--row-bg:var(--color-canvas)] hover:[--row-bg:#f4f4f3]"
-                  )}
-                >
-                  {AssistantIcon ? <AssistantIcon size={18} /> : null}
-                </button>
-              </Tooltip>
-            </div>
-          </>
+              {assistantOpen && assistant}
+            </aside>
+          </div>
         )}
 
         {overlay}

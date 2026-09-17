@@ -2,9 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, CheckCircle2, Filter, Rows3, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, ChartNoAxesColumn, CheckCircle2, Filter, Rows3, Sparkles } from "lucide-react";
 
-import { Dropdown, IconButton, Modal, Segmented, Slot, Tooltip, cx } from "../../components/ui";
+import { Dropdown, EmptyState, ScreenToolbar, SearchInput, Segmented, Tooltip, cx } from "../../components/ui";
 import { formatDay, isOverTarget, LOW_YIELD_PCT, shiftDate, STAGE_TARGET_MINUTES, todayKey, yieldPct } from "../../lib/domain";
 import { isFlaggedBatch, productStats, windowStats } from "../lib/insights";
 import { useAssistant, useAssistantSource } from "../components/Assistant";
@@ -138,11 +138,60 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   /* Which products the page is about. Empty means every product. */
   const [productFilter, setProductFilter] = useState([]);
   const [selectedDay, setSelectedDay] = useState(null);
-  const [listOpen, setListOpen] = useState(false);
+  /**
+   * Which of the two readings of this window is on screen.
+   *
+   * The batch list used to be an `xl` Modal behind a toolbar icon. Two things
+   * killed that: a dialog capped at 88dvh showing a list people scroll, and —
+   * the real one — a modal is a detour. You could not change the window or
+   * the product filter without closing it, and the assistant was behind the
+   * backdrop, so the one place you most want to ask "why is this row amber"
+   * was the one place you could not ask.
+   *
+   * As a tab it shares the scrubber, the filter, the ticker and the panel
+   * with the chart, because it is the same period seen a different way.
+   */
+  const [view, setView] = useState("chart");
+  /* Which locations the page is about. Empty means every one this person can
+   * see — the history already arrives scoped to that, so this narrows within
+   * their own view rather than granting anything. */
+  const [locationFilter, setLocationFilter] = useState([]);
+  /* The Batches tab's own narrowing. Separate from the page's filters on
+   * purpose: these say which of THESE batches to look at, not which batches
+   * the page is about, and they reset nothing when you leave the tab. */
+  const [batchView, setBatchView] = useState("all");
+  const [batchQuery, setBatchQuery] = useState("");
+  const [batchSort, setBatchSort] = useState({ key: "closedOn", dir: "desc" });
+  const sortBatches = (key) =>
+    setBatchSort((cur) =>
+      cur.key === key
+        ? { key, dir: cur.dir === "asc" ? "desc" : "asc" }
+        : /* A new column opens the way you would want to read it: dates and
+           * minutes newest/worst first, a name alphabetically. */
+          { key, dir: key === "product" ? "asc" : key === "y" ? "asc" : "desc" }
+    );
+
   /* The chart's series lives here rather than inside the chart, because the
    * Ask panel can set it: "show me smokehouse times" has to be able to move
    * the same control the segmented buttons move. */
   const [series, setSeries] = useState("yield");
+
+  const locationOptions = useMemo(
+    () => (insights.byLocation || []).map((l) => ({ value: l.locationId, label: l.name })),
+    [insights.byLocation]
+  );
+  const changeLocations = (next) => {
+    setLocationFilter(next);
+    setSelectedDay(null);
+  };
+  /* What the page is about, in the page's own words. The prop is the widest
+   * truth (everything this person can see); a narrowing overrides it. */
+  const scopeText =
+    locationFilter.length === 1
+      ? locationOptions.find((o) => o.value === locationFilter[0])?.label || scopeLabel
+      : locationFilter.length
+        ? `${locationFilter.length} locations`
+        : scopeLabel;
 
   const multi = insights.byLocation.length > 1;
   const companyAvg = insights.company.avgYield;
@@ -174,8 +223,13 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   const grain = grainFor(spanDays);
 
   const filtered = useMemo(
-    () => (productFilter.length ? rows.filter((r) => productFilter.includes(r.product)) : rows),
-    [rows, productFilter]
+    () =>
+      rows.filter(
+        (r) =>
+          (!productFilter.length || productFilter.includes(r.product)) &&
+          (!locationFilter.length || locationFilter.includes(r.locationId))
+      ),
+    [rows, productFilter, locationFilter]
   );
 
   /* ---- The chart's buckets, and the same buckets one year earlier, which
@@ -204,13 +258,20 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   }, [filtered, firstKey, lastKey]);
 
   const stations = useMemo(() => [...new Set(filtered.flatMap((r) => Object.keys(r.minutes || {})))], [filtered]);
+  /* The chart's series list lives here rather than in the chart, because the
+   * control that sets it is in the screen toolbar now. */
+  const seriesLabel = stations.includes(series) ? `${series} minutes` : "Yield";
+  const seriesOptions = useMemo(
+    () => [{ value: "yield", label: "Yield" }, ...stations.map((st) => ({ value: st, label: st }))],
+    [stations]
+  );
 
   /* ---- The standing numbers, and the card everything asks questions of:
    * the selected products over the selected range, nothing else. */
   const windowRows = useMemo(() => inWindow(filtered, from, to), [filtered, from, to]);
   const runCard = useMemo(
-    () => makeRunCard({ rows: windowRows, products: productFilter, companyAvg, scopeLabel, from, to }),
-    [windowRows, productFilter, companyAvg, scopeLabel, from, to]
+    () => makeRunCard({ rows: windowRows, products: productFilter, companyAvg, scopeLabel: scopeText, from, to }),
+    [windowRows, productFilter, companyAvg, scopeText, from, to]
   );
 
   const yearAgo = useMemo(() => {
@@ -263,7 +324,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
          * window overlaps itself; the block must not answer what the page
          * refuses to show. */
         overlaps,
-        scopeLabel: [scopeLabel, filterLabel].filter(Boolean).join(" · "),
+        scopeLabel: [scopeText, filterLabel].filter(Boolean).join(" · "),
         stats,
         byProduct: productStats(windowRows, targets),
         byStation,
@@ -271,7 +332,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
         rows: windowRows,
       },
     };
-  }, [windowRows, stations, targets, from, to, productFilter, scopeLabel, filterLabel, yearAgo, overlaps]);
+  }, [windowRows, stations, targets, from, to, productFilter, scopeText, filterLabel, yearAgo, overlaps]);
 
   /* ---- A picked day, which only exists at day granularity. */
   const selectedCell = useMemo(() => {
@@ -322,7 +383,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   const runCommand = (plan) => {
     if (plan.kind === "filter") return changeFilter(plan.products);
     if (plan.kind === "series") return setSeries(plan.value);
-    if (plan.kind === "list") return setListOpen(true);
+    if (plan.kind === "list") return setView("batches");
     if (plan.kind === "range") {
       setSelectedDay(null);
       return setRange(
@@ -371,7 +432,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
         rows: inWindow(rows.filter((r) => r.product === value), from, to),
         products: [value],
         companyAvg,
-        scopeLabel,
+        scopeLabel: scopeText,
         from,
         to,
       });
@@ -379,7 +440,75 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
     return runCard;
   };
 
+  /* Memoized so the two derivations below do not re-run on every render: the
+   * `?? []` would hand them a fresh array each time. */
+  const batchRows = useMemo(() => runCard?.context.rows ?? [], [runCard]);
+  const batchCounts = useMemo(
+    () => ({
+      all: batchRows.length,
+      flagged: batchRows.filter((r) => r.flagged).length,
+      slow: batchRows.filter((r) => isSlow(r, targets)).length,
+    }),
+    [batchRows, targets]
+  );
+  const shownBatches = useMemo(() => {
+    const q = batchQuery.trim().toLowerCase();
+    return batchRows.filter((r) => {
+      if (batchView === "flagged" && !r.flagged) return false;
+      if (batchView === "slow" && !isSlow(r, targets)) return false;
+      if (!q) return true;
+      /* Product and location by name, and the date as it is printed — people
+       * search a list for the words they can see in it. */
+      return `${r.product} ${r.locationName || ""} ${formatDay(r.closedOn)}`.toLowerCase().includes(q);
+    });
+  }, [batchRows, batchView, batchQuery, targets]);
+
   const askKey = productFilter.length === 1 ? `product:${productFilter[0]}` : "run:";
+
+  /* ---- The header's three pieces, built once and placed by HV below. */
+  const ticker = runCard ? (
+    <HeadlineTicker
+      batches={runCard.context.rows.length}
+      avg={runCard.context.avgY}
+      flagged={runCard.context.flaggedCount}
+      range={[runCard.context.stats.low, runCard.context.stats.high]}
+      days={spanDays}
+    />
+  ) : null;
+
+  /* One location is a fact, not a choice: it reads as plain text until there
+   * is something to choose between. */
+  const locationControl =
+    locationOptions.length > 1 ? (
+      <Dropdown
+        quiet
+        multiple
+        value={locationFilter}
+        onChange={changeLocations}
+        options={locationOptions}
+        placeholder={scopeLabel}
+        summary={(n) => `${n} locations`}
+        aria-label="Limit to locations"
+      />
+    ) : (
+      <span className="text-ink-3">{scopeText}</span>
+    );
+
+  const productControl = (shape) =>
+    isAdmin && productOptions.length > 1 ? (
+      <Dropdown
+        quiet={shape === "quiet"}
+        multiple
+        icon={shape === "quiet" ? undefined : Filter}
+        value={productFilter}
+        onChange={changeFilter}
+        options={productOptions}
+        placeholder="All products"
+        menuClassName="!max-w-sm"
+        summary={(n) => `${n} products`}
+        aria-label="Filter by product"
+      />
+    ) : null;
 
   /* ---- What the assistant may read and do while this screen is on.
    *
@@ -398,7 +527,7 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   /* No day count here, unlike the old Popover's header: the scrubber prints
    * it two inches to the left, and at panel width it was the part that got
    * truncated away. */
-  const scopeLine = [scopeLabel, filterLabel, formatSpanTitle(from, to)].filter(Boolean).join(" · ");
+  const scopeLine = [scopeText, filterLabel, formatSpanTitle(from, to)].filter(Boolean).join(" · ");
 
   useAssistantSource(
     useMemo(
@@ -412,114 +541,190 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
       {/* Subtitle and ticker are the ONE place the standing numbers live,
         * and they follow BOTH the product filter and the range, so they
         * always describe what is actually on screen. */}
-      <Slot name="page-subtitle">
-        {[scopeLabel, filterLabel, "closed batches"].filter(Boolean).join(" · ")}
-      </Slot>
-      <Slot name="page-actions">
-        <div className="flex items-center gap-3">
-          <HeadlineTicker
-            batches={runCard?.context.rows.length ?? 0}
-            avg={runCard?.context.avgY ?? null}
-            flagged={runCard?.context.flaggedCount ?? 0}
-            range={runCard ? [runCard.context.stats.low, runCard.context.stats.high] : null}
-          />
-          {isAdmin && productOptions.length > 1 && (
-            <Dropdown
-              multiple
-              icon={Filter}
-              value={productFilter}
-              onChange={changeFilter}
-              options={productOptions}
-              placeholder="All products"
-              menuClassName="!max-w-sm"
-              summary={(n) => `${n} products`}
-              aria-label="Filter by product"
-            />
+      {/* ---- The header splits on ONE question: does it change when you move
+        * the window?
+        *
+        * The title row holds what does not — which shop, which products. That
+        * is what the page is about, and it is true before you have picked a
+        * single day. It reads as a sentence rather than a pair of controls,
+        * because that is what it is.
+        *
+        * Everything that moves with the window is on the window row with the
+        * range, where you can watch it change as you scrub. The standing
+        * numbers used to sit up here beside the title, which made them look
+        * like facts about the shop instead of facts about thirty days. */}
+      {/* The window: its two controls, the track, and the range label that
+        * rides under the selection. Ruled off at the bottom, because what
+        * follows is a reading of this window rather than more of it. */}
+      <div className="pb-3 border-b border-line">
+        {/* Both of the window's axes on one line: WHICH measure, and HOW
+          * LONG. The series used to live above the chart, which made it read
+          * as a chart setting — but it decides what every bar and every amber
+          * mark on the page means, tab included. */}
+        <div className="flex items-center justify-between gap-x-3 gap-y-2 flex-wrap mb-2">
+          {/* Scope on the left, the window's own axes on the right: one row
+            * that reads WHAT · WHICH MEASURE · HOW LONG, left to right. */}
+          <span className="flex items-center gap-1.5 text-xs text-ink-4">
+            {locationControl}
+            {productControl("quiet") && (
+              <>
+                <span>·</span>
+                {productControl("quiet")}
+              </>
+            )}
+          </span>
+          <div className="flex items-center gap-2">
+          {seriesOptions.length > 1 && (
+            <>
+              <Segmented size="sm" value={series} onChange={setSeries} options={seriesOptions} />
+              {/* Ruled apart, or eight chips in a row read as one control and
+                * you cannot tell where the measure stops and the length
+                * begins. */}
+              <Rule />
+            </>
           )}
-          {/* Every closed batch in the window, in time order. A person opens
-            * this rarely — the chart is the reading surface — so it is an
-            * icon in the header rather than a section at the foot of the
-            * page, where it was the last thing on screen and the least
-            * looked at. */}
-          {runCard && (
-            <IconButton
-              label="All closed batches"
-              icon={Rows3}
-              onClick={() => setListOpen(true)}
-              className="border border-line"
-            />
-          )}
+          <PresetRow from={from} to={to} firstKey={firstKey} lastKey={lastKey} onChange={changeRange} />
+          </div>
         </div>
-      </Slot>
 
-      <Modal
-        open={listOpen && !!runCard}
-        onClose={() => setListOpen(false)}
-        size="xl"
-        icon={Rows3}
-        title={`${runCard?.context.rows.length ?? 0} closed ${filterLabel ? `${filterLabel} ` : ""}batches`}
-      >
-        {runCard && <BatchTable rows={runCard.context.rows} multi={multi} targets={targets} cap={null} />}
-      </Modal>
-
-      <TimeScrubber from={from} to={to} firstKey={firstKey} lastKey={lastKey} weeks={weeks} onChange={changeRange} />
-
-      <div className="mt-5">
-        <RunChart
-          buckets={buckets}
-          grain={grain}
-          stations={stations}
-          targets={targets}
-          selected={selectedDay}
-          onPick={pickBucket}
-          quietSince={quietSince}
-          which={series}
-          onWhich={setSeries}
-        />
+        <TimeScrubber from={from} to={to} firstKey={firstKey} lastKey={lastKey} weeks={weeks} onChange={changeRange} />
       </div>
 
-      {selectedCell && dayCard ? (
-        <div className="mt-6 pt-5 border-t border-line" data-ask={`day:${selectedCell.key}`}>
-          <InsightHeadline
-            card={{ ...dayCard, title: formatDay(selectedCell.key) }}
-            onClear={() => setSelectedDay(null)}
+      {/* The screen toolbar sits BELOW the timeline, because the timeline is
+        * scope and the tabs are a reading of it — you pick the days once and
+        * then choose how to look at them. Tasks' shape either way: views
+        * left, the screen's own control right. On the chart that control is
+        * the series, which used to float above the chart as a second
+        * Segmented directly under these tabs — two rails doing one job. */}
+      <ScreenToolbar
+        tabs={
+          <Segmented
+            value={view}
+            onChange={setView}
+            className="min-w-0"
+            options={[
+              { value: "chart", label: "Chart", icon: ChartNoAxesColumn, hint: `${seriesLabel} per ${GRAIN_NOUN[grain]}` },
+              { value: "batches", label: "Batches", icon: Rows3, hint: "Every closed batch in the window, in time order" },
+            ]}
           />
-          <ul className={cx("mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-1.5 max-w-4xl", ICON_INDENT)}>
-            {selectedCell.batches.map((b) => (
-              <li key={b.id} className="flex items-baseline justify-between gap-2">
-                <span className="text-xs text-ink-2 truncate">
-                  {b.product}
-                  {b.locationName && <span className="text-ink-4"> · {b.locationName}</span>}
-                </span>
-                <span className={cx("text-xs font-medium tnum shrink-0", b.flagged ? "text-warn" : "text-ink-3")}>{b.y}%</span>
-              </li>
-            ))}
-          </ul>
+        }
+        /* The standing numbers ride with the tabs, not inside the chart:
+          * they are about the WINDOW, not about one of its two readings, so
+          * they have to survive the tab switch — and floating in the plot
+          * they collide with a tall bar at the right end. */
+        actions={ticker}
+        /* The second line is the narrowing WITHIN the selected tab — the
+          * chart has none, so it only exists on Batches. */
+        refine={
+          view === "batches" ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <Segmented
+                size="sm"
+                value={batchView}
+                onChange={setBatchView}
+                options={BATCH_VIEWS.map((v) => ({
+                  value: v.id,
+                  label: v.label,
+                  /* All is the resting state, not a queue with a number. */
+                  count: v.id === "all" ? undefined : batchCounts[v.id],
+                }))}
+              />
+              <SearchInput
+                value={batchQuery}
+                onChange={setBatchQuery}
+                placeholder="Search batches…"
+                className="w-52"
+              />
+            </div>
+          ) : null
+        }
+        status={
+          view === "batches" && shownBatches.length !== batchRows.length ? (
+            <p className="text-xs text-ink-4 tnum">
+              {shownBatches.length} of {batchRows.length}
+            </p>
+          ) : null
+        }
+      />
+
+      {view === "batches" ? (
+        /* The list, at page width rather than dialog width — four columns
+          * and a hundred rows never fit in a capped-height modal. Everything
+          * in it is about the period, so one `data-ask` covers the lot and a
+          * highlight anywhere in the table asks about the window. */
+        <div data-ask="period:">
+          {runCard ? (
+            <BatchTable
+              rows={shownBatches}
+              multi={multi}
+              targets={targets}
+              series={series}
+              sort={batchSort}
+              onSort={sortBatches}
+            />
+          ) : (
+            <p className="py-10 text-center text-xs text-ink-4">Nothing closed in this window.</p>
+          )}
         </div>
       ) : (
-        <div data-ask={askKey}>
-          <Section
-            title="Compared with a year ago"
-            hint={
-              overlaps
-                ? null
-                : `The same ${spanDays} days one year earlier — ${formatDay(yearAgo.from)} to ${formatDay(yearAgo.to)}, ${yearAgo.from.slice(0, 4)}`
-            }
-          >
-            {/* A window longer than a year, shifted back a year, overlaps
-              * itself — the comparison would be partly against the very
-              * batches it is comparing. Say so rather than print a number
-              * that looks like an answer. */}
-            {overlaps ? (
-              <p className="text-xs text-ink-4">
-                A {spanDays}-day window overlaps itself when shifted back a year. Narrow the period to a year or less to
-                compare it with the same stretch last year.
-              </p>
-            ) : (
-              <YearOverYear history={comparison} />
-            )}
-          </Section>
+        <>
+        <div>
+          <RunChart
+            buckets={buckets}
+            grain={grain}
+            stations={stations}
+            targets={targets}
+            selected={selectedDay}
+            onPick={pickBucket}
+            quietSince={quietSince}
+            which={series}
+          />
         </div>
+
+        {selectedCell && dayCard ? (
+          <div className="mt-6 pt-5 border-t border-line" data-ask={`day:${selectedCell.key}`}>
+            <InsightHeadline
+              card={{ ...dayCard, title: formatDay(selectedCell.key) }}
+              onClear={() => setSelectedDay(null)}
+            />
+            <ul className={cx("mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-1.5 max-w-4xl", ICON_INDENT)}>
+              {selectedCell.batches.map((b) => (
+                <li key={b.id} className="flex items-baseline justify-between gap-2">
+                  <span className="text-xs text-ink-2 truncate">
+                    {b.product}
+                    {b.locationName && <span className="text-ink-4"> · {b.locationName}</span>}
+                  </span>
+                  <span className={cx("text-xs font-medium tnum shrink-0", b.flagged ? "text-warn" : "text-ink-3")}>{b.y}%</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <div data-ask={askKey}>
+            <Section
+              title="Compared with a year ago"
+              hint={
+                overlaps
+                  ? null
+                  : `The same ${spanDays} days one year earlier — ${formatDay(yearAgo.from)} to ${formatDay(yearAgo.to)}, ${yearAgo.from.slice(0, 4)}`
+              }
+            >
+              {/* A window longer than a year, shifted back a year, overlaps
+                * itself — the comparison would be partly against the very
+                * batches it is comparing. Say so rather than print a number
+                * that looks like an answer. */}
+              {overlaps ? (
+                <p className="text-xs text-ink-4">
+                  A {spanDays}-day window overlaps itself when shifted back a year. Narrow the period to a year or less to
+                  compare it with the same stretch last year.
+                </p>
+              ) : (
+                <YearOverYear history={comparison} />
+              )}
+            </Section>
+          </div>
+        )}
+        </>
       )}
 
       {/* Highlight anything on the page and ask about exactly that. */}
@@ -538,22 +743,29 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
  * size, one weight — only colour varies, and `tnum` keeps the digits from
  * changing width as the numbers move.
  */
-function HeadlineTicker({ batches, avg, flagged, range }) {
+function HeadlineTicker({ batches, avg, flagged, range, days }) {
   if (!batches) return null;
+  const spread = range && range[0] !== range[1] ? `${range[0]}\u2013${range[1]}% across the window` : null;
   return (
     <div className="flex items-center gap-2.5 text-xs font-normal leading-none">
-      <span className="text-ink-4 tnum">{avg != null ? `Yield ${avg}%` : "No yield yet"}</span>
-      {/* The spread used to be a column in the By-product ledger. It is the
-        * one thing the average hides — two products can share an average and
-        * run nothing alike — so it rides with the average, not elsewhere. */}
-      {range && range[0] !== range[1] && (
+      {/* The length leads: everything after it is a number ABOUT that many
+        * days, and the range under the track says which days they are. */}
+      {days != null && (
         <>
-          <Rule />
           <span className="text-ink-4 tnum">
-            {range[0]}&ndash;{range[1]}%
+            {days} day{days === 1 ? "" : "s"}
           </span>
+          <Rule />
         </>
       )}
+      {/* The spread used to be a fourth item on this line. It is the one thing
+        * an average hides — two products can share an average and run nothing
+        * alike — but it is a second reading of the number beside it, not a
+        * number of its own, so it rides as the average's tooltip instead of
+        * widening the row by a third. */}
+      <Tooltip label={spread || ""} disabled={!spread}>
+        <span className="text-ink-4 tnum">{avg != null ? `${avg}% yield` : "No yield yet"}</span>
+      </Tooltip>
       <Rule />
       <span className="text-ink-4 tnum">
         {batches} batch{batches === 1 ? "" : "es"}
@@ -597,6 +809,60 @@ const PRESETS = [
 
 /** The window the page opens on — a preset, so one is always lit. */
 const DEFAULT_SPAN = 30;
+
+/** The range a preset produces, clamped to what the record actually holds. */
+const presetRange = (days, firstKey, lastKey) =>
+  days
+    ? { from: clampKey(shiftDate(lastKey, -(days - 1)), firstKey, lastKey), to: lastKey }
+    : { from: firstKey, to: lastKey };
+
+/**
+ * Presets longer than the record are DROPPED, not shown dark: offering a year
+ * of a nine-month shop is offering "All" under another name.
+ *
+ * And a preset is "on" when pressing it would not move anything, which is not
+ * the same as its length matching — on a nine-month record "1y" clamps to the
+ * whole record, and the old `span === value` test left every button dark the
+ * moment you pressed one.
+ */
+function presetState(from, to, firstKey, lastKey) {
+  const total = Math.max(1, daysBetween(firstKey, lastKey)) + 1;
+  const available = PRESETS.filter((p) => !p.value || p.value <= total);
+  const active = available.find((p) => {
+    const r = presetRange(p.value, firstKey, lastKey);
+    return from === r.from && to === r.to;
+  });
+  return { available, active };
+}
+
+/**
+ * The preset row, shared by the scrubber and the batch-list modal. The modal
+ * has no room for a drag track, but "these are the wrong thirty days" is the
+ * first thing anyone thinks reading a list of batches, and making them close
+ * the dialog to fix it is making them lose their place.
+ */
+function PresetRow({ from, to, firstKey, lastKey, onChange }) {
+  const { available, active } = presetState(from, to, firstKey, lastKey);
+  return (
+    <div className="flex items-center gap-0.5">
+      {available.map((p) => (
+        <button
+          key={p.label}
+          type="button"
+          onClick={() => onChange(presetRange(p.value, firstKey, lastKey))}
+          aria-pressed={active?.label === p.label}
+          title={p.title}
+          className={cx(
+            "h-7 px-2 rounded-md text-xs font-medium tabular-nums transition-colors duration-100",
+            active?.label === p.label ? "bg-hover text-ink" : "text-ink-3 hover:bg-faint hover:text-ink"
+          )}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /* Granularity follows the range, because the bar is the unit you can read.
  * Ninety days of daily bars is a picket fence; five weeks of monthly bars is
@@ -683,6 +949,7 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
   const pct = (key) => (daysBetween(firstKey, key) / total) * 100;
   const left = Math.max(0, pct(from));
   const right = Math.min(100, pct(to));
+  const mid = (left + right) / 2;
 
   /**
    * The wheel PANS the window; it does not scroll a container.
@@ -838,53 +1105,12 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
     }
   };
 
-  const preset = (days) => {
-    if (!days) return onChange({ from: firstKey, to: lastKey });
-    onChange({ from: clampKey(shiftDate(lastKey, -(days - 1)), firstKey, lastKey), to: lastKey });
-  };
-
-  const span = daysBetween(from, to) + 1;
-  /* A preset is "on" when pressing it would not move anything — which is not
-   * the same as its length matching. On a nine-month record "1y" clamps to
-   * the whole record, and the old test (span === 365) left every button dark
-   * after you pressed one. Presets longer than the record are dropped
-   * instead of lit: offering a year of a nine-month shop is offering "All"
-   * under another name. */
-  const available = PRESETS.filter((p) => !p.value || p.value <= total);
-  const activePreset = available.find((p) =>
-    p.value ? to === lastKey && from === clampKey(shiftDate(lastKey, -(p.value - 1)), firstKey, lastKey) : from === firstKey && to === lastKey
-  );
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-2">
-        {/* The range lives here, not in the subtitle: the subtitle says what
-          * the page is about, the scrubber says when. */}
-        <p className="text-xs font-semibold text-ink uppercase tracking-wide tnum">
-          {formatSpanTitle(from, to)}
-          <span className="ml-2 font-normal normal-case tracking-normal text-ink-4">
-            {span} day{span === 1 ? "" : "s"}
-          </span>
-        </p>
-        <div className="flex items-center gap-0.5">
-          {available.map((p) => (
-            <button
-              key={p.label}
-              type="button"
-              onClick={() => preset(p.value)}
-              aria-pressed={activePreset?.label === p.label}
-              title={p.title}
-              className={cx(
-                "h-7 px-2 rounded-md text-xs font-medium tabular-nums transition-colors duration-100",
-                activePreset?.label === p.label ? "bg-hover text-ink" : "text-ink-3 hover:bg-faint hover:text-ink"
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
+      {/* No header row of its own any more: the range label and the presets
+        * moved into the screen toolbar, where every other screen keeps that
+        * kind of thing. What is left here is the map and its two ends. */}
       {/* The instructions used to be printed under the track, between the two
         * end dates — a permanent line of help text for a control most people
         * work out in one drag. It is a tooltip now, and the row below is just
@@ -966,9 +1192,27 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
       </div>
       </Tooltip>
 
-      <div className="flex items-baseline justify-between mt-1 text-[10px] text-ink-4 tnum">
-        <span>{formatDay(firstKey)}</span>
-        <span>{formatDay(lastKey)}</span>
+      {/* The range rides UNDER the selection rather than sitting in a header,
+        * so the label and the thing it labels are the same object — drag the
+        * window and the words go with it.
+        *
+        * The record's two end dates used to book-end this row. They were the
+        * one part of the scrubber nobody ever read: the track already shows
+        * how much history there is, and the ends of it are not a fact anyone
+        * needs in words.
+        *
+        * The transform flips at the extremes instead of always centring, or
+        * a window parked at either end pushes its own label off the track. */}
+      <div className="relative h-4 mt-1">
+        <p
+          className="absolute top-0 whitespace-nowrap text-[10px] leading-none tnum text-ink-3"
+          style={{
+            left: `${mid}%`,
+            transform: `translateX(${mid < 12 ? "0" : mid > 88 ? "-100%" : "-50%"})`,
+          }}
+        >
+          <span className="font-semibold uppercase tracking-wide text-ink">{formatSpanTitle(from, to)}</span>
+        </p>
       </div>
     </div>
   );
@@ -1014,8 +1258,7 @@ const CHART_EASE = "transition-[height,bottom,background-color] duration-[260ms]
  * stretches a three-point spread across the full height and makes a flat
  * year look volatile.
  */
-function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSince, which, onWhich }) {
-  const series = [{ value: "yield", label: "Yield" }, ...stations.map((s) => ({ value: s, label: s }))];
+function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSince, which }) {
   const isYield = which === "yield" || !stations.includes(which);
   const station = isYield ? null : which;
   const line = isYield ? LOW_YIELD_PCT : targets[station] ?? STAGE_TARGET_MINUTES[station];
@@ -1042,12 +1285,6 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
 
   return (
     <div>
-      {series.length > 1 && (
-        <div className="mb-3">
-          <Segmented size="sm" value={which} onChange={onWhich} options={series} />
-        </div>
-      )}
-
       <div className="relative" style={{ height: BAR_H }}>
         {/* The threshold line moves whenever the window's spread changes, so
           * it eases like the bars do — a line that jumps while the bars slide
@@ -1059,7 +1296,15 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
           )}
           style={{ bottom: `${Math.round(scale(line) * 100)}%` }}
           aria-hidden="true"
-        />
+        >
+          {/* The line says what it is, on itself. It was explained in a
+            * sentence under the chart, which means the mark and its meaning
+            * were never in the same glance — and after a series change the
+            * sentence is the only thing that moved. */}
+          <span className="absolute right-0 -translate-y-1/2 pl-1.5 bg-surface text-[10px] leading-none tnum text-ink-4">
+            {isYield ? `${line}%` : `${line} min`}
+          </span>
+        </div>
         <div
           className="flex items-end gap-1 h-full"
           role="img"
@@ -1119,8 +1364,10 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
 
       <p className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-3 text-xs text-ink-4">
         <span>
-          One bar per {GRAIN_NOUN[grain]}, {isYield ? "taller" : "shorter"} is better; the dashed line is{" "}
-          {isYield ? `${LOW_YIELD_PCT}%` : `the ${line}-minute target`}.
+          One bar per {GRAIN_NOUN[grain]}, {isYield ? "taller" : "shorter"} is better.
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 border-t border-dashed border-line-strong" /> {isYield ? "the 75% line" : "target"}
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-[2px] bg-warn/70" /> over the line
@@ -1226,79 +1473,151 @@ function Delta({ delta, unit, goodWhen }) {
 }
 
 /** Rows the batch list shows before it asks; the rest sit behind "Show all". */
-const RECENT_ROWS = 8;
+/**
+ * Every closed batch in the window, in time order — the Batches tab's whole
+ * body.
+ *
+ * It was a preview of eight rows inside a modal, so it needed none of this.
+ * As a tab it is a list screen, and the console has one grammar for those:
+ * counted views and a search on the toolbar's second line, sortable columns
+ * underneath. The narrowing lives in the toolbar rather than in here, because
+ * it narrows what the tab is showing — which is exactly what that line is for
+ * on Tasks and Permissions.
+ */
+const BATCH_VIEWS = [
+  { id: "all", label: "All" },
+  { id: "flagged", label: "Flagged" },
+  { id: "slow", label: "Over target" },
+];
+
+/** A batch is "slow" when any station on it ran past its target. */
+const isSlow = (r, targets) => Object.entries(r.minutes || {}).some(([st, m]) => isOverTarget(st, m, targets));
 
 /**
- * Every batch in the current filter, newest first — the numbers behind the
- * charts. `cap` null shows the lot (it lives in a scrolling modal now, so
- * there is nothing to protect the page from).
+ * Sorting keys. `minutes` follows the SERIES: with Smokehouse selected,
+ * sorting by minutes sorts by Smokehouse, because that is the number the rest
+ * of the page is already about. With Yield selected it falls back to the
+ * total, which is the only reading left when no station is named.
  */
-function BatchTable({ rows, multi, targets = {}, cap = RECENT_ROWS }) {
-  const [showAll, setShowAll] = useState(false);
-  if (!rows.length) return <p className="text-xs text-ink-4">No closed batches.</p>;
-  const newestFirst = [...rows].reverse();
-  const shown = cap == null || showAll ? newestFirst : newestFirst.slice(0, cap);
+const sortValue = (r, key, series) => {
+  if (key === "closedOn") return r.closedOn;
+  if (key === "product") return (r.product || "").toLowerCase();
+  if (key === "y") return r.y ?? -1;
+  const mins = r.minutes || {};
+  return series in mins ? mins[series] : Object.values(mins).reduce((a, m) => a + m, 0);
+};
+
+function SortHeader({ label, k, sort, onSort, align = "left" }) {
+  const on = sort.key === k;
   return (
-    <div>
-      <table className="w-full text-sm border-collapse">
-        <thead className="sticky top-0 bg-surface">
-          <tr className="text-left text-xs text-ink-4 border-b border-line">
-            <th className="font-medium pb-1.5 pr-3">Closed</th>
-            <th className="font-medium pb-1.5 pr-3 text-right">Yield</th>
-            <th className="font-medium pb-1.5 pr-3 text-right">Box &rarr; final</th>
-            <th className="font-medium pb-1.5 text-right">Minutes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((r) => {
-            const stations = Object.entries(r.minutes || {});
-            return (
-              <tr key={r.id} className="border-b border-line-soft last:border-0">
-                <td className="py-1.5 pr-3 text-ink-2">
-                  {formatDay(r.closedOn)}
-                  {multi && r.locationName && <span className="text-ink-4"> · {r.locationName}</span>}
-                </td>
-                {/* Amber marks the column that actually failed. A batch can
-                  * be flagged for slow time at 88% yield, and colouring the
-                  * yield for it points at the wrong number. */}
-                <td className={cx("py-1.5 pr-3 text-right tnum font-medium", r.y < LOW_YIELD_PCT ? "text-warn" : "text-ink")}>{r.y}%</td>
-                <td className="py-1.5 pr-3 text-right tnum text-ink-3">
-                  {r.boxWeight} &rarr; {r.finalWeight} lb
-                </td>
-                <td className="py-1.5 text-right tnum text-ink-3">
-                  {stations.length
-                    ? stations.map(([st, m], i) => (
-                        <span key={st}>
-                          {i > 0 && " · "}
-                          <span className={cx(isOverTarget(st, m, targets) && "text-warn font-medium")}>
-                            {st} {m}
-                          </span>
-                        </span>
-                      ))
-                    : "—"}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {cap != null && newestFirst.length > cap && (
-        <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-2 text-xs text-ink-3 hover:text-ink">
-          {showAll ? "Show fewer" : `Show all ${newestFirst.length}`}
-        </button>
-      )}
-    </div>
+    <th
+      aria-sort={on ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+      className={cx("font-medium pb-1.5 pr-3", align === "right" && "text-right")}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={cx(
+          "inline-flex items-center gap-1 transition-colors hover:text-ink",
+          on ? "text-ink" : "text-ink-4"
+        )}
+      >
+        {align === "right" && on && <ArrowUpDown size={11} className="shrink-0" />}
+        {label}
+        {align !== "right" && on && <ArrowUpDown size={11} className="shrink-0" />}
+      </button>
+    </th>
   );
 }
 
-/* --------------------------------------------------- Shared pieces -- */
+function BatchTable({ rows, multi, targets = {}, series = "yield", sort, onSort }) {
+  const shown = useMemo(() => {
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...rows].sort((x, y) => {
+      const a = sortValue(x, sort.key, series);
+      const b = sortValue(y, sort.key, series);
+      return a === b ? 0 : (a < b ? -1 : 1) * dir;
+    });
+  }, [rows, sort, series]);
 
-/**
- * A card's icon, title and one-line detail — and, when the card is one the
- * user picked, the way back out. Taking `onClear` here is what lets a
- * picked product have a single heading instead of a panel header above a
- * card title that says the same thing.
- */
+  if (!shown.length) {
+    return (
+      <EmptyState
+        icon={Rows3}
+        title="No batches match"
+        description="Widen the window, clear the search, or switch back to All."
+      />
+    );
+  }
+
+  return (
+    <table className="w-full text-sm border-collapse">
+      <thead className="sticky top-0 z-10 bg-surface">
+        <tr className="text-left text-xs text-ink-4 border-b border-line">
+          <SortHeader label="Closed" k="closedOn" sort={sort} onSort={onSort} />
+          <SortHeader label="Product" k="product" sort={sort} onSort={onSort} />
+          <SortHeader label="Yield" k="y" sort={sort} onSort={onSort} align="right" />
+          <th className="font-medium pb-1.5 pr-3 text-right">Box &rarr; final</th>
+          <SortHeader label="Minutes" k="minutes" sort={sort} onSort={onSort} align="right" />
+        </tr>
+      </thead>
+      <tbody>
+        {shown.map((r) => {
+          const stations = Object.entries(r.minutes || {});
+          return (
+            <tr key={r.id} className="border-b border-line-soft last:border-0">
+              <td className="py-1.5 pr-3 text-ink-2 whitespace-nowrap">
+                {formatDay(r.closedOn)}
+                {multi && r.locationName && <span className="text-ink-4"> · {r.locationName}</span>}
+              </td>
+              {/* The column the list was missing. A batch is a product on a
+                * day, and without the product half of that was a row of
+                * numbers you could not act on. */}
+              <td className="py-1.5 pr-3 text-ink-2 truncate max-w-[16rem]">{r.product}</td>
+              {/* Amber marks the column that actually failed. A batch can be
+                * flagged for slow time at 88% yield, and colouring the yield
+                * for it points at the wrong number. */}
+              <td
+                className={cx(
+                  "py-1.5 pr-3 text-right tnum font-medium",
+                  r.y < LOW_YIELD_PCT ? "text-warn" : series === "yield" ? "text-ink" : "text-ink-3"
+                )}
+              >
+                {r.y}%
+              </td>
+              <td className="py-1.5 pr-3 text-right tnum text-ink-3 whitespace-nowrap">
+                {r.boxWeight} &rarr; {r.finalWeight} lb
+              </td>
+              <td className="py-1.5 text-right tnum text-ink-3 whitespace-nowrap">
+                {stations.length
+                  ? stations.map(([st, m], i) => (
+                      <span key={st}>
+                        {i > 0 && " · "}
+                        {/* The selected series reads in full ink and the
+                          * others step back. Amber still overrides both:
+                          * something that failed is not made quieter by
+                          * being off-axis. */}
+                        <span
+                          className={cx(
+                            isOverTarget(st, m, targets)
+                              ? "text-warn font-medium"
+                              : st === series && "text-ink font-medium"
+                          )}
+                        >
+                          {st} {m}
+                        </span>
+                      </span>
+                    ))
+                  : "—"}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 function InsightHeadline({ card, onClear }) {
   const Icon = TONE_ICON[card.tone];
   return (
