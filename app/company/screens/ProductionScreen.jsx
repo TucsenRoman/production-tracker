@@ -1292,7 +1292,7 @@ function BulkBookModal({ tasks, dayLabel, stations, onClose, onConfirm }) {
 /* Mutually exclusive, so the counts add up to the catalogue. "Under min"
  * deliberately excludes the empty ones — those are their own bucket. */
 const RANGE_FILTERS = [
-  { id: "all", label: "All", match: () => true },
+  { id: "all", label: "All", match: () => true, resting: true },
   { id: "out", label: "Out", match: (i) => stockIn(i, "floor") <= 0 },
   {
     id: "under",
@@ -1383,7 +1383,8 @@ function RangesModal({ inventory, onSetRange, onClose }) {
           options={RANGE_FILTERS.map((f) => ({
             value: f.id,
             label: f.label,
-            count: f.id === "all" ? undefined : counts[f.id] || undefined,
+            resting: f.resting,
+            count: counts[f.id] || undefined,
           }))}
         />
       </div>

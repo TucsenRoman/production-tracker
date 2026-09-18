@@ -2,11 +2,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ArrowUpDown, ChartNoAxesColumn, CheckCircle2, Filter, Rows3, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, CalendarDays, ChartNoAxesColumn, CheckCircle2, Download, FileImage, FileType2, Filter, Palette, Sheet, Sparkles, TrendingUp } from "lucide-react";
 
-import { Dropdown, EmptyState, ScreenToolbar, SearchInput, Segmented, Tooltip, cx } from "../../components/ui";
+import { Button, Dropdown, EmptyState, IconButton, Pill, Popover, Segmented, Tooltip, cx, useToast } from "../../components/ui";
 import { formatDay, isOverTarget, LOW_YIELD_PCT, shiftDate, STAGE_TARGET_MINUTES, todayKey, yieldPct } from "../../lib/domain";
 import { isFlaggedBatch, productStats, windowStats } from "../lib/insights";
+import { chartCsv, chartSvg, download, svgToPngBlob, trendLine } from "../lib/chartExport";
 import { useAssistant, useAssistantSource } from "../components/Assistant";
 
 /**
@@ -32,8 +33,6 @@ import { useAssistant, useAssistantSource } from "../components/Assistant";
  * locations the user can see; each history item carries
  * `locationId`/`locationName` so multi-location days can show identity dots.
  */
-
-const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const TONE_ICON = { warn: AlertTriangle, danger: AlertTriangle, ok: CheckCircle2, neutral: Sparkles };
 const TONE_TEXT = { warn: "text-warn", danger: "text-danger", ok: "text-ok", neutral: "text-ink-2" };
@@ -151,7 +150,6 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
    * As a tab it shares the scrubber, the filter, the ticker and the panel
    * with the chart, because it is the same period seen a different way.
    */
-  const [view, setView] = useState("chart");
   /* Which locations the page is about. Empty means every one this person can
    * see — the history already arrives scoped to that, so this narrows within
    * their own view rather than granting anything. */
@@ -159,8 +157,22 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   /* The Batches tab's own narrowing. Separate from the page's filters on
    * purpose: these say which of THESE batches to look at, not which batches
    * the page is about, and they reset nothing when you leave the tab. */
+  const toast = useToast();
+  /* The window is a (period, anchor, offset) triple rather than a pair of
+   * dates, so the controls can stay lit and the stepper knows what a "step"
+   * is. Dragging the scrubber sets `tf` to null — a hand-drawn window is not
+   * any preset, and pretending one is lit would be a lie. */
+  /* The chosen period is BOTH the preset and the track's snap grid, so it
+   * survives a hand-drag: dragging changes the window, not what you are
+   * stepping in. */
+  const [tf, setTf] = useState("m");
+  const [plotMode, setPlotMode] = useState("bars");
   const [batchView, setBatchView] = useState("all");
-  const [batchQuery, setBatchQuery] = useState("");
+  /* Off by default. A trend line is an assertion, and asserting one over four
+   * bars because the chart happened to load is how a tool starts lying. */
+  const [trendOn, setTrendOn] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [keyOpen, setKeyOpen] = useState(false);
   const [batchSort, setBatchSort] = useState({ key: "closedOn", dir: "desc" });
   const sortBatches = (key) =>
     setBatchSort((cur) =>
@@ -174,7 +186,10 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
   /* The chart's series lives here rather than inside the chart, because the
    * Ask panel can set it: "show me smokehouse times" has to be able to move
    * the same control the segmented buttons move. */
+  /* `series` is a MEASURE now — "yield" or "time" — and `isolate` is the one
+   * station the stack has been collapsed to, if any. */
   const [series, setSeries] = useState("yield");
+  const [isolate, setIsolate] = useState(null);
 
   const locationOptions = useMemo(
     () => (insights.byLocation || []).map((l) => ({ value: l.locationId, label: l.name })),
@@ -246,25 +261,57 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
     return bucketsFor(from, to, grain).map((b) => ({ ...b, rows: byBucket.get(b.key) || [], ...windowStats(byBucket.get(b.key) || []) }));
   }, [filtered, from, to, grain]);
 
+  const stations = useMemo(() => [...new Set(filtered.flatMap((r) => Object.keys(r.minutes || {})))], [filtered]);
+
   /* The scrubber's context track: the whole record at week resolution, and
-   * unfiltered — it is a map of where the data is, not a second chart. */
+   * unfiltered by time — it is a map of where the data is, not a second chart.
+   *
+   * `overShare` is what colours a candle, and it is measured ON THE SERIES THE
+   * CHART IS SHOWING. It used to use `flagged`, which is low yield OR any
+   * station over target — so on the Yield chart the track lit up amber for
+   * smokehouse overruns that the bars underneath could not show, and the map
+   * contradicted the thing it was a map of. Two marks in the same colour, one
+   * above the other, have to be answering the same question.
+   *
+   * The denominator counts only batches that HAVE a reading for the measure:
+   * a week where two of nine batches went near the smokehouse is not a good
+   * smokehouse week just because the other seven never went. */
   const weeks = useMemo(() => {
+    /* This test has to speak the same language the CHART does, and the chart
+     * now speaks in measures rather than in one station at a time. The rename
+     * broke it silently: `!stations.includes("time")` was true, so Time fell
+     * through to the yield branch and the track stopped reacting to the
+     * toggle at all — the map quietly went back to answering a question
+     * nobody had asked. */
+    const isYield = series === "yield";
+    const watched = isolate ? [isolate] : stations;
+    const valueOf = (r) =>
+      isYield ? r.y : watched.some((st) => r.minutes?.[st] != null)
+        ? watched.reduce((a, st) => a + (r.minutes?.[st] ?? 0), 0)
+        : null;
+    const crossed = (r) => {
+      if (isYield) return r.y != null && r.y < LOW_YIELD_PCT;
+      /* Any watched station over its own target — the same rule a band uses
+       * in the stack, so a week goes amber for exactly the reason a bar does. */
+      return watched.some((st) => isOverTarget(st, r.minutes?.[st], targets));
+    };
     const byWeek = new Map();
     for (const r of filtered) {
       const k = startOfWeek(r.closedOn);
       (byWeek.get(k) || byWeek.set(k, []).get(k)).push(r);
     }
-    return bucketsFor(firstKey, lastKey, "week").map((b) => ({ ...b, ...windowStats(byWeek.get(b.key) || []) }));
-  }, [filtered, firstKey, lastKey]);
+    return bucketsFor(firstKey, lastKey, "week").map((b) => {
+      const rows = byWeek.get(b.key) || [];
+      const measured = rows.filter((r) => valueOf(r) != null);
+      return {
+        ...b,
+        ...windowStats(rows),
+        overShare: measured.length ? measured.filter(crossed).length / measured.length : 0,
+      };
+    });
+  }, [filtered, firstKey, lastKey, series, stations, targets, isolate]);
 
-  const stations = useMemo(() => [...new Set(filtered.flatMap((r) => Object.keys(r.minutes || {})))], [filtered]);
-  /* The chart's series list lives here rather than in the chart, because the
-   * control that sets it is in the screen toolbar now. */
-  const seriesLabel = stations.includes(series) ? `${series} minutes` : "Yield";
-  const seriesOptions = useMemo(
-    () => [{ value: "yield", label: "Yield" }, ...stations.map((st) => ({ value: st, label: st }))],
-    [stations]
-  );
+
 
   /* ---- The standing numbers, and the card everything asks questions of:
    * the selected products over the selected range, nothing else. */
@@ -359,6 +406,15 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
     setRange(next);
   };
 
+  /* The pills and the stepper speak in (period, anchor, offset); the rest of
+   * the page only ever sees dates. */
+  const setTimeframe = (id) => {
+    const p = PERIODS.find((x) => x.id === id) || PERIODS[1];
+    setSelectedDay(null);
+    setTf(id);
+    setRange(timeframeRange(p, firstKey, lastKey));
+  };
+
   /* Narrowing the products changes what every bar means. */
   const changeFilter = (next) => {
     setProductFilter(next);
@@ -382,8 +438,19 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
    */
   const runCommand = (plan) => {
     if (plan.kind === "filter") return changeFilter(plan.products);
-    if (plan.kind === "series") return setSeries(plan.value);
-    if (plan.kind === "list") return setView("batches");
+    if (plan.kind === "series") {
+      /* A command naming a station means "show me that station", which is now
+       * Time + isolate rather than a series of its own. */
+      if (plan.value === "yield") {
+        setIsolate(null);
+        return setSeries("yield");
+      }
+      setSeries("time");
+      return setIsolate(plan.value);
+    }
+    /* There is no list TAB any more — the list is always on the page, so the
+     * command takes you to it rather than switching to it. */
+    if (plan.kind === "list") return document.querySelector("[data-batch-list]")?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (plan.kind === "range") {
       setSelectedDay(null);
       return setRange(
@@ -451,17 +518,29 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
     }),
     [batchRows, targets]
   );
-  const shownBatches = useMemo(() => {
-    const q = batchQuery.trim().toLowerCase();
-    return batchRows.filter((r) => {
-      if (batchView === "flagged" && !r.flagged) return false;
-      if (batchView === "slow" && !isSlow(r, targets)) return false;
-      if (!q) return true;
-      /* Product and location by name, and the date as it is printed — people
-       * search a list for the words they can see in it. */
-      return `${r.product} ${r.locationName || ""} ${formatDay(r.closedOn)}`.toLowerCase().includes(q);
-    });
-  }, [batchRows, batchView, batchQuery, targets]);
+  /* No text search here on purpose. The Ask panel is the search on this
+   * screen, and it is better at it: it already knows the window, the product
+   * filter and the location scope, so "applewood bacon" there answers within
+   * the same twelve batches a box would have matched — and answers questions
+   * a substring never could. A second field would have been a narrower search
+   * sitting under a broader one. */
+  const shownBatches = useMemo(
+    () =>
+      batchRows.filter((r) => {
+        if (batchView === "flagged" && !r.flagged) return false;
+        if (batchView === "slow" && !isSlow(r, targets)) return false;
+        return true;
+      }),
+    [batchRows, batchView, targets]
+  );
+
+  /* What the chart draws, and what the export menu hands out — one
+   * derivation, so a downloaded file can never disagree with the screen. */
+  const plot = useMemo(
+    () => chartPoints(buckets, series, stations, targets, isolate),
+    [buckets, series, stations, targets, isolate]
+  );
+  const trend = useMemo(() => trendLine(plot.points), [plot]);
 
   const askKey = productFilter.length === 1 ? `product:${productFilter[0]}` : "run:";
 
@@ -510,6 +589,306 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
       />
     ) : null;
 
+  const batchRefine = (
+    <Pill
+      variant="accent"
+      value={batchView}
+      onChange={setBatchView}
+      aria-label="Which batches to list"
+      options={BATCH_VIEWS.map((v) => ({
+        value: v.id,
+        label: v.label,
+        resting: v.resting,
+        count: batchCounts[v.id],
+      }))}
+    />
+  );
+
+  /* The chart tab's right-hand controls, mirroring where the batch pill sits
+   * on the other tab: the tabs say what you are looking at, this end of the
+   * row says what you are doing with it. */
+  const exportChart = async (kind) => {
+    setExportOpen(false);
+    const unit = plot.isYield ? "%" : "min";
+    const valueLabel = plot.isYield ? "Average yield" : `${plot.station} minutes`;
+    const stamp = `${from}_${to}`;
+    const base = `insights-${plot.isYield ? "yield" : plot.station.toLowerCase()}-${stamp}`;
+    try {
+      if (kind === "csv") {
+        download(new Blob([chartCsv(plot.points, { valueLabel, unit })], { type: "text/csv;charset=utf-8" }), `${base}.csv`);
+        return;
+      }
+      const svg = chartSvg(plot.points, {
+        valueLabel,
+        unit,
+        line: plot.line,
+        /* The title names the measure, the subtitle carries the scope and the
+         * range — the same two lines the screen leads with, so the file is
+         * readable by someone who was not looking at the screen. */
+        title: valueLabel,
+        subtitle: scopeLine,
+        /* The line is exported only when it is on screen — a file that
+         * asserts more than the chart did is a file that misquotes you. */
+        trend: trendOn ? trend : null,
+      });
+      if (!svg) {
+        toast?.("Nothing closed in this window, so there is no chart to export.");
+        return;
+      }
+      if (kind === "svg") {
+        download(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }), `${base}.svg`);
+        return;
+      }
+      download(await svgToPngBlob(svg), `${base}.png`);
+    } catch {
+      toast?.("Could not build that file. Try the CSV.");
+    }
+  };
+
+  const chartKey = (
+    <Popover
+      open={keyOpen}
+      onClose={() => setKeyOpen(false)}
+      align="start"
+      label="What the marks on the chart mean"
+      panelClassName="p-3"
+      content={
+        <ul className="flex flex-col gap-1.5 text-xs text-ink-2 whitespace-nowrap">
+          <li className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-[2px] shrink-0 bg-warn/75" />
+            Over target
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-[2px] shrink-0 bg-line-soft" />
+            Nothing closed
+          </li>
+          {series === "yield" ? (
+            <li className="flex items-center gap-2">
+              <span className="w-2.5 border-t border-dashed border-line-strong shrink-0" />
+              The {LOW_YIELD_PCT}% line — taller is better
+            </li>
+          ) : (
+            <>
+              <li className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-[2px] shrink-0 bg-ink/[0.045] border border-line" />
+                One stripe per station, as tall as its target
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-2.5 border-t border-dashed border-line-strong shrink-0" />
+                Target cycle time — shorter is better
+              </li>
+            </>
+          )}
+          {quietSince && (
+            <li className="pt-1 mt-0.5 border-t border-line-soft text-ink-3">
+              Nothing has closed since {formatDay(quietSince)}.
+            </li>
+          )}
+        </ul>
+      }
+    >
+      <IconButton
+        label="What the marks mean"
+        icon={Palette}
+        aria-expanded={keyOpen}
+        onClick={() => setKeyOpen((v) => !v)}
+        className={keyOpen ? "bg-hover text-ink" : undefined}
+      />
+    </Popover>
+  );
+
+  const chartTools = (
+    <div className="flex items-center gap-1.5">
+      <Tooltip
+        label={
+          trend
+            ? `Least squares across the window — ${trend.delta >= 0 ? "up" : "down"} ${Math.abs(round1(trend.delta))}${plot.isYield ? " points" : " min"} end to end`
+            : "Needs at least three periods with data"
+        }
+      >
+        <button
+          type="button"
+          role="switch"
+          aria-checked={trendOn && !!trend}
+          disabled={!trend}
+          onClick={() => setTrendOn((v) => !v)}
+          className={cx(
+            "inline-flex items-center gap-1.5 h-[var(--ctl-h)] px-2.5 rounded-md text-xs font-medium",
+            "transition-colors duration-100 disabled:opacity-45 disabled:cursor-not-allowed",
+            trendOn && trend ? "bg-primary-soft text-primary" : "text-ink-2 hover:bg-faint hover:text-ink"
+          )}
+        >
+          <TrendingUp size={14} className="shrink-0" />
+          Trend
+        </button>
+      </Tooltip>
+      <Popover
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        align="end"
+        label="Export this chart"
+        panelClassName="p-1"
+        content={
+          <div className="flex flex-col min-w-[13rem]">
+            {EXPORTS.map((x) => (
+              <button
+                key={x.kind}
+                type="button"
+                onClick={() => exportChart(x.kind)}
+                className="flex items-start gap-2.5 px-2 py-1.5 rounded-md text-left hover:bg-hover"
+              >
+                <x.icon size={15} className="mt-0.5 shrink-0 text-ink-3" />
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium text-ink">{x.label}</span>
+                  <span className="block text-[11px] text-ink-3">{x.note}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        }
+      >
+        <Button variant="ghost" size="md" icon={Download} onClick={() => setExportOpen((v) => !v)} aria-expanded={exportOpen}>
+          Export
+        </Button>
+      </Popover>
+    </div>
+  );
+
+  /* ---- The page's parts, built once and arranged by LV below. Layout is
+   * the variable here; the pieces are not. */
+  const scopeNode = (
+    <span className="flex items-center gap-1.5 text-xs text-ink-4">
+      {locationControl}
+      {productControl("quiet") && (
+        <>
+          <span>·</span>
+          {productControl("quiet")}
+        </>
+      )}
+    </span>
+  );
+  /* Two options, forever, however many stations the shop grows. It sits with
+   * the window controls because what you are measuring is a property of the
+   * window, not of the chart card that happens to draw it. */
+  const seriesNode = stations.length ? (
+    <Pill
+      variant="accent"
+      value={series}
+      onChange={(v) => {
+        setSeries(v);
+        setIsolate(null);
+      }}
+      aria-label="What to measure"
+      options={MEASURES.map((m) => ({ value: m.id, label: m.label, hint: m.hint }))}
+    />
+  ) : null;
+  const presetNode = (
+    <TimeframeControls period={tf} onChange={setTimeframe} />
+  );
+  const trackNode = (
+    <TimeScrubber
+      from={from}
+      to={to}
+      firstKey={firstKey}
+      lastKey={lastKey}
+      weeks={weeks}
+      onChange={changeRange}
+      snapUnit={PERIODS.find((p) => p.id === tf)?.unit ?? null}
+    />
+  );
+  /* ---- The two readings, no longer two tabs.
+   *
+   * They were a Chart tab and a Batches tab, which asked people to choose
+   * between "how did the window go" and "which batches were in it" — two
+   * halves of one question, and the tab made you ask it twice and lose the
+   * other answer each time. Stacked, the chart is the summary and the list is
+   * the evidence under it, which is the order people read them in anyway. */
+  const chartBody = (
+    <>
+      {plotMode === "grid" ? (
+        <CalendarPlot plot={plot} selected={selectedDay} onPick={pickBucket} />
+      ) : (
+      <RunChart
+        plot={plot}
+        grain={grain}
+        selected={selectedDay}
+        onPick={pickBucket}
+        trend={trendOn ? trend : null}
+        height={BAR_H_SPLIT}
+        onIsolate={setIsolate}
+      />
+      )}
+      {selectedCell && dayCard && (
+        <div className="mt-5 pt-4 border-t border-line" data-ask={`day:${selectedCell.key}`}>
+          <InsightHeadline
+            card={{ ...dayCard, title: formatDay(selectedCell.key) }}
+            onClear={() => setSelectedDay(null)}
+          />
+          <ul className={cx("mt-3 grid sm:grid-cols-2 gap-x-8 gap-y-1.5", ICON_INDENT)}>
+            {selectedCell.batches.map((b) => (
+              <li key={b.id} className="flex items-baseline justify-between gap-2">
+                <span className="text-xs text-ink-2 truncate">
+                  {b.product}
+                  {b.locationName && <span className="text-ink-4"> · {b.locationName}</span>}
+                </span>
+                <span className={cx("text-xs font-medium tnum shrink-0", b.flagged ? "text-warn" : "text-ink-3")}>
+                  {b.y}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+
+  const yearBlock = (
+    <div data-ask={askKey}>
+      <Section
+        title="Compared with a year ago"
+        hint={
+          overlaps
+            ? null
+            : `The same ${spanDays} days one year earlier — ${formatDay(yearAgo.from)} to ${formatDay(yearAgo.to)}, ${yearAgo.from.slice(0, 4)}`
+        }
+      >
+        {/* A window longer than a year, shifted back a year, overlaps itself —
+          * the comparison would be partly against the very batches it is
+          * comparing. Say so rather than print a number that looks like an
+          * answer. */}
+        {overlaps ? (
+          <p className="text-xs text-ink-4">
+            A {spanDays}-day window overlaps itself when shifted back a year. Narrow the period to a year or less to
+            compare it with the same stretch last year.
+          </p>
+        ) : (
+          <YearOverYear history={comparison} />
+        )}
+      </Section>
+    </div>
+  );
+
+  const listBody = (
+    /* Everything in it is about the period, so one `data-ask` covers the lot
+      * and a highlight anywhere in the table asks about the window. */
+    <div data-ask="period:">
+      {runCard ? (
+        <BatchTable
+          rows={shownBatches}
+          multi={multi}
+          targets={targets}
+          series={series}
+          sort={batchSort}
+          onSort={sortBatches}
+        />
+      ) : (
+        <p className="py-10 text-center text-xs text-ink-4">Nothing closed in this window.</p>
+      )}
+    </div>
+  );
+
+
+
   /* ---- What the assistant may read and do while this screen is on.
    *
    * `runCommand` closes over half the screen's state, so it is a new function
@@ -538,9 +917,6 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
 
   return (
     <div data-ask-root="">
-      {/* Subtitle and ticker are the ONE place the standing numbers live,
-        * and they follow BOTH the product filter and the range, so they
-        * always describe what is actually on screen. */}
       {/* ---- The header splits on ONE question: does it change when you move
         * the window?
         *
@@ -553,179 +929,77 @@ export default function InsightsScreen({ scopeLabel, insights, history, targets 
         * range, where you can watch it change as you scrub. The standing
         * numbers used to sit up here beside the title, which made them look
         * like facts about the shop instead of facts about thirty days. */}
-      {/* The window: its two controls, the track, and the range label that
-        * rides under the selection. Ruled off at the bottom, because what
-        * follows is a reading of this window rather than more of it. */}
-      <div className="pb-3 border-b border-line">
-        {/* Both of the window's axes on one line: WHICH measure, and HOW
-          * LONG. The series used to live above the chart, which made it read
-          * as a chart setting — but it decides what every bar and every amber
-          * mark on the page means, tab included. */}
-        <div className="flex items-center justify-between gap-x-3 gap-y-2 flex-wrap mb-2">
-          {/* Scope on the left, the window's own axes on the right: one row
-            * that reads WHAT · WHICH MEASURE · HOW LONG, left to right. */}
-          <span className="flex items-center gap-1.5 text-xs text-ink-4">
-            {locationControl}
-            {productControl("quiet") && (
-              <>
-                <span>·</span>
-                {productControl("quiet")}
-              </>
-            )}
-          </span>
-          <div className="flex items-center gap-2">
-          {seriesOptions.length > 1 && (
-            <>
-              <Segmented size="sm" value={series} onChange={setSeries} options={seriesOptions} />
-              {/* Ruled apart, or eight chips in a row read as one control and
-                * you cannot tell where the measure stops and the length
-                * begins. */}
-              <Rule />
-            </>
-          )}
-          <PresetRow from={from} to={to} firstKey={firstKey} lastKey={lastKey} onChange={changeRange} />
-          </div>
-        </div>
-
-        <TimeScrubber from={from} to={to} firstKey={firstKey} lastKey={lastKey} weeks={weeks} onChange={changeRange} />
+      {/* ---- The window DISSOLVES; the chart gets the card.
+        *
+        * The card moved. The window controls had one because five loose bands
+        * of chrome read as five unrelated stripes — but a panel is a strong
+        * claim, and it was spending it on the thing you set rather than the
+        * thing you read. Navigation should sit in the page; the reading should
+        * sit in an object. So the scrubber is back on bare page with a hairline
+        * under it, and the chart is what is framed.
+        *
+        * The preset row is a Pill now, which is what holds the controls
+        * together without a panel doing it for them. */}
+      {/* WHAT you are measuring and HOW MUCH of the record — both are
+        * properties of the window, so both sit on the window's row. The
+        * measure used to live in the chart card, which made it look like a
+        * property of that one drawing rather than of everything below it. */}
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        {scopeNode}
+        <span className="flex-1" />
+        {seriesNode}
+        {presetNode}
+      </div>
+      {trackNode}
+      {/* The standing numbers ride UNDER the track, on the line the range
+        * already owns — they are facts about this window, so they belong to
+        * the control that sets it rather than to the page header. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mt-1 pb-3 border-b border-line">
+        {ticker}
       </div>
 
-      {/* The screen toolbar sits BELOW the timeline, because the timeline is
-        * scope and the tabs are a reading of it — you pick the days once and
-        * then choose how to look at them. Tasks' shape either way: views
-        * left, the screen's own control right. On the chart that control is
-        * the series, which used to float above the chart as a second
-        * Segmented directly under these tabs — two rails doing one job. */}
-      <ScreenToolbar
-        tabs={
-          <Segmented
-            value={view}
-            onChange={setView}
-            className="min-w-0"
-            options={[
-              { value: "chart", label: "Chart", icon: ChartNoAxesColumn, hint: `${seriesLabel} per ${GRAIN_NOUN[grain]}` },
-              { value: "batches", label: "Batches", icon: Rows3, hint: "Every closed batch in the window, in time order" },
-            ]}
-          />
-        }
-        /* The standing numbers ride with the tabs, not inside the chart:
-          * they are about the WINDOW, not about one of its two readings, so
-          * they have to survive the tab switch — and floating in the plot
-          * they collide with a tall bar at the right end. */
-        actions={ticker}
-        /* The second line is the narrowing WITHIN the selected tab — the
-          * chart has none, so it only exists on Batches. */
-        refine={
-          view === "batches" ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <Segmented
-                size="sm"
-                value={batchView}
-                onChange={setBatchView}
-                options={BATCH_VIEWS.map((v) => ({
-                  value: v.id,
-                  label: v.label,
-                  /* All is the resting state, not a queue with a number. */
-                  count: v.id === "all" ? undefined : batchCounts[v.id],
-                }))}
-              />
-              <SearchInput
-                value={batchQuery}
-                onChange={setBatchQuery}
-                placeholder="Search batches…"
-                className="w-52"
-              />
-            </div>
-          ) : null
-        }
-        status={
-          view === "batches" && shownBatches.length !== batchRows.length ? (
-            <p className="text-xs text-ink-4 tnum">
-              {shownBatches.length} of {batchRows.length}
-            </p>
-          ) : null
-        }
-      />
-
-      {view === "batches" ? (
-        /* The list, at page width rather than dialog width — four columns
-          * and a hundred rows never fit in a capped-height modal. Everything
-          * in it is about the period, so one `data-ask` covers the lot and a
-          * highlight anywhere in the table asks about the window. */
-        <div data-ask="period:">
-          {runCard ? (
-            <BatchTable
-              rows={shownBatches}
-              multi={multi}
-              targets={targets}
-              series={series}
-              sort={batchSort}
-              onSort={sortBatches}
+      {/* The chart card takes three fifths of the row and the year-ago table
+        * takes the rest as a sibling. Giving width away is what makes the plot
+        * squarish — you cannot square thirty day-bars by stretching them — and
+        * it promotes the comparison out of the footnote it was in. */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-5">
+        <div className="lg:col-span-3 rounded-lg border border-line bg-surface px-4 pt-3 pb-4">
+          {/* The card's controls sit LEFT, where reading starts. They were
+            * right-aligned because the row used to open with the measure
+            * chips; with those gone the row opened with nothing and the
+            * controls floated against an empty gutter. */}
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            {/* Bars and calendar are two readings of ONE window, not two
+              * windows — so this is a view switch inside the card, not another
+              * thing the page can be set to. Bars answer "how much, when";
+              * the grid answers "which days, and does it rhyme with the
+              * week". */}
+            <Segmented
+              size="sm"
+              value={plotMode}
+              onChange={setPlotMode}
+              options={[
+                { value: "bars", label: "Bars", icon: ChartNoAxesColumn, hint: "One bar per period" },
+                { value: "grid", label: "Grid", icon: CalendarDays, hint: "Days wrapped into weeks" },
+              ]}
             />
-          ) : (
-            <p className="py-10 text-center text-xs text-ink-4">Nothing closed in this window.</p>
-          )}
+            {chartTools}
+            {chartKey}
+            <span className="flex-1" />
+          </div>
+          {chartBody}
         </div>
-      ) : (
-        <>
-        <div>
-          <RunChart
-            buckets={buckets}
-            grain={grain}
-            stations={stations}
-            targets={targets}
-            selected={selectedDay}
-            onPick={pickBucket}
-            quietSince={quietSince}
-            which={series}
-          />
-        </div>
+        <div className="lg:col-span-2 rounded-lg border border-line bg-surface px-4 pt-3 pb-4">{yearBlock}</div>
+      </div>
 
-        {selectedCell && dayCard ? (
-          <div className="mt-6 pt-5 border-t border-line" data-ask={`day:${selectedCell.key}`}>
-            <InsightHeadline
-              card={{ ...dayCard, title: formatDay(selectedCell.key) }}
-              onClear={() => setSelectedDay(null)}
-            />
-            <ul className={cx("mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-1.5 max-w-4xl", ICON_INDENT)}>
-              {selectedCell.batches.map((b) => (
-                <li key={b.id} className="flex items-baseline justify-between gap-2">
-                  <span className="text-xs text-ink-2 truncate">
-                    {b.product}
-                    {b.locationName && <span className="text-ink-4"> · {b.locationName}</span>}
-                  </span>
-                  <span className={cx("text-xs font-medium tnum shrink-0", b.flagged ? "text-warn" : "text-ink-3")}>{b.y}%</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <div data-ask={askKey}>
-            <Section
-              title="Compared with a year ago"
-              hint={
-                overlaps
-                  ? null
-                  : `The same ${spanDays} days one year earlier — ${formatDay(yearAgo.from)} to ${formatDay(yearAgo.to)}, ${yearAgo.from.slice(0, 4)}`
-              }
-            >
-              {/* A window longer than a year, shifted back a year, overlaps
-                * itself — the comparison would be partly against the very
-                * batches it is comparing. Say so rather than print a number
-                * that looks like an answer. */}
-              {overlaps ? (
-                <p className="text-xs text-ink-4">
-                  A {spanDays}-day window overlaps itself when shifted back a year. Narrow the period to a year or less to
-                  compare it with the same stretch last year.
-                </p>
-              ) : (
-                <YearOverYear history={comparison} />
-              )}
-            </Section>
-          </div>
-        )}
-        </>
-      )}
+      {/* The list, under the summary rather than behind a tab. */}
+      <div className="mt-7" data-batch-list="">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-3">Batches</h3>
+          {batchRefine}
+        </div>
+        {listBody}
+      </div>
 
       {/* Highlight anything on the page and ask about exactly that. */}
       <SelectionAsk cardFor={cardForAsk} />
@@ -799,150 +1073,158 @@ function HeadlineTicker({ batches, avg, flagged, range, days }) {
  * changes the shape of the chart, which is the only reason to have a preset
  * rather than a scrubber.
  */
-const PRESETS = [
-  { value: 14, label: "2w", title: "Last two weeks" },
-  { value: 30, label: "1m", title: "Last 30 days" },
-  { value: 91, label: "3m", title: "Last three months" },
-  { value: 365, label: "1y", title: "Last 12 months" },
-  { value: 0, label: "All", title: "The whole record" },
+/**
+ * TIMEFRAME: one pill, and a track that snaps.
+ *
+ * This was two pills and a stepper — period, anchor, and ← → to walk back a
+ * period at a time. The anchor pill was the weak one: "Rolling vs To date" is
+ * a distinction analysts make and nobody on a floor says out loud, and the
+ * stepper was faking a spatial relationship ("the month before this one")
+ * with an abstract button.
+ *
+ * Both of those jobs belong to the track. The scrubber already shows the
+ * whole record and already moves the window by hand; what it lacked was
+ * PRECISION — at roughly a pixel and a half per day you cannot land on the
+ * first of the month by eye. So the period pill now does two things: it picks
+ * a window, and it sets the SNAP GRID the track drags against. Pick Month and
+ * the track grows month ticks; drag one notch left and you are on August,
+ * whole. That is the stepper, except you can see it happen.
+ *
+ * What that costs, honestly: a snap cannot advertise itself. The pill has to
+ * stay, because it is the menu — it is the only thing on the page that says
+ * "quarters are a thing you can have here". A track with invisible magnetism
+ * and no pill would be a feature only its author knows about.
+ *
+ * Rolling windows are gone as a concept. "The last 30 days" has no calendar
+ * edge to snap to, and a shop says "September", not "the trailing thirty".
+ * You can still draw one by hand — hold Shift, which turns the magnet off.
+ */
+const PERIODS = [
+  /* Abbreviated. The long words were there to spell out a grammar back when a
+   * second pill sat beside them ("Last / This Month"); with one pill and a
+   * track that snaps, the letter is enough and the row stops eating the
+   * width the scope line needs. The hint carries the full word. */
+  { id: "w", label: "W", unit: "week", title: "A week at a time" },
+  { id: "m", label: "M", unit: "month", title: "A month at a time" },
+  { id: "q", label: "Q", unit: "quarter", title: "A quarter at a time" },
+  { id: "y", label: "Y", unit: "year", title: "A year at a time" },
+  { id: "all", label: "All", title: "The whole record, no snapping" },
 ];
 
-/** The window the page opens on — a preset, so one is always lit. */
+/** The window the page opens on. */
 const DEFAULT_SPAN = 30;
 
-/** The range a preset produces, clamped to what the record actually holds. */
-const presetRange = (days, firstKey, lastKey) =>
-  days
-    ? { from: clampKey(shiftDate(lastKey, -(days - 1)), firstKey, lastKey), to: lastKey }
-    : { from: firstKey, to: lastKey };
+const startOfMonth = (key) => `${key.slice(0, 7)}-01`;
+const startOfQuarter = (key) => {
+  const m = Number(key.slice(5, 7)) - 1;
+  return `${key.slice(0, 4)}-${String(Math.floor(m / 3) * 3 + 1).padStart(2, "0")}-01`;
+};
+const startOfYear = (key) => `${key.slice(0, 4)}-01-01`;
+
+/* Resolved lazily: `startOfWeek` is declared further down with the other date
+ * helpers, and a module-level object would read it at definition time. */
+const CAL_START = {
+  week: (k) => startOfWeek(k),
+  month: startOfMonth,
+  quarter: startOfQuarter,
+  year: startOfYear,
+};
 
 /**
- * Presets longer than the record are DROPPED, not shown dark: offering a year
- * of a nine-month shop is offering "All" under another name.
+ * Every period boundary inside the record, oldest first.
  *
- * And a preset is "on" when pressing it would not move anything, which is not
- * the same as its length matching — on a nine-month record "1y" clamps to the
- * whole record, and the old `span === value` test left every button dark the
- * moment you pressed one.
+ * The record's own first day is included as an edge. It is not a calendar
+ * boundary, but it is the only other place a window can honestly begin — and
+ * without it the earliest period would be unreachable by dragging.
  */
-function presetState(from, to, firstKey, lastKey) {
-  const total = Math.max(1, daysBetween(firstKey, lastKey)) + 1;
-  const available = PRESETS.filter((p) => !p.value || p.value <= total);
-  const active = available.find((p) => {
-    const r = presetRange(p.value, firstKey, lastKey);
-    return from === r.from && to === r.to;
-  });
-  return { available, active };
-}
-
-/**
- * The preset row, shared by the scrubber and the batch-list modal. The modal
- * has no room for a drag track, but "these are the wrong thirty days" is the
- * first thing anyone thinks reading a list of batches, and making them close
- * the dialog to fix it is making them lose their place.
- */
-function PresetRow({ from, to, firstKey, lastKey, onChange }) {
-  const { available, active } = presetState(from, to, firstKey, lastKey);
-  return (
-    <div className="flex items-center gap-0.5">
-      {available.map((p) => (
-        <button
-          key={p.label}
-          type="button"
-          onClick={() => onChange(presetRange(p.value, firstKey, lastKey))}
-          aria-pressed={active?.label === p.label}
-          title={p.title}
-          className={cx(
-            "h-7 px-2 rounded-md text-xs font-medium tabular-nums transition-colors duration-100",
-            active?.label === p.label ? "bg-hover text-ink" : "text-ink-3 hover:bg-faint hover:text-ink"
-          )}
-        >
-          {p.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/* Granularity follows the range, because the bar is the unit you can read.
- * Ninety days of daily bars is a picket fence; five weeks of monthly bars is
- * two bars. Nobody should have to choose this by hand. */
-const grainFor = (n) => (n <= 70 ? "day" : n <= 400 ? "week" : "month");
-const GRAIN_NOUN = { day: "day", week: "week", month: "month" };
-
-/** Bars carry their printed value only while there is room for the text. */
-const VALUE_LABEL_MAX = 16;
-
-const daysBetween = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 864e5);
-const startOfWeek = (key) => shiftDate(key, -new Date(`${key}T00:00:00`).getDay());
-const monthKey = (key) => key.slice(0, 7);
-const clampKey = (key, lo, hi) => (key < lo ? lo : key > hi ? hi : key);
-
-/* `formatDay` drops the year, so a window that crosses New Year reads as
- * "between Sep 16 and Sep 15" — backwards and a day long. Years go in only
- * when they are what distinguishes the two ends. */
-const formatSpan = (from, to) =>
-  from.slice(0, 4) === to.slice(0, 4)
-    ? `between ${formatDay(from)} and ${formatDay(to)}`
-    : `between ${formatDay(from)} ${from.slice(0, 4)} and ${formatDay(to)} ${to.slice(0, 4)}`;
-
-/* The same range as a title rather than a clause — for the scrubber's label
- * and the export's header. Carries the years for the same reason: without
- * them a one-year window reads "Sep 16 – Sep 15". */
-const formatSpanTitle = (from, to) =>
-  from.slice(0, 4) === to.slice(0, 4)
-    ? `${formatDay(from)} \u2013 ${formatDay(to)}`
-    : `${formatDay(from)} ${from.slice(0, 4)} \u2013 ${formatDay(to)} ${to.slice(0, 4)}`;
-
-/** The bucket edges covering [from, to] at one granularity, oldest first. */
-function bucketsFor(from, to, grain) {
+function boundariesFor(unit, firstKey, lastKey) {
+  if (!unit || !CAL_START[unit]) return [];
   const out = [];
-  if (grain === "day") {
-    for (let k = from; k <= to; k = shiftDate(k, 1)) out.push({ key: k, from: k, to: k });
-    return out;
+  let k = CAL_START[unit](lastKey);
+  while (k > firstKey) {
+    out.unshift(k);
+    k = CAL_START[unit](shiftDate(k, -1));
   }
-  if (grain === "week") {
-    for (let k = startOfWeek(from); k <= to; k = shiftDate(k, 7)) out.push({ key: k, from: k, to: shiftDate(k, 6) });
-    return out;
-  }
-  const d = new Date(`${monthKey(from)}-01T00:00:00`);
-  const last = monthKey(to);
-  while (d.toISOString().slice(0, 7) <= last) {
-    const key = d.toISOString().slice(0, 7);
-    const next = new Date(d);
-    next.setMonth(next.getMonth() + 1);
-    out.push({ key, from: `${key}-01`, to: shiftDate(next.toISOString().slice(0, 10), -1) });
-    d.setMonth(d.getMonth() + 1);
-  }
+  out.unshift(firstKey);
   return out;
 }
 
-/**
- * The axis stamp for a bucket. A ruler marks its units, not every tick: days
- * stamp the 1st and each week start, weeks stamp month turns, months stamp
- * the year on the first bar and each January.
- */
-function stampFor(b, i, grain, buckets) {
-  const d = new Date(`${(grain === "month" ? `${b.key}-01` : b.key)}T00:00:00`);
-  const prev = i > 0 ? new Date(`${(grain === "month" ? `${buckets[i - 1].key}-01` : buckets[i - 1].key)}T00:00:00`) : null;
-  const newMonth = !prev || prev.getMonth() !== d.getMonth();
-  if (grain === "day") {
-    if (d.getDate() === 1) return MONTH_LABELS[d.getMonth()];
-    return i % 7 === 0 ? `${d.getDate()}` : "";
-  }
-  if (grain === "week") return newMonth ? MONTH_LABELS[d.getMonth()] : "";
-  return `${MONTH_LABELS[d.getMonth()]}${i === 0 || d.getMonth() === 0 ? ` ’${String(d.getFullYear()).slice(2)}` : ""}`;
+/** The last day of the period starting at `startKey`. */
+const periodEnd = (startKey, boundaries, lastKey) => {
+  const next = boundaries.find((b) => b > startKey);
+  return next ? shiftDate(next, -1) : lastKey;
+};
+
+const nearestKey = (key, boundaries) =>
+  boundaries.reduce((best, b) => (Math.abs(daysBetween(b, key)) < Math.abs(daysBetween(best, key)) ? b : best), boundaries[0]);
+
+/** The range a period lands on when you press it: this one, so far. */
+function timeframeRange(period, firstKey, lastKey) {
+  if (!period || period.id === "all") return { from: firstKey, to: lastKey };
+  return { from: clampKey(CAL_START[period.unit](lastKey), firstKey, lastKey), to: lastKey };
 }
 
+const QUARTER_OF = (key) => `Q${Math.floor(Number(key.slice(5, 7) - 1) / 3) + 1} ${key.slice(0, 4)}`;
+
 /**
- * Presets plus a drag-anywhere scrubber over the whole history. The presets
- * answer "the usual question" in one tap; the scrubber answers every other
- * one. The track draws the entire record at week resolution so the selected
- * window is always shown in the context of what else there is — including
- * the stretches with nothing in them.
+ * A window that lands exactly on a calendar period is NAMED, not dated.
+ *
+ * "August" is what the window is; "Aug 1 – Aug 31" is a description of it that
+ * the reader then has to decode back into "August". This is the whole payoff
+ * of snapping — you get a preset's legibility without a chip existing for it.
  */
-function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
+function windowName(from, to, unit, boundaries, lastKey) {
+  if (!unit || !boundaries.length) return null;
+  const start = CAL_START[unit](from);
+  if (start !== from) return null;
+  const soFar = to === lastKey && from === CAL_START[unit](lastKey);
+  const whole = to === periodEnd(from, boundaries, lastKey);
+  if (!soFar && !whole) return null;
+  const name =
+    unit === "month"
+      ? `${MONTH_LABELS[Number(from.slice(5, 7)) - 1]} ${from.slice(0, 4)}`
+      : unit === "quarter"
+        ? QUARTER_OF(from)
+        : unit === "year"
+          ? from.slice(0, 4)
+          : `Week of ${formatDay(from)}`;
+  return soFar ? `${name} so far` : name;
+}
+
+/** The period pill. It picks a window AND sets the track's snap grid. */
+function TimeframeControls({ period, onChange }) {
+  return (
+    <Pill
+      variant="accent"
+      value={period}
+      onChange={onChange}
+      aria-label="Window size, and what the track snaps to"
+      options={PERIODS.map((p) => ({ value: p.id, label: p.label, hint: p.title }))}
+    />
+  );
+}
+
+function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange, tall = false, showLabel = true, snapUnit = null }) {
   const [dragging, setDragging] = useState(null);
+
+  /**
+   * SNAPPING.
+   *
+   * The track is about a pixel and a half per day across a multi-year record,
+   * so landing on the first of the month by eye is not a thing anyone can do.
+   * The magnet makes the precise windows the EASY ones and leaves the rest
+   * reachable — hold Shift and the magnet is off, which is the one gesture
+   * that has to stay available because a shop floor question is not always a
+   * calendar question.
+   *
+   * `snapPan` is the part that took thought. Dragging a window that IS a whole
+   * period should walk period to period — that is the stepper, done spatially.
+   * Dragging a window that is NOT should keep its length and just tidy its
+   * start, because silently resizing someone's hand-drawn window to a calendar
+   * month is the control overriding a decision they already made.
+   */
+  const bounds = useMemo(() => boundariesFor(snapUnit, firstKey, lastKey), [snapUnit, firstKey, lastKey]);
+  const snapping = bounds.length > 1;
 
   const total = Math.max(1, daysBetween(firstKey, lastKey));
   const busiest = Math.max(1, ...weeks.map((w) => w.batches));
@@ -1025,12 +1307,18 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
     e.currentTarget.setPointerCapture?.(e.pointerId);
     setDragging(mode);
 
-    const keyAt = (clientX) =>
+    /* Shift is the bypass, read per EVENT rather than per gesture: you can
+     * start a drag, decide halfway that you want the exact day, and hold it. */
+    const rawKeyAt = (clientX) =>
       shiftDate(firstKey, Math.round(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * total));
+    const keyAt = (clientX, free) => {
+      const k = rawKeyAt(clientX);
+      return snapping && !free ? nearestKey(k, bounds) : k;
+    };
 
     const base = seed ?? { from, to };
     const span = daysBetween(base.from, base.to);
-    const origin = keyAt(e.clientX);
+    const origin = rawKeyAt(e.clientX);
 
     let current = { from, to };
     const emit = (next) => {
@@ -1042,19 +1330,43 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
 
     let frame = 0;
     let pending = null;
+    let free = e.shiftKey;
     const apply = () => {
       frame = 0;
-      const k = pending;
-      if (mode === "from") emit({ from: clampKey(k, firstKey, shiftDate(base.to, -1)), to: base.to });
-      else if (mode === "to") emit({ from: base.from, to: clampKey(k, shiftDate(base.from, 1), lastKey) });
-      else {
-        const nextFrom = clampKey(shiftDate(base.from, daysBetween(origin, k)), firstKey, shiftDate(lastKey, -span));
+      const { raw, snapped } = pending;
+      if (mode === "from") {
+        emit({ from: clampKey(snapped, firstKey, shiftDate(base.to, -1)), to: base.to });
+      } else if (mode === "to") {
+        /* A window ENDS the day before the next boundary, not on it — snapping
+         * the right edge to Sep 1 would mean "August plus one day". */
+        const end = snapping && !free && snapped !== lastKey ? shiftDate(snapped, -1) : snapped;
+        emit({ from: base.from, to: clampKey(end, shiftDate(base.from, 1), lastKey) });
+      } else if (snapping && !free) {
+        /* A pan with a grid on ALWAYS lands on one whole period — it does not
+         * preserve whatever length the window happens to have.
+         *
+         * It used to only do that when the window was ALREADY a whole period,
+         * and preserve the span otherwise. That read as reasonable and was a
+         * trap: drag to the start of the record, the period clamps to a
+         * part-period against the record's first day, and from then on the
+         * window is "not a period" — so every later drag preserved that
+         * accidental length while the pill still said Quarter. The control
+         * and the window had silently stopped describing each other, with no
+         * way back except pressing the pill again.
+         *
+         * Forcing a full period means the clamp is a place you can leave. */
+        const start = clampKey(nearestKey(shiftDate(base.from, daysBetween(origin, raw)), bounds), firstKey, lastKey);
+        emit({ from: start, to: clampKey(periodEnd(start, bounds, lastKey), start, lastKey) });
+      } else {
+        const moved = shiftDate(base.from, daysBetween(origin, raw));
+        const nextFrom = clampKey(moved, firstKey, shiftDate(lastKey, -span));
         emit({ from: nextFrom, to: shiftDate(nextFrom, span) });
       }
     };
 
     const move = (ev) => {
-      pending = keyAt(ev.clientX);
+      free = ev.shiftKey;
+      pending = { raw: rawKeyAt(ev.clientX), snapped: keyAt(ev.clientX, free) };
       if (!frame) frame = requestAnimationFrame(apply);
     };
     const end = () => {
@@ -1077,6 +1389,14 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
     const rect = e.currentTarget.getBoundingClientRect();
     const span = daysBetween(from, to);
     const centre = shiftDate(firstKey, Math.round(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * total));
+    /* With a grid on, a bare click takes the PERIOD you clicked in rather than
+     * re-centring the old window there. Clicking somewhere in August and
+     * getting August is the whole promise of the ticks; getting "thirty days
+     * centred on the 14th" would be the track ignoring its own marks. */
+    if (snapping && !e.shiftKey) {
+      const start = [...bounds].reverse().find((b) => b <= centre) ?? firstKey;
+      return startDrag("pan", e, { from: start, to: clampKey(periodEnd(start, bounds, lastKey), start, lastKey) });
+    }
     const nextFrom = clampKey(shiftDate(centre, -Math.round(span / 2)), firstKey, shiftDate(lastKey, -span));
     startDrag("pan", e, { from: nextFrom, to: shiftDate(nextFrom, span) });
   };
@@ -1119,37 +1439,91 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
         * The Tooltip wraps the TRACK, not the window: its own span is
         * `relative`, so wrapping the window would re-parent every absolute
         * position in here to the tooltip and tear the scrubber apart. */}
-      <Tooltip label="Drag to move · edges resize · scroll to pan" side="top" className="w-full">
+      {/* The tooltip is where the track explains itself, including its one
+        * colour — a mark nobody can decode is decoration. */}
+      <Tooltip
+        label={`Drag to move · edges resize · scroll to pan${snapping ? " · snaps to the grid, Shift to ignore it" : ""} · amber weeks ran a third over the line`}
+        side="top"
+        className="w-full"
+      >
       <div
         ref={trackRef}
         data-scrub-track=""
         onPointerDown={jump}
         className={cx(
-          "relative w-full h-8 select-none touch-none",
+          "relative w-full select-none touch-none",
+          tall ? "h-14" : "h-8",
           dragging === "from" || dragging === "to" ? "cursor-ew-resize" : dragging ? "cursor-grabbing" : "cursor-pointer"
         )}
       >
         {/* The whole record at week resolution, drawn by HOW MUCH CLOSED,
           * not by yield. A scrubber is a map you navigate — you drag to
           * where the work is — and yield here would be a second, smaller
-          * copy of the chart above saying the same thing worse. */}
+          * copy of the chart above saying the same thing worse.
+          *
+          * But a map with nothing marked on it only answers "where is there
+          * data", and you already knew there was data. A week holding a
+          * flagged batch goes amber, so the track answers the question people
+          * actually bring to it — where should I be looking — before they
+          * have dragged anything. It stays HEIGHT for volume and COLOUR for
+          * trouble, which are two readings of one bar rather than two bars.
+          *
+          * A week goes amber when a THIRD of its batches crossed the line on
+          * the measure the chart is showing.
+          *
+          * Three tests were tried. "Holds a flagged batch" painted nearly
+          * every candle — at week resolution almost any stretch holds one, so
+          * the test is true of the whole record and marks nothing. "Week
+          * average crossed the line" painted none, because a couple of bad
+          * batches rarely drag a week's mean under; a signal that never fires
+          * is no signal. A share of FLAGGED batches fired at the right rate
+          * but answered the wrong question: flagged means low yield or any
+          * station slow, so the track went amber over smokehouse overruns
+          * while the Yield bars below it were all green — the map arguing
+          * with the chart it sits on top of.
+          *
+          * Measured on the current series, the two agree by construction, and
+          * switching the measure re-marks the map. Height is how much closed,
+          * colour is how much of it went wrong at the thing you are looking
+          * at. */}
         <div className="absolute inset-0 flex items-end gap-px" aria-hidden="true">
           {weeks.map((w) => (
             <span
               key={w.key}
-              className={cx("flex-1 min-w-px rounded-[1px]", w.batches ? "bg-line-strong" : "bg-line-soft")}
+              className={cx(
+                "flex-1 min-w-px rounded-[1px] transition-colors duration-150",
+                w.overShare >= WEEK_TROUBLE_SHARE
+                  ? "bg-warn/70"
+                  : w.batches
+                    ? "bg-line-strong"
+                    : "bg-line-soft"
+              )}
               style={{ height: w.batches ? `${Math.max(10, Math.min(100, (w.batches / busiest) * 100))}%` : 2 }}
             />
           ))}
         </div>
+
+        {/* The grid, drawn UNDER the curtains so the out-of-window ticks dim
+          * with everything else. Hairlines only: a tick is a place the window
+          * can land, and anything heavier competes with the candles, which are
+          * the actual data. */}
+        {snapping &&
+          bounds.slice(1).map((b) => (
+            <span
+              key={b}
+              className="absolute inset-y-0 w-px bg-line-strong/50 pointer-events-none"
+              style={{ left: `${pct(b)}%` }}
+              aria-hidden="true"
+            />
+          ))}
 
         {/* Curtains, not a highlight. Washing the SELECTION was backwards —
           * it dimmed the weeks you had chosen and left the rest bright, so
           * the window read as the part being ignored. Dimming everything
           * outside it makes the selection the clear part, which is what a
           * scrubber is for. */}
-        <div className="absolute inset-y-0 left-0 bg-surface/75" style={{ width: `${left}%` }} aria-hidden="true" />
-        <div className="absolute inset-y-0 right-0 bg-surface/75" style={{ left: `${right}%` }} aria-hidden="true" />
+        <div className={cx("absolute inset-y-0 left-0", CURTAIN)} style={{ width: `${left}%` }} aria-hidden="true" />
+        <div className={cx("absolute inset-y-0 right-0", CURTAIN)} style={{ left: `${right}%` }} aria-hidden="true" />
 
         {/* The window. Drag the middle to move it, an edge to resize it.
           * `minWidth` keeps the two edges from collapsing into each other at
@@ -1203,6 +1577,7 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
         *
         * The transform flips at the extremes instead of always centring, or
         * a window parked at either end pushes its own label off the track. */}
+      {showLabel && (
       <div className="relative h-4 mt-1">
         <p
           className="absolute top-0 whitespace-nowrap text-[10px] leading-none tnum text-ink-3"
@@ -1211,9 +1586,12 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
             transform: `translateX(${mid < 12 ? "0" : mid > 88 ? "-100%" : "-50%"})`,
           }}
         >
-          <span className="font-semibold uppercase tracking-wide text-ink">{formatSpanTitle(from, to)}</span>
+          <span className="font-semibold uppercase tracking-wide text-ink">
+            {windowName(from, to, snapUnit, bounds, lastKey) ?? formatSpanTitle(from, to)}
+          </span>
         </p>
       </div>
+      )}
     </div>
   );
 }
@@ -1221,6 +1599,27 @@ function TimeScrubber({ from, to, firstKey, lastKey, weeks, onChange }) {
 /* ------------------------------------------------------------- Chart -- */
 
 const BAR_H = 64;
+
+/** The split layout's plot height — the card is ~3/5 of the row, so the plot
+ *  lands near 4:3 without buying height it does not need. */
+const BAR_H_SPLIT = 200;
+
+/* TEMPORARY SCAFFOLD: how the out-of-window track recedes. One gets kept.
+ *
+ *   "flat"  — a flat wash, what it does now.
+ *   "blur"  — a real backdrop blur over the candles outside the window.
+ *   "desat" — the colour is drained outside the window and the shapes stay
+ *             sharp, so amber only ever appears where you are looking. */
+const SV = "flat";
+const CURTAIN =
+  SV === "blur"
+    ? "bg-surface/55 backdrop-blur-[2px]"
+    : SV === "desat"
+      ? "bg-surface/60 backdrop-saturate-0"
+      : "bg-surface/75";
+
+/** How much of a week has to cross the line before the scrubber calls it out. */
+const WEEK_TROUBLE_SHARE = 1 / 3;
 
 /**
  * Bars and the threshold line EASE to their new positions instead of
@@ -1258,40 +1657,356 @@ const CHART_EASE = "transition-[height,bottom,background-color] duration-[260ms]
  * stretches a three-point spread across the full height and makes a flat
  * year look volatile.
  */
-function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSince, which }) {
-  const isYield = which === "yield" || !stations.includes(which);
-  const station = isYield ? null : which;
-  const line = isYield ? LOW_YIELD_PCT : targets[station] ?? STAGE_TARGET_MINUTES[station];
 
-  const points = buckets.map((b) => {
-    const v = isYield ? b.avgYield : b.minutes?.[station] ?? null;
+/* Granularity follows the range, because the bar is the unit you can read.
+ * Ninety days of daily bars is a picket fence; five weeks of monthly bars is
+ * two bars. Nobody should have to choose this by hand. */
+const grainFor = (n) => (n <= 70 ? "day" : n <= 400 ? "week" : "month");
+const GRAIN_NOUN = { day: "day", week: "week", month: "month" };
+
+/** Bars carry their printed value only while there is room for the text. */
+const VALUE_LABEL_MAX = 16;
+
+const daysBetween = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 864e5);
+const startOfWeek = (key) => shiftDate(key, -new Date(`${key}T00:00:00`).getDay());
+const monthKey = (key) => key.slice(0, 7);
+const clampKey = (key, lo, hi) => (key < lo ? lo : key > hi ? hi : key);
+
+/* `formatDay` drops the year, so a window that crosses New Year reads as
+ * "between Sep 16 and Sep 15" — backwards and a day long. Years go in only
+ * when they are what distinguishes the two ends. */
+const formatSpan = (from, to) =>
+  from.slice(0, 4) === to.slice(0, 4)
+    ? `between ${formatDay(from)} and ${formatDay(to)}`
+    : `between ${formatDay(from)} ${from.slice(0, 4)} and ${formatDay(to)} ${to.slice(0, 4)}`;
+
+/* The same range as a title rather than a clause — for the scrubber's label
+ * and the export's header. Carries the years for the same reason: without
+ * them a one-year window reads "Sep 16 – Sep 15". */
+const formatSpanTitle = (from, to) =>
+  from.slice(0, 4) === to.slice(0, 4)
+    ? `${formatDay(from)} \u2013 ${formatDay(to)}`
+    : `${formatDay(from)} ${from.slice(0, 4)} \u2013 ${formatDay(to)} ${to.slice(0, 4)}`;
+
+/** The bucket edges covering [from, to] at one granularity, oldest first. */
+function bucketsFor(from, to, grain) {
+  const out = [];
+  if (grain === "day") {
+    for (let k = from; k <= to; k = shiftDate(k, 1)) out.push({ key: k, from: k, to: k });
+    return out;
+  }
+  if (grain === "week") {
+    for (let k = startOfWeek(from); k <= to; k = shiftDate(k, 7)) out.push({ key: k, from: k, to: shiftDate(k, 6) });
+    return out;
+  }
+  const d = new Date(`${monthKey(from)}-01T00:00:00`);
+  const last = monthKey(to);
+  while (d.toISOString().slice(0, 7) <= last) {
+    const key = d.toISOString().slice(0, 7);
+    const next = new Date(d);
+    next.setMonth(next.getMonth() + 1);
+    out.push({ key, from: `${key}-01`, to: shiftDate(next.toISOString().slice(0, 10), -1) });
+    d.setMonth(d.getMonth() + 1);
+  }
+  return out;
+}
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * The axis stamp for a bucket.
+ *
+ * A ruler marks its units, not every tick — but "every seventh day" was a rule
+ * for a thirty-day window applied to all of them, and at eight days it stamped
+ * twice and left six bars unnamed. A bar you cannot name is a bar you cannot
+ * act on. So the stride follows how many bars there ARE: label them all while
+ * two digits still fit, then back off.
+ */
+function dayStride(n) {
+  if (n <= 35) return 1;
+  if (n <= 60) return 2;
+  return Math.ceil(n / 12);
+}
+
+function stampFor(b, i, grain, buckets) {
+  const d = new Date(`${grain === "month" ? `${b.key}-01` : b.key}T00:00:00`);
+  const prev = i > 0 ? new Date(`${grain === "month" ? `${buckets[i - 1].key}-01` : buckets[i - 1].key}T00:00:00`) : null;
+  const newMonth = !prev || prev.getMonth() !== d.getMonth();
+  if (grain === "day") {
+    if (d.getDate() === 1) return MONTH_LABELS[d.getMonth()];
+    return i % dayStride(buckets.length) === 0 ? `${d.getDate()}` : "";
+  }
+  if (grain === "week") return newMonth ? MONTH_LABELS[d.getMonth()] : "";
+  return `${MONTH_LABELS[d.getMonth()]}${i === 0 || d.getMonth() === 0 ? ` \u2019${String(d.getFullYear()).slice(2)}` : ""}`;
+}
+
+/**
+ * MEASURE, not series.
+ *
+ * There was a chip per station — Yield · Packaging · Smokehouse — which is
+ * fine at two stations and unusable at twelve: the row runs off the page, and
+ * worse, you end up with twelve separate charts you have to flip between to
+ * answer one question. "Where does the time go" is not twelve questions.
+ *
+ * There are only ever two KINDS of measurement here, whatever the shop grows
+ * into. Yield is one number per batch, a percentage, higher is better. Time is
+ * N numbers per batch, minutes per station, lower is better. So the control is
+ * two options forever, and Time draws every station at once as a stack: the
+ * column height is the whole cycle time and the segments are where it went.
+ *
+ * The honest cost: only the bottom segment shares a baseline, so comparing one
+ * station across days is harder in a stack than it was in its own chart. That
+ * is what `isolate` is for — click a station in the legend and the stack
+ * collapses to that station alone, which is the old per-station chart, on
+ * demand, without a chip sitting in the toolbar all day waiting for it.
+ */
+const MEASURES = [
+  { id: "yield", label: "Yield", hint: "Finished weight against box weight" },
+  { id: "time", label: "Time", hint: "Minutes per batch, split by station" },
+];
+
+/* Every band is the same ink.
+ *
+ * They were shades of one colour, which works at two stations and falls apart
+ * at eight: the ramp runs out, the last few are indistinguishable, and a
+ * reader is left matching greys to a key. Position is the better encoding and
+ * it is free — the bands are always in the same order, so a named lane down
+ * the left says which is which, permanently, for any number of stations. That
+ * leaves colour doing one job: amber means over target. */
+const BAND_FILL = "bg-ink-2";
+
+/**
+ * What the chart plots, derived once at screen level rather than inside the
+ * chart — because the export menu has to hand out exactly what is on screen,
+ * and a second derivation is a second chance to disagree with it.
+ */
+function chartPoints(buckets, measure, stations, targets, isolate = null) {
+  const isYield = measure === "yield";
+  if (isYield) {
+    const line = LOW_YIELD_PCT;
     return {
-      ...b,
-      v,
-      /* Same rule as everywhere else: a single day or a single batch is
-       * amber when it itself failed; a WEEK or a MONTH almost always holds
-       * one flagged batch, so it is amber only when its own average crossed
-       * the line. Applying the narrow rule wide paints everything amber. */
-      over: v != null && (isYield ? v < LOW_YIELD_PCT : isOverTarget(station, v, targets)),
+      isYield: true,
+      station: null,
+      shown: [],
+      line,
+      points: buckets.map((b) => {
+        const v = b.avgYield;
+        return { ...b, v, parts: null, over: v != null && v < line };
+      }),
     };
+  }
+
+  const shown = isolate ? [isolate] : stations;
+  const targetOf = (st) => targets[st] ?? STAGE_TARGET_MINUTES[st] ?? 0;
+  /* The line is the SUM of the shown stations' targets — the cycle time the
+   * shop is aiming at. A single station's target would be meaningless against
+   * a stacked total. */
+  const line = shown.reduce((a, st) => a + targetOf(st), 0);
+
+  /* The target LADDER: where each band should end if every station hits its
+   * own target. One line per station, drawn cumulatively, so a band's own
+   * reference is the line directly above the band below it — which is what
+   * makes a stack readable despite only the bottom segment sharing a
+   * baseline. The top rung is the sum, i.e. target cycle time. */
+  let running = 0;
+  const ladder = shown.map((st) => {
+    running += targetOf(st);
+    return { station: st, at: running, own: targetOf(st) };
   });
 
-  const values = points.map((p) => p.v).filter((v) => v != null);
-  const lo = values.length ? (isYield ? Math.min(line, ...values) - 2 : Math.min(line, ...values) * 0.92) : line - 2;
-  const hi = values.length ? (isYield ? Math.max(line, ...values) + 2 : Math.max(line, ...values) * 1.04) : line + 2;
-  const scale = (v) => Math.max(0.04, Math.min(1, (v - lo) / (hi - lo)));
-  const labelled = points.length <= VALUE_LABEL_MAX;
-  const clickable = grain !== "day" || !!onPick;
+  return {
+    isYield: false,
+    station: isolate,
+    shown,
+    ladder,
+    line,
+    points: buckets.map((b) => {
+      const parts = shown.map((st) => ({
+        station: st,
+        v: b.minutes?.[st] ?? null,
+        over: isOverTarget(st, b.minutes?.[st], targets),
+      }));
+      const any = parts.some((x) => x.v != null);
+      const v = any ? parts.reduce((a, x) => a + (x.v ?? 0), 0) : null;
+      /* ONE over-test for minutes, wherever it is asked.
+       *
+       * The stack coloured a band with `isOverTarget`, which has a tolerance
+       * band, while an isolated station coloured its bar with a plain
+       * `v > target`. So the same day could be amber alone and grey in the
+       * stack — the chart disagreeing with itself depending on which way you
+       * were looking at it. `isOverTarget` wins because it is what the batch
+       * table and the scrubber already use. */
+      const over = shown.length === 1 ? parts[0].over : parts.some((x) => x.over);
+      return { ...b, v, parts, over, overTotal: v != null && v > line };
+    }),
+  };
+}
+
+function CalendarPlot({ plot, selected, onPick }) {
+  const { isYield, line, points } = plot;
+  const days = points.filter((p) => p.from === p.to);
+  if (!days.length) return <p className="py-8 text-xs text-ink-4">The calendar reading needs daily buckets.</p>;
+
+  const values = days.map((p) => p.v).filter((v) => v != null);
+  const lo = Math.min(...values, line);
+  const hi = Math.max(...values, line);
+  /* Good is deep in both directions, but "good" flips: a high yield is good,
+   * a high minute count is not. */
+  const depth = (v) => {
+    if (hi === lo) return 0.55;
+    const t = (v - lo) / (hi - lo);
+    return 0.18 + 0.72 * (isYield ? t : 1 - t);
+  };
+
+  /* Monday-first, so the weekend sits at the end of the row where it reads as
+   * the edge of the week rather than a gap down the middle. */
+  const lead = (new Date(`${days[0].from}T00:00:00`).getDay() + 6) % 7;
 
   return (
-    <div>
-      <div className="relative" style={{ height: BAR_H }}>
+    <div className="shrink-0">
+      <div className="grid grid-cols-7 gap-1 w-[220px]">
+        {WEEKDAYS.map((d, i) => (
+          <span key={i} className="text-center text-[10px] leading-none text-ink-4 pb-0.5">
+            {d}
+          </span>
+        ))}
+        {Array.from({ length: lead }, (_, i) => (
+          <span key={`pad${i}`} />
+        ))}
+        {days.map((p) => {
+          const isSel = selected === p.key;
+          const empty = p.v == null;
+          return (
+            <button
+              key={p.key}
+              type="button"
+              disabled={empty}
+              onClick={() => onPick?.(p)}
+              title={`${formatDay(p.from)}${empty ? ", nothing closed" : `, ${p.v}${isYield ? "%" : " min"}`}`}
+              className={cx(
+                "aspect-square rounded-[3px] transition-[background-color,box-shadow] duration-150",
+                empty && "bg-line-soft cursor-default",
+                !empty && (p.over ? "bg-warn" : isYield ? "bg-ok" : "bg-ink"),
+                isSel && "ring-2 ring-ink ring-offset-1"
+              )}
+              style={empty ? undefined : { opacity: depth(p.v) }}
+            />
+          );
+        })}
+      </div>
+      <p className="mt-2.5 flex items-center gap-2 text-[11px] text-ink-4">
+        <span className="inline-block w-2.5 h-2.5 rounded-[2px] bg-ok" style={{ opacity: 0.25 }} />
+        <span className="inline-block w-2.5 h-2.5 rounded-[2px] bg-ok" style={{ opacity: 0.9 }} />
+        {isYield ? "lighter is a worse day" : "lighter is a slower day"}
+        <span className="inline-block w-2.5 h-2.5 rounded-[2px] bg-warn ml-1" />
+        over the line
+      </p>
+    </div>
+  );
+}
+
+function RunChart({ plot, grain, selected, onPick, compact = false, trend = null, height = BAR_H, onIsolate }) {
+  const { isYield, station, line, points, shown = [], ladder = [] } = plot;
+  /* A stack only reads as proportions if it starts at zero. A minutes chart
+   * normally crops its baseline so the differences are visible, but cropping
+   * a stack would make the segments lie about their share of the total — so
+   * Time-with-a-stack trades that sensitivity for honesty, and isolating a
+   * station gets the cropped baseline back. */
+  const stacked = !isYield && shown.length > 1;
+
+  const values = points.map((p) => p.v).filter((v) => v != null);
+  const lo = values.length ? (isYield ? Math.min(line, ...values) - 2 : stacked ? 0 : Math.min(line, ...values) * 0.92) : line - 2;
+  const hi = values.length ? (isYield ? Math.max(line, ...values) + 2 : Math.max(line, ...values) * 1.04) : line + 2;
+  /* Every rung has to be inside the plot or the ladder lies by omission. */
+  const top = stacked ? Math.max(hi, ...ladder.map((r) => r.at)) * 1.02 : hi;
+  const scale = (v) => Math.max(0.04, Math.min(1, (v - lo) / (top - lo)));
+  const labelled = !compact && points.length <= VALUE_LABEL_MAX;
+  const clickable = grain !== "day" || !!onPick;
+
+  /* The lane a station's band occupies, as a pair of percentages up the plot.
+   * Drives the backdrop stripe AND the label beside it, from one source, so a
+   * name can never drift off the band it names. */
+  const lanes = stacked
+    ? ladder.map((rung, i) => ({
+        ...rung,
+        lo: scale(i ? ladder[i - 1].at : 0) * 100,
+        hi: scale(rung.at) * 100,
+      }))
+    : [];
+
+  return (
+    <div className={cx(stacked && !compact && "flex items-stretch gap-3")}>
+      {/* The key, down the left, outside the plot.
+        *
+        * It was a dashed line per station with its label floating over the
+        * bars on a knocked-out background — a label that has to erase the data
+        * to be readable is a label in the wrong place. Out here it costs a
+        * gutter and owes the chart nothing. */}
+      {stacked && !compact && (
+        <div className="relative w-[82px] shrink-0" style={{ height }}>
+          {lanes.map((lane) => (
+            /* Anchored to the band's TOP edge — its target — and reading
+              * downward into its own band, rather than centred in it. Centring
+              * looked tidier and broke immediately: a station with a small
+              * target owns a thin band, and two lines of type do not fit in
+              * thirty pixels. Hung off the boundary, the label is the same
+              * size whatever the band is, and it sits exactly where the dashed
+              * rule used to be. */
+            <button
+              key={lane.station}
+              type="button"
+              onClick={() => onIsolate?.(lane.station)}
+              title={`Show ${lane.station} alone`}
+              className="absolute inset-x-0 translate-y-full flex flex-col items-end text-right pr-0.5 pt-0.5 group"
+              style={{ bottom: `${lane.hi}%` }}
+            >
+              <span className="text-[11px] leading-tight text-ink-2 group-hover:text-ink truncate max-w-full">
+                {lane.station}
+              </span>
+              <span className="text-[10px] leading-tight tnum text-ink-4">{lane.own} min</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className={cx(stacked && !compact && "flex-1 min-w-0")}>
+      <div className="relative" style={{ height: compact ? 34 : height }}>
+        {/* Alternating stripes instead of dashed rules. A band's target is now
+          * the EDGE of its stripe, which is a boundary you read by position
+          * rather than a line you read by decoding. */}
+        {stacked &&
+          lanes.map((lane, i) => (
+            <div
+              key={lane.station}
+              /* bg-sunken is a 2% wash and disappears against the card. The
+               * stripe has to be a mark you can see without looking for it,
+               * so it is a deliberate tint rather than the surface token. */
+              className={cx("absolute inset-x-0 pointer-events-none", i % 2 === 0 ? "bg-ink/[0.045]" : "bg-transparent")}
+              style={{ bottom: `${lane.lo}%`, height: `${Math.max(lane.hi - lane.lo, 0)}%` }}
+              aria-hidden="true"
+            />
+          ))}
+        {/* One dashed rule, for the TOTAL. The per-station targets are the
+          * stripe edges — a boundary you read by position — but the total is
+          * the number a bar is judged against, and a bar crossing a line is
+          * the one reading that needs no decoding at all. */}
+        {stacked && !!lanes.length && (
+          <div
+            className={cx("absolute left-0 right-0 z-10 border-t border-dashed border-line-strong pointer-events-none", CHART_EASE)}
+            style={{ bottom: `${lanes[lanes.length - 1].hi}%` }}
+            aria-hidden="true"
+          >
+            <span className="absolute right-0 -translate-y-1/2 pl-1.5 bg-surface text-[10px] leading-none tnum text-ink-4">
+              {line} min total
+            </span>
+          </div>
+        )}
         {/* The threshold line moves whenever the window's spread changes, so
           * it eases like the bars do — a line that jumps while the bars slide
           * reads as two different charts. */}
         <div
           className={cx(
             "absolute left-0 right-0 z-10 border-t border-dashed border-line-strong pointer-events-none",
+            stacked && "hidden",
             CHART_EASE
           )}
           style={{ bottom: `${Math.round(scale(line) * 100)}%` }}
@@ -1305,6 +2020,33 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
             {isYield ? `${line}%` : `${line} min`}
           </span>
         </div>
+        {/* The trend, drawn OVER the bars in one SVG rather than as a
+          * per-bar mark. A least-squares fit is a statement about the whole
+          * window, so it has to be one continuous object crossing it — a
+          * dotted sequence of per-bucket marks would read as more data.
+          *
+          * `preserveAspectRatio="none"` lets a 0–100 viewBox stretch to
+          * whatever the column is, so the line lands on the same scale the
+          * bars use without measuring the DOM. */}
+        {trend && (
+          <svg
+            className="absolute inset-0 z-20 w-full h-full pointer-events-none overflow-visible"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <line
+              x1={50 / points.length}
+              y1={100 - scale(trend.start) * 100}
+              x2={100 - 50 / points.length}
+              y2={100 - scale(trend.end) * 100}
+              stroke="var(--color-primary)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        )}
         <div
           className="flex items-end gap-1 h-full"
           role="img"
@@ -1327,6 +2069,39 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
                 onClick={() => onPick?.(p)}
                 className="group relative flex-1 min-w-0 flex items-end justify-center h-full"
               >
+                {stacked && p.v != null ? (
+                  /* One column, segmented by station, tallest-first from the
+                    * floor. A segment goes amber against ITS OWN target, not
+                    * the stack's — the sum being fine does not make a
+                    * smokehouse overrun fine. */
+                  <span
+                    className={cx("w-full rounded-[2px] overflow-hidden flex flex-col-reverse", CHART_EASE)}
+                    style={{ height: `${Math.round(scale(p.v) * 100)}%` }}
+                  >
+                    {p.parts.map((part, pi) =>
+                      part.v == null ? null : (
+                        <span
+                          key={part.station}
+                          title={`${part.station} ${part.v} min`}
+                          className={cx(
+                            "w-full",
+                            part.over ? "bg-warn/75" : BAND_FILL,
+                            /* A hairline of the card's own background between
+                              * bands. The grey shades separate themselves, but
+                              * two amber bands touching merge into one block
+                              * and the stack silently loses a boundary —
+                              * exactly where it matters most, because that is
+                              * the day two stations both went over. Drawn on
+                              * every seam rather than only the amber ones, so
+                              * the rule is one rule. */
+                            pi > 0 && "border-b-[1.5px] border-surface"
+                          )}
+                          style={{ height: `${(part.v / p.v) * 100}%` }}
+                        />
+                      )
+                    )}
+                  </span>
+                ) : (
                 <span
                   className={cx(
                     "w-full rounded-[2px] animate-fade-in",
@@ -1338,6 +2113,7 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
                   )}
                   style={{ height: p.v == null ? 2 : `${Math.round(scale(p.v) * 100)}%` }}
                 />
+                )}
               </button>
             );
           })}
@@ -1348,7 +2124,16 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
         {points.map((p, i) => (
           <div key={p.key} className="flex-1 min-w-0 text-center leading-tight">
             {labelled && (
-              <p className={cx("text-[11px] tnum truncate", p.v == null ? "text-ink-4" : p.over ? "text-warn font-medium" : "text-ink-2")}>
+              <p
+                className={cx(
+                  "text-[11px] tnum truncate",
+                  p.v == null
+                    ? "text-ink-4"
+                    : (stacked ? p.overTotal : p.over)
+                      ? "text-warn font-medium"
+                      : "text-ink-2"
+                )}
+              >
                 {p.v == null ? "–" : isYield ? `${p.v}%` : Math.round(p.v)}
               </p>
             )}
@@ -1362,21 +2147,20 @@ function RunChart({ buckets, grain, stations, targets, selected, onPick, quietSi
         ))}
       </div>
 
-      <p className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-3 text-xs text-ink-4">
-        <span>
-          One bar per {GRAIN_NOUN[grain]}, {isYield ? "taller" : "shorter"} is better.
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 border-t border-dashed border-line-strong" /> {isYield ? "the 75% line" : "target"}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-[2px] bg-warn/70" /> over the line
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-[2px] bg-line-soft" /> nothing closed
-        </span>
-        {quietSince && <span className="text-ink-2">Nothing has closed since {formatDay(quietSince)}.</span>}
-      </p>
+      {/* The key lives in a Popover now, the same shape Production uses for
+        * its colour key. An inline legend is a permanent sentence explaining
+        * marks that most readings do not need explained — and this one had
+        * grown to four clauses. Behind an icon it costs nothing until asked. */}
+      {!compact && station && (
+        <button
+          type="button"
+          onClick={() => onIsolate?.(null)}
+          className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-ink-2 hover:text-ink transition-colors"
+        >
+          {station} alone — show every station
+        </button>
+      )}
+      </div>
     </div>
   );
 }
@@ -1484,8 +2268,19 @@ function Delta({ delta, unit, goodWhen }) {
  * it narrows what the tab is showing — which is exactly what that line is for
  * on Tasks and Permissions.
  */
+/* Three formats because people take a chart away for three different reasons:
+ * to do their own maths on it, to put it in a document, or to paste it in an
+ * email. One format would have served one of them. */
+const EXPORTS = [
+  { kind: "png", label: "PNG image", note: "Paste into email or chat", icon: FileImage },
+  { kind: "svg", label: "SVG vector", note: "Stays sharp at any size", icon: FileType2 },
+  { kind: "csv", label: "CSV data", note: "The numbers behind the bars", icon: Sheet },
+];
+
 const BATCH_VIEWS = [
-  { id: "all", label: "All" },
+  /* "All" is the OFF position, not a filter — `resting` keeps the accent off
+   * it, so blue in this control only ever means the list is narrowed. */
+  { id: "all", label: "All", resting: true },
   { id: "flagged", label: "Flagged" },
   { id: "slow", label: "Over target" },
 ];

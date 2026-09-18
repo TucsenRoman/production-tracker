@@ -72,7 +72,9 @@ export function Segmented({
       >
         {o.icon && <o.icon size={16} className="shrink-0" />}
         {o.label}
-        {o.count != null && <TabDot count={o.count} />}
+        {/* `resting` marks the OFF position — "All", "Everyone", "Any". A
+          * resting state is not a queue, so it carries no badge. */}
+        {o.count != null && !o.resting && <TabDot count={o.count} />}
       </button>
     );
     if (!o.hint) return chip;
@@ -99,7 +101,7 @@ export function Segmented({
       fade={fade}
       centerOnClick
       // Only a counted row has a badge hanging outside its chip to protect.
-      clipRoom={options.some((o) => o.count != null) ? 14 : 0}
+      clipRoom={options.some((o) => o.count != null && !o.resting) ? 14 : 0}
       className={cx("gap-1", className)}
     >
       {chips}

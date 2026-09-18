@@ -48,7 +48,7 @@ const modeOf = (action, permissions) =>
  * row's mode while a mode view is active drops it out of the list on
  * purpose — the row goes where it now belongs and both counts move. */
 const VIEWS = [
-  { id: "all", label: "All", icon: ListChecks },
+  { id: "all", label: "All", icon: ListChecks, resting: true },
   { id: "lead", label: "Manager PIN", icon: ShieldCheck },
   { id: "any", label: "No approval", icon: ShieldOff },
   { id: "targeted", label: "By person", icon: Users },
@@ -315,8 +315,8 @@ export default function PermissionsScreen({
               value: v.id,
               label: v.label,
               icon: v.icon,
-              /* All is the resting state, not a queue with a number. */
-              count: v.id === "all" ? undefined : counts[v.id],
+              resting: v.resting,
+              count: counts[v.id],
             }))}
           />
         }

@@ -50,6 +50,13 @@ export interface SegmentedOption<T extends string = string> {
   icon?: IconComponent;
   /** Renders a TabDot. `null`/`0` renders nothing. */
   count?: number | null;
+  /**
+   * This option is the OFF position — "All", "Everyone", "Any". Its count is
+   * suppressed, because a resting state is not a queue: "All 42" is the size
+   * of the list you are already looking at, and a badge there competes with
+   * the ones that mean something needs doing.
+   */
+  resting?: boolean;
   /** Shown on hover. For chips that are a MODE rather than a filter, where
    *  one word cannot say what changes. */
   hint?: string;
@@ -101,7 +108,7 @@ export function Segmented<T extends string = string>({
       >
         {o.icon && <o.icon size={16} className="shrink-0" />}
         {o.label}
-        {o.count != null && <TabDot count={o.count} />}
+        {o.count != null && !o.resting && <TabDot count={o.count} />}
       </button>
     );
     if (!o.hint) return chip;
@@ -128,7 +135,7 @@ export function Segmented<T extends string = string>({
       fade={fade}
       centerOnClick
       // Only a counted row has a badge hanging outside its chip to protect.
-      clipRoom={options.some((o) => o.count != null) ? 14 : 0}
+      clipRoom={options.some((o) => o.count != null && !o.resting) ? 14 : 0}
       className={cx("gap-1", className)}
     >
       {chips}

@@ -30,6 +30,7 @@ export { Tooltip } from "./Tooltip";
 export { Dropdown } from "./Dropdown";
 export { Popover } from "./Popover";
 export { ScrollArea } from "./ScrollArea";
+export { Pill } from "./Pill";
 export { TabDot, Segmented } from "./Segmented";
 export { Switch } from "./Switch";
 export { StatCard, StatGrid } from "./StatCard";

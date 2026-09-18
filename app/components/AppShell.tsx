@@ -5,7 +5,7 @@ import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react
 
 import type { ReactNode } from "react";
 
-import { cx, ScrollArea, SearchInput, SlotProvider, SlotTarget, TabDot, Tooltip } from "./ui";
+import { Button, cx, ScrollArea, SlotProvider, SlotTarget, TabDot, Tooltip } from "./ui";
 import type { IconComponent } from "./ui";
 import { useDoubleTapHotkey } from "../lib/useDoubleTapHotkey";
 import type { HotkeyBindings } from "../lib/useDoubleTapHotkey";
@@ -52,8 +52,9 @@ export interface AppShellProps {
   assistant?: ReactNode;
   assistantIcon?: IconComponent;
   assistantLabel?: string;
-  /** The words inside the search-field-shaped trigger. */
+  /** The button's visible copy. `assistantLabel` stays the accessible name. */
   assistantPlaceholder?: string;
+  /** The words inside the search-field-shaped trigger. */
   assistantOpen?: boolean;
   onAssistantOpenChange?: ((open: boolean) => void) | null;
   userMenuOpen?: boolean;
@@ -652,29 +653,40 @@ export default function AppShell({
                         app-wide — a screen with nothing to say still has a
                         thread worth reopening. */}
                     {!tabs && assistant && (
-                      /* The real `SearchInput`, not a lookalike: a control
-                       * that half-matches a field reads as a field that is
-                       * slightly wrong, and the shell is going to drift the
-                       * moment someone touches the component.
+                      /* A BUTTON, not a field.
                        *
-                       * `readOnly` is the honest part. The panel it opens is
-                       * where you type, so a field is what people look for —
-                       * but this one does not take the keystroke. Focus lands
-                       * here, the panel opens, and focus moves into the real
-                       * input before anything could be typed and lost. */
-                      <SearchInput
-                        readOnly
-                        value=""
-                        onChange={() => {}}
-                        onFocus={() => onAssistantOpenChange?.(true)}
+                       * This was a real `SearchInput` for a while, on the
+                       * theory that a field is what people look for when they
+                       * want to ask something. It read as a field that was
+                       * slightly wrong: it took focus but not keystrokes, it
+                       * sat at field width next to buttons doing button-sized
+                       * jobs, and the placeholder made a promise the control
+                       * did not keep. Opening a panel is a button's job.
+                       *
+                       * The copy stays — "Ask or search…" says what the panel
+                       * is for, which one word could not — but it is a label
+                       * now rather than a placeholder, so it does not promise
+                       * a caret. Normal weight keeps it from reading as the
+                       * page's main action; `aria-expanded` says what it
+                       * actually does, which the field shape never could. */
+                      <Button
+                        variant="secondary"
+                        size="md"
                         icon={AssistantIcon}
-                        placeholder={assistantPlaceholder}
+                        aria-expanded={assistantOpen}
                         aria-label={assistantLabel}
+                        onClick={() => onAssistantOpenChange?.(!assistantOpen)}
                         className={cx(
-                          "w-56 max-w-[40vw] cursor-pointer [--row-bg:var(--color-surface)]",
-                          assistantOpen && "border-primary"
+                          /* The icon knocks a hole under its sparkle and
+                           * fills it with --row-bg, so the button has to say
+                           * what its background is or the patch shows as a
+                           * halo. */
+                          "font-normal text-ink-2 hover:text-ink [--row-bg:var(--color-surface)]",
+                          assistantOpen && "bg-hover border-line-strong text-ink"
                         )}
-                      />
+                      >
+                        {assistantPlaceholder}
+                      </Button>
                     )}
                   </div>
                 </div>

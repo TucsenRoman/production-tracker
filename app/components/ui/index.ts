@@ -56,6 +56,8 @@ export { Popover } from "./Popover";
 export type { PopoverProps } from "./Popover";
 export { ScrollArea } from "./ScrollArea";
 export type { ScrollAreaProps } from "./ScrollArea";
+export { Pill } from "./Pill";
+export type { PillOption, PillProps, PillTone, PillVariant } from "./Pill";
 export { TabDot, Segmented } from "./Segmented";
 export type {
   SegmentedOption,

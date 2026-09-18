@@ -556,7 +556,7 @@ export default function TeamScreen({
   /* Named views with counts, same shape as TasksScreen. Counts are of the
    * scoped roster, so "No PIN 3" under one location means three there. */
   const TABS = [
-    { id: "all", label: "Everyone", icon: Users, match: () => true },
+    { id: "all", label: "Everyone", icon: Users, match: () => true, resting: true },
     { id: "pin", label: "No PIN", icon: ShieldCheck, match: gapFor },
     { id: "pending", label: "Pending", icon: Mail, match: (u) => u.status !== "active" },
   ].map((t) => ({ ...t, count: scoped.filter(t.match).length }));
@@ -636,8 +636,8 @@ export default function TeamScreen({
               value: t.id,
               label: t.label,
               icon: t.icon,
-              /* Everyone is the resting state, not a queue with a count. */
-              count: t.id === "all" ? undefined : t.count,
+              resting: t.resting,
+              count: t.count,
             }))}
           />
 
